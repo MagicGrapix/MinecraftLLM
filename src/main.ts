@@ -1,8 +1,11 @@
 
-import { MyBotAction } from './Actions';
+import './Types';
+import { ClearInventoryAction, GiveItemsAction, MyBotAction, PlaceBlockAction, SelectBlockAction } from './Actions';
 import { BotManager } from './BotManager';
+import { setDebugEnabled } from './Logger';
+import { getBotBlockPosition } from './Utils';
 
-
+setDebugEnabled(false);
 
 const botManager = new BotManager();
 botManager.initialize().then(() => {
@@ -11,14 +14,17 @@ botManager.initialize().then(() => {
 
   // Define a list of items with their quantities
   const itemsToGive = [
-    { itemName: 'minecraft:diamond', amount: 10 },
-    { itemName: 'minecraft:iron_ingot', amount: 20 },
-    { itemName: 'minecraft:golden_apple', amount: 5 }
+    { name: 'minecraft:diamond', count: 10 },
+    { name: 'minecraft:iron_ingot', count: 20 },
+    { name: 'minecraft:golden_apple', count: 5 }
   ];
 
+  botManager.addAction(new ClearInventoryAction(botManager));
+  botManager.addAction(new GiveItemsAction(botManager, itemsToGive));
+  botManager.addAction(new SelectBlockAction(botManager, 'diamond'));
+  //todo check block is placable!
+  botManager.addAction(new PlaceBlockAction(botManager, getBotBlockPosition(botManager.bot)));
 
-  const test = new MyBotAction(botManager);
-  botManager.addAction(test);
   // Add the action to give the bot 10 diamonds
   //const giveDiamonds = new GiveMultipleItemsAction(itemsToGive);
   //botManager.addAction(giveDiamonds);

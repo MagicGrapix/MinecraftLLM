@@ -1,5 +1,6 @@
 import { Bot } from "mineflayer";
 import { mcData } from "./Types";
+import { Vec3 } from "vec3";
 
 
 
@@ -13,7 +14,7 @@ function listAllBlocks() {
 }
 
 // Function to display the bot's inventory
-function displayInventory(bot: Bot) {
+export function displayInventory(bot: Bot) {
   if (bot.inventory) {
     const items = bot.inventory.items(); // Get an array of items in the inventory
 
@@ -28,4 +29,85 @@ function displayInventory(bot: Bot) {
   } else {
     console.log('Bot inventory is not available.');
   }
+}
+
+
+/**
+ * Get a set of items and their overall quantities in the bot's inventory.
+ * 
+ * @param bot - The Mineflayer bot instance.
+ * @returns A Map with item names as keys and their overall quantities as values.
+ */
+export function getInventoryQuantities(bot: Bot): Map<string, number> {
+  // Create a map to hold item names and their corresponding quantities.
+  const inventoryQuantities = new Map<string, number>();
+
+  // Iterate through the items in the bot's inventory.
+  for (const item of bot.inventory.items()) {
+    const itemName = item.name;
+    const currentQuantity = inventoryQuantities.get(itemName) || 0;
+
+    // Add the item's count to the current quantity in the map.
+    inventoryQuantities.set(itemName, currentQuantity + item.count);
+  }
+
+  return inventoryQuantities;
+}
+
+/**
+ * Computes the difference between two inventories.
+ * 
+ * @param initialInventory - The initial inventory map with item names and their quantities.
+ * @param newInventory - The new inventory map with item names and their quantities.
+ * @returns An object containing added, removed, and changed items.
+ */
+export function computeInventoryDiff(
+  initialInventory: Map<string, number>,
+  newInventory: Map<string, number>
+) {
+  // Object to store the differences
+  const diff = {
+    added: new Map<string, number>(),
+    removed: new Map<string, number>(),
+    changed: new Map<string, { from: number; to: number }>()
+  };
+
+  // Check for added or changed items in the new inventory
+  for (const [itemName, newQuantity] of newInventory.entries()) {
+    const initialQuantity = initialInventory.get(itemName);
+
+    if (initialQuantity === undefined) {
+      // Item is new and added to the inventory
+      diff.added.set(itemName, newQuantity);
+    } else if (initialQuantity !== newQuantity) {
+      // Item quantity has changed
+      diff.changed.set(itemName, { from: initialQuantity, to: newQuantity });
+    }
+  }
+
+  // Check for removed items in the new inventory
+  for (const [itemName, initialQuantity] of initialInventory.entries()) {
+    if (!newInventory.has(itemName)) {
+      // Item has been removed from the inventory
+      diff.removed.set(itemName, initialQuantity);
+    }
+  }
+
+  return diff;
+}
+
+
+/**
+ * Get the current block position of the bot.
+ * 
+ * @param bot - The Mineflayer bot instance.
+ * @returns The bot's block position as a Vec3 object.
+ */
+export function getBotBlockPosition(bot: Bot): Vec3 {
+  // The bot's exact position can be accessed through bot.entity.position
+  // We need to round each component to get the block position.
+  const position = bot.entity.position;
+  const blockPosition = position.floored(); // Round down to the nearest whole number.
+
+  return blockPosition;
 }

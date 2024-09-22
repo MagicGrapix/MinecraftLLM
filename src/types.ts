@@ -1,5 +1,5 @@
 
-
+import './Logger';
 import MinecraftData from 'minecraft-data';
 
 export const mcData = MinecraftData('1.20.1');

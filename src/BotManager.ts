@@ -121,15 +121,13 @@ export class BotManager {
     });
   }
 
-  log(msg: string): void {
-    const msgWithDate = `${Date.now()}:` + msg;
-    this.bot.chat(msgWithDate);
-    console.log(msgWithDate);
-  }
+
 
   async initialize(): Promise<void> {
     return new Promise((resolve, _) => {
       this.bot.on('spawn', () => {
+
+        console.info('Bot spawning...');
 
         this.bot.loadPlugin(pathfinder);
         // Initialize the bot's movements for pathfinding
@@ -138,28 +136,32 @@ export class BotManager {
 
         //pathfinder(bot);
         this.bot.pathfinder.setMovements(defaultMove);
-        console.log('Bot has spawned in the game.');
         this.bot.entity.position.set(-5.151, -60, -67.5);
 
-        this.bot.chat('/effect give @s minecraft:invisibility 99999 1 true');
-        this.bot.chat('/effect give @a saturation 99999 255 true');
+        this.bot.chat('/effect clear @s minecraft:invisibility');
+        //this.bot.chat('/effect give @a saturation 99999 255 true');
 
         resolve();
       });
 
-      this.bot.on('chat', (username, message) => {
+      /*this.bot.on('chat', (username, message) => {
         if (username === this.bot.username) return;
         this.bot.chat(`Hello ${username}, you said: ${message}`);
-      });
+      });*/
 
       this.bot.on('error', err => {
         console.error(`Error: ${err.message}`);
       });
 
       this.bot.on('end', () => {
-        console.log('Bot disconnected from server.');
+        console.info('Bot disconnected from server.');
       });
     });
+  }
+
+  public chat(msg: string): void {
+    console.info(`(Bot) ${msg}`);
+    this.bot.chat(msg);
   }
 
   addAction(action: BotAction): void {
@@ -169,12 +171,13 @@ export class BotManager {
   execute = (): void => {
     const processNext = async () => {
       if (this.actionsQueue.length === 0) {
-        console.log('No more actions. Exiting');
+        console.info('No more actions. Exiting.');
         return;  // Exit if the queue is empty
       }
 
-      const action = this.actionsQueue.pop();
-      console.log(`About to execute action ${action}`);
+      const action = this.actionsQueue[0];
+      this.actionsQueue.splice(0, 1);
+      console.info(`Executing ${action.name}`);
 
       if (action) {
         try {
@@ -187,21 +190,19 @@ export class BotManager {
               reject();
             }, IMMEDIATE_TASK_TIMEOUT);
 
-            console.log('completion callback...');
             action.onceCompleted(() => {
-              console.log('completed');
+              console.info(`${action.name} completed successfully.`);
               clearTimeout(timeoutId);
               resolve();
             });
 
-            action.onceFailed(() => {
-              console.log('rejected');
+            action.onceFailed((reason) => {
+              console.error(`${action.name} failed. Reason: ${reason}`);
               clearTimeout(timeoutId);
               reject();
             });
 
           });
-          console.log('executing action');
           action.execute();
           await completionPromise;
 
@@ -226,7 +227,7 @@ export class BotManager {
       const method = action[eventName];
       // Check if this method is implemented in the action, not inherited
       if (method && Object.getPrototypeOf(action).hasOwnProperty(eventName)) {
-        console.log(`Registering overridden callback: ${eventName}`);
+        console.debug(`Registering overridden callback: ${eventName}`);
         this.bot.on(eventName, method.bind(action));
       }
     }
@@ -236,7 +237,7 @@ export class BotManager {
     for (const eventName of botEventNames) {
       const method = action[eventName];
       if (method && Object.getPrototypeOf(action).hasOwnProperty(eventName)) {
-        console.log(`Deregistering overridden callback: ${eventName}`);
+        console.debug(`Deregistering overridden callback: ${eventName}`);
         this.bot.removeListener(eventName, method.bind(action));
       }
     }
@@ -246,11 +247,13 @@ export class BotManager {
 
 export abstract class BotAction extends EventEmitter implements BotEvents {
 
+  public readonly name: string;
   private static idCounter = 0;
   private id: number = BotAction.idCounter++;
   protected manager: BotManager;
   constructor(_manager: BotManager) {
     super();
+    this.name = this.constructor.name;
     this.manager = _manager;
   }
 
@@ -357,25 +360,24 @@ export abstract class BotAction extends EventEmitter implements BotEvents {
   public abstract execute(): void;
 
   protected complete(): void {
-    console.warn(`Emitting complete_${this.id}`);
+    console.debug(`Emitting complete_${this.id}`);
     this.emit(`complete_${this.id}`);
   }
 
-  protected failed(reason: string): void {
+  protected failed(reason?: string): void {
     this.emit(`failed_${this.id}`, reason);
   }
 
   public onceCompleted(listener: (...args: any[]) => void): void {
-    console.warn(`Setting up complete_${this.id}`);
     this.once(`complete_${this.id}`, (...args: any[]) => {
-      console.warn(`Recieved complete_${this.id}`);
+      console.debug(`Recieved complete_${this.id}`);
       listener(args);
     });
   }
 
   public onceFailed(listener: (...args: any[]) => void): void {
     this.once(`failed_${this.id}`, () => (...args: any[]) => {
-      console.warn(`recieved failed_${this.id}`);
+      console.debug(`recieved failed_${this.id}`);
       listener(args);
     });
   }

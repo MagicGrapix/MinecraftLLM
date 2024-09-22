@@ -10,15 +10,51 @@ enum BotState {
   Digging,
 }
 
-type NextBotAction = BotAction | undefined;
 
-abstract class BotAction {
-  abstract cleanUp(manager: BotManager): void;
-  public abstract perform(manager: BotManager): Promise<BotAction | undefined>;
+function listAllBlocks() {
+  // Iterate through all blocks and print their names in the desired format
+  const blockNames = Object.values(mcData.blocks).map(block => `minecraft:${block.name}`);
+  console.log('Available Blocks:');
+  console.log(blockNames.join(', ')); // Join with a comma for easy viewing
+  return blockNames;
+}
+
+// Function to display the bot's inventory
+function displayInventory(bot: Bot) {
+  if (bot.inventory) {
+    const items = bot.inventory.items(); // Get an array of items in the inventory
+
+    if (items.length > 0) {
+      console.log('Inventory Items:');
+      items.forEach(item => {
+        console.log(`${item.count} x ${item.name} (Slot: ${item.slot})`);
+      });
+    } else {
+      console.log('The bot\'s inventory is empty.');
+    }
+  } else {
+    console.log('Bot inventory is not available.');
+  }
 }
 
 
-class Idleing extends BotAction {
+
+abstract class BotAction {
+
+  protected manager: BotManager;
+  constructor(_manager: BotManager) {
+    this.manager = _manager;
+  }
+
+  onChat(): void { }
+
+  // launch the logic of the task
+  public abstract execute(): Promise<void>;
+}
+
+
+
+/*class Idleing extends BotAction {
 
   cleanUp(manager: BotManager): void {
     clearTimeout(this.timeout);
@@ -41,12 +77,12 @@ class Idleing extends BotAction {
       }, this.duration);
     });
   }
-}
+}*/
 
 
 const mcData = MinecraftData('1.20.1');
 
-class MoveTo extends BotAction {
+/*class MoveTo extends BotAction {
 
   protected target: Vec3;
   constructor(_target: Vec3) {
@@ -93,7 +129,7 @@ class MoveTo extends BotAction {
     });
   }
 
-}
+}*/
 
 /*class MoveToRandom extends MoveTo {
 
@@ -115,7 +151,7 @@ class MoveTo extends BotAction {
   }
 }*/
 
-class WalkToPositionAction extends BotAction {
+/*class WalkToPositionAction extends BotAction {
   private position: Vec3;
 
   constructor(position: Vec3) {
@@ -136,10 +172,6 @@ class WalkToPositionAction extends BotAction {
     }
   }
 
-  cleanUp(manager: BotManager): void {
-    manager.log('Cleaning up after walk action.');
-    // Any cleanup logic can be placed here
-  }
 }
 
 class Loop extends BotAction {
@@ -195,11 +227,6 @@ class DigBlockAction extends BotAction {
     return undefined;  // No further action
   }
 
-  // Clean up after the digging action
-  cleanUp(manager: BotManager): void {
-    manager.log('Cleaning up after digging action.');
-    // Any additional cleanup logic can be placed here
-  }
 }
 
 // A new action to find the nearest wood block
@@ -239,7 +266,158 @@ class FindNearestWoodAction extends BotAction {
   cleanUp(manager: BotManager): void {
     manager.log('Finished searching for wood block.');
   }
+}*/
+
+const IMMEDIATE_TASK_TIMEOUT: number = 4000;
+
+class GiveItemAction extends BotAction {
+  private itemName: string;
+  private amount: number;
+
+  /**
+   * Constructor to initialize the item name and amount.
+   * @param itemName - The Minecraft item name (e.g., 'minecraft:diamond').
+   * @param amount - The amount of the item to give to the bot.
+   */
+  constructor(manager: BotManager, itemName: string, amount: number) {
+    super(manager);
+    this.itemName = itemName;
+    this.amount = amount;
+  }
+
+  /**
+   * Performs the action of giving the item to the bot.
+   * @param manager - The BotManager instance to perform actions with the bot.
+   * @returns A promise that resolves with no further actions.
+   */
+  async perform(): Promise<void> {
+    let timeout: NodeJS.Timeout;
+
+    return new Promise((resolve, reject) => {
+
+      const onMessage = (jsonMsg: any) => {
+        if (jsonMsg.translate === 'commands.give.success.single' || jsonMsg.translate === 'commands.give.success.multiple') {
+          manager.log(`Successfully gave ${this.amount} of ${this.itemName} to the bot.`);
+          clearTimeout(timeout); // Clear the timeout if successful
+          manager.bot.off('message', onMessage); // Remove the event listener
+          resolve(undefined); // Resolve the promise indicating action completion
+        }
+      };
+
+      try {
+        manager.log(`Attempting to give ${this.amount} of ${this.itemName} to the bot.`);
+
+        // Construct the give command
+        const giveCommand = `/give ${manager.bot.username} ${this.itemName} ${this.amount}`;
+
+        // Attach the listener for chat message events
+        manager.bot.on('message', onMessage);
+
+        // Timeout to handle command failure
+        timeout = setTimeout(() => {
+          manager.bot.off('message', onMessage); // Clean up the event listener
+          reject(new Error(`Failed to give item: Timed out after ${IMMEDIATE_TASK_TIMEOUT} ms.`)); // Reject the promise with an error
+        }, IMMEDIATE_TASK_TIMEOUT);
+
+        // Send the command to the server
+        manager.bot.chat(giveCommand);
+      } catch (error) {
+        reject(error);
+      } finally {
+        // Always clean up the event listener, even on error or timeout
+        manager.bot.off('message', onMessage);
+      }
+    });
+  }
+
 }
+
+
+class GiveMultipleItemsAction extends BotAction {
+  private items: Array<{ itemName: string; amount: number }>;
+
+  /**
+   * Constructor to initialize the list of items and their quantities.
+   * @param items - An array of objects, each containing itemName and amount.
+   * e.g., [{ itemName: 'minecraft:diamond', amount: 10 }, { itemName: 'minecraft:iron_ingot', amount: 5 }]
+   */
+  constructor(items: Array<{ itemName: string; amount: number }>) {
+    super();
+    this.items = items;
+  }
+
+  /**
+   * Performs the action of giving multiple items to the bot.
+   * @param manager - The BotManager instance to perform actions with the bot.
+   * @returns A promise that resolves with no further actions.
+   */
+  async perform(manager: BotManager): Promise<BotAction | undefined> {
+    for (const item of this.items) {
+      try {
+        console.error("here");
+        await this.giveItem(manager, item.itemName, item.amount);
+      } catch (error) {
+        manager.log(`Failed to give ${item.amount} of ${item.itemName}: ${error}`);
+        // Optionally, you could decide to stop further actions or handle this error differently.
+      }
+    }
+    return undefined; // No follow-up action
+  }
+
+  /**
+   * Helper function to give a single item to the bot with a specified amount.
+   * @param manager - The BotManager instance to perform actions with the bot.
+   * @param itemName - The Minecraft item name (e.g., 'minecraft:diamond').
+   * @param amount - The amount of the item to give to the bot.
+   * @returns A promise that resolves when the item is successfully given or rejects on failure.
+   */
+  private giveItem(manager: BotManager, itemName: string, amount: number): Promise<void> {
+    let timeout: NodeJS.Timeout;
+
+    return new Promise((resolve, reject) => {
+      const onMessage = (jsonMsg: any) => {
+
+        console.log(jsonMsg);
+        if (jsonMsg.translate === 'commands.give.success.single' || jsonMsg.translate === 'commands.give.success.multiple') {
+          //manager.log(`Successfully gave ${amount} of ${itemName} to the bot.`);
+          clearTimeout(timeout); // Clear the timeout if successful
+          manager.bot.off('message', onMessage); // Remove the event listener
+          resolve(); // Resolve the promise indicating action completion
+        }
+      };
+
+      try {
+        manager.log(`Attempting to give ${amount} of ${itemName} to the bot.`);
+
+        // Construct the give command
+        const giveCommand = `/give ${manager.bot.username} ${itemName} ${amount}`;
+
+        // Attach the listener for chat message events
+        manager.bot.on('message', onMessage);
+
+        // Timeout to handle command failure
+        timeout = setTimeout(() => {
+          manager.bot.off('message', onMessage); // Clean up the event listener
+          reject(new Error(`Failed to give item: Timed out after ${IMMEDIATE_TASK_TIMEOUT} ms.`)); // Reject the promise with an error
+        }, IMMEDIATE_TASK_TIMEOUT);
+
+        // Send the command to the server
+        manager.bot.chat(giveCommand);
+      } catch (error) {
+        reject(error);
+      } finally {
+        console.warn("here");
+        // Always clean up the event listener, even on error or timeout
+        manager.bot.off('message', onMessage);
+      }
+    });
+  }
+
+
+
+
+}
+
 
 class BotManager {
 
@@ -345,92 +523,20 @@ class BotManager {
 
 const botManager = new BotManager();
 botManager.initialize().then(() => {
-  //botManager.pushAction(new Loop(new MoveToRandom()));
 
-  const findWoodAction = new FindNearestWoodAction();
-  botManager.addAction(findWoodAction);
+  botManager.bot.chat("Hello!!!");
 
+  // Define a list of items with their quantities
+  const itemsToGive = [
+    { itemName: 'minecraft:diamond', amount: 10 },
+    { itemName: 'minecraft:iron_ingot', amount: 20 },
+    { itemName: 'minecraft:golden_apple', amount: 5 }
+  ];
+
+  // Add the action to give the bot 10 diamonds
+  const giveDiamonds = new GiveMultipleItemsAction(itemsToGive);
+  botManager.addAction(giveDiamonds);
+
+  // Execute the action queue
   botManager.execute();
 });
-
-
-/*
-// List of wood types the bot will attempt to pick up
-const woodTypes = [
-  'oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log'
-];
-
-// Function to find and chop the nearest tree
-function findAndChopTree() {
-  const block = bot.findBlock({
-    matching: (block) => woodTypes.includes(block.name),
-    maxDistance: 64 // Search for trees within a 64-block radius
-  });
-
-  if (block) {
-    bot.chat(`Found a tree! Going to chop ${block.name}.`);
-    goToAndChop(block.position);
-  } else {
-    bot.chat('No trees found nearby. Looking again in 5 seconds.');
-    setTimeout(findAndChopTree, 5000); // Look again after 5 seconds
-  }
-}
-
-// Function to move to a tree and start chopping
-function goToAndChop(position: Vec3) {
-  const goal = new goals.GoalBlock(position.x, position.y, position.z);
-  bot.pathfinder.setGoal(goal, true);
-  bot.chat('Going to tree...');
-
-  // Debugging: monitor pathfinding progress
-  bot.on('path_update', (r) => {
-    if (r.status === 'noPath') {
-      console.log('No path to the tree.');
-      setTimeout(findAndChopTree, 5000); // Look for another tree if no path is found
-    } else {
-      console.log(`Pathfinding to the tree. Status: ${r.status}`);
-    }
-  });
-
-  bot.once('goal_reached', () => {
-    bot.chat('Reached the tree. Starting to chop...');
-    chopTree(position);
-  });
-
-  // In case the bot doesn't reach the goal, add a timeout fallback
-  setTimeout(() => {
-    if (bot.pathfinder.isMoving()) {
-      bot.chat('Still moving, something might be wrong.');
-    }
-  }, 10000);
-}
-
-// Function to chop wood blocks (tree logs) until the tree is gone
-function chopTree(position: Vec3) {
-  const block = bot.blockAt(position);
-  bot.chat('Chopping the tree.');
-  if (block && woodTypes.includes(block.name)) {
-    bot.dig(block, true).then(() => {
-      bot.chat(`Chopped ${block.name}. Checking for more wood...`);
-
-      // Check above the block for more wood (tree trunk upwards)
-      const aboveBlock = bot.blockAt(position.offset(0, 1, 0));
-      if (aboveBlock && woodTypes.includes(aboveBlock.name)) {
-        chopTree(aboveBlock.position); // Continue chopping upwards
-      } else {
-        bot.chat('Tree chopped down. Looking for another tree.');
-        findAndChopTree(); // Find a new tree after finishing the current one
-      }
-    });
-  } else {
-    bot.chat('Could not chop the block. Looking for another tree.');
-    findAndChopTree();
-  }
-}
-
-console.log("start execution");
-// Check for nearby wood items every 5 seconds
-
-// Start execution and look for nearby wood items every 5 seconds
-setInterval(() => findAndChopTree(), 5000);
-*/

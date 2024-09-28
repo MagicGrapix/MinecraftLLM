@@ -110,7 +110,7 @@ export const botEventNames: Array<keyof BotEvents> = [
 
 export class BotManager {
   bot: Bot;
-  actionsQueue: Array<BotAction> = new Array();
+  actionsQueue: Array<Action> = new Array();
 
   constructor() {
     this.bot = createBot({
@@ -164,7 +164,7 @@ export class BotManager {
     this.bot.chat(msg);
   }
 
-  addAction(action: BotAction): void {
+  addAction(action: Action): void {
     this.actionsQueue.push(action);
   }
 
@@ -201,9 +201,8 @@ export class BotManager {
               clearTimeout(timeoutId);
               reject();
             });
-
           });
-          action.execute();
+          action.execute(); // should return on this 
           await completionPromise;
 
         } catch (error) {
@@ -222,7 +221,7 @@ export class BotManager {
     processNext();
   };
 
-  private registerOverriddenCallbacks(action: BotAction): void {
+  private registerOverriddenCallbacks(action: Action): void {
     for (const eventName of botEventNames) {
       const method = action[eventName];
       // Check if this method is implemented in the action, not inherited
@@ -233,7 +232,7 @@ export class BotManager {
     }
   }
 
-  private deregisterOverriddenCallbacks(action: BotAction): void {
+  private deregisterOverriddenCallbacks(action: Action): void {
     for (const eventName of botEventNames) {
       const method = action[eventName];
       if (method && Object.getPrototypeOf(action).hasOwnProperty(eventName)) {
@@ -245,11 +244,11 @@ export class BotManager {
 }
 
 
-export abstract class BotAction extends EventEmitter implements BotEvents {
+export abstract class Action extends EventEmitter implements BotEvents {
 
   public readonly name: string;
   private static idCounter = 0;
-  private id: number = BotAction.idCounter++;
+  private id: number = Action.idCounter++;
   protected manager: BotManager;
   constructor(_manager: BotManager) {
     super();

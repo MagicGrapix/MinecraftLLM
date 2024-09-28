@@ -1,6 +1,6 @@
 
 import './Types';
-import { ClearInventoryAction, GiveItemsAction, MyBotAction, PlaceBlockAction, SelectBlockAction } from './Actions';
+import { ClearInventoryAction, GiveItemsAction, PlaceBlockAction, SelectBlockAction } from './Actions';
 import { BotManager } from './BotManager';
 import { setDebugEnabled } from './Logger';
 import { getBotBlockPosition } from './Utils';
@@ -8,7 +8,7 @@ import { getBotBlockPosition } from './Utils';
 setDebugEnabled(false);
 
 const botManager = new BotManager();
-botManager.initialize().then(() => {
+/*botManager.initialize().then(() => {
 
   //botManager.bot.chat("Hello!!!");
 
@@ -31,4 +31,4 @@ botManager.initialize().then(() => {
 
   // Execute the action queue
   botManager.execute();
-});
+});*/

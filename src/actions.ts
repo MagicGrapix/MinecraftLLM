@@ -1,5 +1,5 @@
 //import { Item } from "minecraft-data";
-import { BotAction, BotManager } from "./BotManager";
+import { Action, BotManager } from "./BotManager";
 
 import * as md from 'minecraft-data';
 import { Bot } from "mineflayer";
@@ -7,28 +7,10 @@ import * as pm from 'prismarine-item';
 import { computeInventoryDiff, getInventoryQuantities } from "./Utils";
 import { Vec3 } from "vec3";
 
-// Example concrete class extending BotAction
-export class MyBotAction extends BotAction {
-  async execute(): Promise<void> {
-    // Custom logic here
-    this.manager.chat('Hello world!');
-  }
-
-  // Override specific methods
-  chat(username: string, message: string): void {
-    console.log(`Chat event: ${username} said ${message}`);
-    this.complete();
-  }
-
-  // Override other methods as needed
-  error(err: Error): void {
-    console.error(`Custom error handling: ${err.message}`);
-  }
-}
 
 
 // Define the `GiveItemsAction` class that will extend from `BotAction`.
-export class GiveItemsAction extends BotAction {
+export class GiveItemsAction extends Action {
   private items: { name: string, count: number }[];
 
   constructor(manager: BotManager, items: { name: string, count: number }[]) {
@@ -79,7 +61,7 @@ export class GiveItemsAction extends BotAction {
 }
 
 
-export class SelectBlockAction extends BotAction {
+export class SelectBlockAction extends Action {
   private blockName: string;
 
   constructor(manager: BotManager, blockName: string) {
@@ -110,7 +92,7 @@ export class SelectBlockAction extends BotAction {
   }
 }
 
-export class ClearInventoryAction extends BotAction {
+export class ClearInventoryAction extends Action {
 
   public async execute(): Promise<void> {
     const items = this.manager.bot.inventory.items();
@@ -148,7 +130,7 @@ export class ClearInventoryAction extends BotAction {
 }
 
 
-export class PlaceBlockAction extends BotAction {
+export class PlaceBlockAction extends Action {
   private targetPosition: Vec3;
 
   constructor(manager: BotManager, targetPosition: Vec3) {
@@ -196,3 +178,21 @@ export class PlaceBlockAction extends BotAction {
     }
   }
 }
+
+
+
+
+// - Build(Structure)
+
+// - Place block(Position)
+
+
+
+// - Break block(Position)
+// - Goto(Position | Locate(item | entity))
+// - DigBlock(Position | Locate(item | entity))
+// - Equip(item)
+// - Drop(item)
+// - PickUp(Position | Locate(item | entity))
+// (- UseItem(item, Position | entity))
+// - Craft2x2(item)

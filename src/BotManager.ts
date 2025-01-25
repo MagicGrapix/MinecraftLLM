@@ -121,8 +121,6 @@ export class BotManager {
     });
   }
 
-
-
   async initialize(): Promise<void> {
     return new Promise((resolve, _) => {
       this.bot.on('spawn', () => {
@@ -136,7 +134,7 @@ export class BotManager {
 
         //pathfinder(bot);
         this.bot.pathfinder.setMovements(defaultMove);
-        this.bot.entity.position.set(-5.151, -60, -67.5);
+        this.bot.entity.position.set(-2, -60, 7);
 
         this.bot.chat('/effect clear @s minecraft:invisibility');
         //this.bot.chat('/effect give @a saturation 99999 255 true');
@@ -183,7 +181,7 @@ export class BotManager {
         try {
           // Register all callbacks of the action
           this.registerOverriddenCallbacks(action);
-          const completionPromise = new Promise<void>((resolve, reject) => {
+          /*const completionPromise = new Promise<void>((resolve, reject) => {
 
             let timeoutId = setTimeout(() => {
               console.error('Error task timed out...');
@@ -201,16 +199,20 @@ export class BotManager {
               clearTimeout(timeoutId);
               reject();
             });
+          });*/
+          await action.execute().then(() => {
+            console.debug("the action has succeeded...");
+          }, (failedMessage) => {
+            console.debug(`the action has failed: ${failedMessage}`);
           });
-          await action.execute().then(()); // should return on this 
-          //await completionPromise;
-
         } catch (error) {
           console.error(`Error executing action: ${error}. Continuing`);
         } finally {
           // De-register all callbacks of the action
           this.deregisterOverriddenCallbacks(action);
         }
+      } else {
+        console.info("Action was undefined.");
       }
 
       // Schedule the next execution asynchronously

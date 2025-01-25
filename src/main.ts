@@ -5,10 +5,10 @@ import { BotManager } from './BotManager';
 import { setDebugEnabled } from './Logger';
 import { getBotBlockPosition } from './Utils';
 
-setDebugEnabled(false);
+setDebugEnabled(true);
 
 const botManager = new BotManager();
-/*botManager.initialize().then(() => {
+botManager.initialize().then(() => {
 
   //botManager.bot.chat("Hello!!!");
 
@@ -18,6 +18,7 @@ const botManager = new BotManager();
     { name: 'minecraft:iron_ingot', count: 20 },
     { name: 'minecraft:golden_apple', count: 5 }
   ];
+  botManager.bot.chat("Hello world!");
 
   botManager.addAction(new ClearInventoryAction(botManager));
   botManager.addAction(new GiveItemsAction(botManager, itemsToGive));
@@ -31,4 +32,4 @@ const botManager = new BotManager();
 
   // Execute the action queue
   botManager.execute();
-});*/
+});

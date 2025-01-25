@@ -202,8 +202,8 @@ export class BotManager {
               reject();
             });
           });
-          action.execute(); // should return on this 
-          await completionPromise;
+          await action.execute().then(()); // should return on this 
+          //await completionPromise;
 
         } catch (error) {
           console.error(`Error executing action: ${error}. Continuing`);
@@ -356,7 +356,7 @@ export abstract class Action extends EventEmitter implements BotEvents {
   path_stop(): void { }
 
   // launch the logic of the task
-  public abstract execute(): void;
+  public abstract execute(): Promise<void>;
 
   protected complete(): void {
     console.debug(`Emitting complete_${this.id}`);

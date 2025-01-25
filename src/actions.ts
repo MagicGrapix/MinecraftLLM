@@ -20,43 +20,48 @@ export class GiveItemsAction extends Action {
 
   // The main logic to give items to the bot.
   public async execute(): Promise<void> {
-    if (!this.items || this.items.length === 0) {
-      this.failed("No items specified for giving.");
-      return;
-    }
+    return new Promise(async (resolve, reject) => {
 
-    const oldInventorySnapshot = getInventoryQuantities(this.manager.bot);
+      if (!this.items || this.items.length === 0) {
+        reject("No items specified for giving.");
+        return;
+      }
 
-    // For each item in the list, use the `/give` command to give it to the bot.
-    this.items.forEach(item => {
-      this.manager.chat(`/give ${this.manager.bot.username} ${item.name} ${item.count}`);
-    });
+      const oldInventorySnapshot = getInventoryQuantities(this.manager.bot);
 
-    // we check that the items are well added to the bot's inventory
-    let counter = 0;
-    let completed = false;
-    while (counter < 10 && !completed) {
-      await new Promise<void>(resolve => setTimeout(() => {
-        const currentInventorySnapshot = getInventoryQuantities(this.manager.bot);
-        const diff = computeInventoryDiff(oldInventorySnapshot, currentInventorySnapshot);
-        let allAddedItemsArePresent: boolean = true;
-        for (const item of this.items) {
-          const addedDiff = diff.added.get(item.name);
-          const changedDiff = diff.changed.get(item.name);
-          if ((addedDiff && addedDiff != item.count) || (changedDiff && (changedDiff.to - changedDiff.from) != item.count)) {
-            allAddedItemsArePresent = false;
+      // For each item in the list, use the `/give` command to give it to the bot.
+      this.items.forEach(item => {
+        this.manager.chat(`/give ${this.manager.bot.username} ${item.name} ${item.count}`);
+      });
+
+      // we check that the items are well added to the bot's inventory
+      let counter = 0;
+      let completed = false;
+      while (counter < 10 && !completed) {
+        await new Promise<void>(resolveInner => setTimeout(() => {
+          const currentInventorySnapshot = getInventoryQuantities(this.manager.bot);
+          const diff = computeInventoryDiff(oldInventorySnapshot, currentInventorySnapshot);
+          let allAddedItemsArePresent: boolean = true;
+          for (const item of this.items) {
+            const addedDiff = diff.added.get(item.name);
+            const changedDiff = diff.changed.get(item.name);
+            if ((addedDiff && addedDiff != item.count) || (changedDiff && (changedDiff.to - changedDiff.from) != item.count)) {
+              allAddedItemsArePresent = false;
+            }
           }
-        }
 
-        if (allAddedItemsArePresent) {
-          this.complete();
-          completed = true;
-        }
-        resolve();
-      }, 100));
-      counter++;
-    }
-    this.failed();
+          if (allAddedItemsArePresent) {
+            completed = true;
+            resolveInner();
+            resolve();
+          } else {
+            resolveInner();
+          }
+        }, 100));
+        counter++;
+      }
+      reject();
+    });
   }
 }
 
@@ -69,62 +74,71 @@ export class SelectBlockAction extends Action {
     this.blockName = blockName;
   }
 
-  public execute(): void {
+  public execute(): Promise<void> {
 
-    // Find the desired block in the bot's inventory.
-    const item = this.manager.bot.inventory.items().find(item => item.name == this.blockName);
+    return new Promise<void>((resolve, reject) => {
+      // Find the desired block in the bot's inventory.
+      const item = this.manager.bot.inventory.items().find(item => item.name == this.blockName);
 
-    if (item) {
-      // If the block is found, equip it in the hand.
-      this.manager.bot.equip(item, 'hand').then(() => {
-        console.debug(`Equipped ${this.blockName} successfully.`);
-        this.complete();
-      }).catch((reason) => {
-        console.error(`Failed to equip ${this.blockName}:`, reason);
-        this.failed(`Failed to equip block ${this.blockName}`);
-      });
+      if (item) {
+        // If the block is found, equip it in the hand.
+        this.manager.bot.equip(item, 'hand').then(() => {
+          console.debug(`Equipped ${this.blockName} successfully.`);
+          resolve();
+        }).catch((reason) => {
+          console.error(`Failed to equip ${this.blockName}:`, reason);
+          //this.failed(`Failed to equip block ${this.blockName}`);
+          reject(`Failed to equip block ${this.blockName}`);
+        });
 
-    } else {
-      // If the block is not found, fail the action.
-      console.error(`Block ${this.blockName} not found in inventory.`);
-      this.failed(`Block ${this.blockName} not found in inventory.`);
-    }
+      } else {
+        // If the block is not found, fail the action.
+        console.error(`Block ${this.blockName} not found in inventory.`);
+        //this.failed(`Block ${this.blockName} not found in inventory.`);
+        reject(`Block ${this.blockName} not found in inventory.`);
+      }
+    });
+
   }
 }
 
 export class ClearInventoryAction extends Action {
 
   public async execute(): Promise<void> {
-    const items = this.manager.bot.inventory.items();
-    if (items.length === 0) {
-      console.log('Inventory is already empty.');
-      this.complete();
-      return;
-    }
-
-    try {
-      // Iterate through each item and toss it
-
-      for (const item of items) {
-        await this.manager.bot.tossStack(item).then(() => {
-          console.debug(`Tossed item: ${item.name} x${item.count}`);
-        }).catch((reason) => {
-          console.error(`Failed tossing item: ${item.name} x${item.count}. Reason: ${reason}`);
-        });
+    return new Promise<void>(async (resolve, reject) => {
+      const items = this.manager.bot.inventory.items();
+      if (items.length === 0) {
+        console.log('Inventory is already empty.');
+        resolve();
+        return;
       }
 
-      // Verify that the inventory is now empty 
-      if (this.manager.bot.inventory.items().length === 0) {
-        console.debug('Inventory successfully cleared.');
-        this.complete();
-      } else {
-        console.error(`Failed to clear inventory completely. ${this.manager.bot.inventory.items().length}`);
-        this.failed('Failed to clear inventory completely.');
+      try {
+        // Iterate through each item and toss it
+
+        for (const item of items) {
+          await this.manager.bot.tossStack(item).then(() => {
+            console.debug(`Tossed item: ${item.name} x${item.count}`);
+          }).catch((reason) => {
+            console.error(`Failed tossing item: ${item.name} x${item.count}. Reason: ${reason}`);
+          });
+        }
+
+        // Verify that the inventory is now empty 
+        if (this.manager.bot.inventory.items().length === 0) {
+          console.debug('Inventory successfully cleared.');
+          resolve();
+        } else {
+          console.error(`Failed to clear inventory completely. ${this.manager.bot.inventory.items().length}`);
+          reject();
+          //this.failed('Failed to clear inventory completely.');
+        }
+      } catch (error: any) {
+        console.error(`Error while clearing inventory: ${error.message}`);
+        reject(`Error while clearing inventory: ${error.message}`)
+        //this.failed(`Error while clearing inventory: ${error.message}`);
       }
-    } catch (error: any) {
-      console.error(`Error while clearing inventory: ${error.message}`);
-      this.failed(`Error while clearing inventory: ${error.message}`);
-    }
+    });
   }
 
 }

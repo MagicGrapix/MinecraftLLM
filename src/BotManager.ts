@@ -2,7 +2,7 @@
 import { Bot, createBot } from 'mineflayer';
 import { Movements, pathfinder } from 'mineflayer-pathfinder';
 import { IMMEDIATE_TASK_TIMEOUT } from './Types';
-import { EventEmitter } from 'events';
+import { EventEmitter, on } from 'events';
 import { BossBar, BotEvents, DisplaySlot, Effect, Instrument, Particle, Player, ScoreBoard, Team } from 'mineflayer';
 import { goals, PartiallyComputedPath } from 'mineflayer-pathfinder';
 import { Block } from 'prismarine-block';
@@ -181,25 +181,6 @@ export class BotManager {
         try {
           // Register all callbacks of the action
           this.registerOverriddenCallbacks(action);
-          /*const completionPromise = new Promise<void>((resolve, reject) => {
-
-            let timeoutId = setTimeout(() => {
-              console.error('Error task timed out...');
-              reject();
-            }, IMMEDIATE_TASK_TIMEOUT);
-
-            action.onceCompleted(() => {
-              console.info(`${action.name} completed successfully.`);
-              clearTimeout(timeoutId);
-              resolve();
-            });
-
-            action.onceFailed((reason) => {
-              console.error(`${action.name} failed. Reason: ${reason}`);
-              clearTimeout(timeoutId);
-              reject();
-            });
-          });*/
           await action.execute().then(() => {
             console.debug("the action has succeeded...");
           }, (failedMessage) => {
@@ -382,5 +363,170 @@ export abstract class Action extends EventEmitter implements BotEvents {
       listener(args);
     });
   }
+
+}
+
+
+export type Context = Map<string, any>;
+export type Label = string;
+type Predicate = (context: Map<string, any>) => boolean;
+
+export type ActionSequenceStep = {
+  type: 'do' | 'doIf' | 'goto' | 'label' | 'switch' | 'wait' | 'exec';
+  action?: Action;
+  predicate?: Predicate;
+  label?: Label;
+  callback?: (context: Context) => Promise<void>;
+  switchTarget?: ActionSequence,
+  duration?: number,
+}
+
+export class ActionSequence {
+
+  private static context: Context = new Map();
+  //private static allSequences: Set<ActionSequence> = new Set();
+
+  private sequence: Array<ActionSequenceStep> = new Array();
+  private name: string;
+  private onThrow: ActionSequence | undefined = undefined;
+
+  public constructor(name: string, onThrow?: ActionSequence) {
+    this.name = name;
+    //ActionSequence.allSequences.set(this);
+    this.onThrow = onThrow;
+  }
+
+  public static setVariable(key: string, value: any) {
+    ActionSequence.context.set(key, value);
+  }
+
+  public static getVariable<T>(key: string, elseValue?: T): T {
+    if (ActionSequence.context.has(key)) {
+      return ActionSequence.context.get(key) as T;
+    }
+    return elseValue!;
+  }
+
+  public do(action: Action): ActionSequence {
+    this.sequence.push({
+      type: 'do',
+      action
+    });
+    return this;
+  }
+
+  public label(label: Label): ActionSequence {
+    this.sequence.push({
+      type: 'label',
+      label
+    });
+    return this;
+  }
+
+  public doIf(action: Action, predicate: Predicate): ActionSequence {
+    this.sequence.push({
+      type: 'doIf',
+      action,
+      predicate,
+    });
+    return this;
+  }
+
+  public goto(label: Label): ActionSequence {
+    this.sequence.push({
+      type: 'goto',
+      label,
+    });
+    return this;
+  }
+
+  public switch(name: ActionSequence): ActionSequence {
+    this.sequence.push({
+      type: 'switch',
+      switchTarget: name,
+    });
+    return this;
+  }
+
+
+  public wait(duration: number): ActionSequence {
+    this.sequence.push({
+      type: 'wait',
+      duration,
+    });
+    return this;
+  }
+
+  public exec(callback: (context: Context) => Promise<void>): ActionSequence {
+    this.sequence.push({
+      type: 'wait',
+      callback,
+    });
+    return this;
+  }
+
+  private findLabelStep(label: Label): number | undefined {
+    const step = this.sequence.findIndex((element) => {
+      if (element && element.label && element.label == label) {
+        return element;
+      }
+    });
+    return step
+  }
+
+  public static async execute(init: ActionSequence) {
+
+    let currentSequence: ActionSequence = init;
+    let i = 0;
+    while (i != currentSequence.sequence.length) {
+
+      const step = currentSequence.sequence[i];
+
+      try {
+        switch (step.type) {
+          case 'do':
+            await step.action!.execute(); // new Promise<void>((resolve) => step.action!.execute().finally(resolve));
+            break;
+
+          case 'doIf':
+            if (step.predicate!(this.context)) {
+              await step.action!.execute();
+            }
+            break;
+
+          case 'goto':
+            i = currentSequence.findLabelStep(step.label!)!;
+            break;
+          case 'wait':
+            await new Promise<void>((resolve) => setTimeout(resolve, step.duration!));
+            break;
+          case 'switch':
+            currentSequence = step.switchTarget!; //ActionSequence.allSequences.get(step.switchTarget!)!;
+            i = 0;
+            break;
+
+          case 'exec':
+            await step.callback!(ActionSequence.context);
+            break;
+
+          default:
+            i++;
+            break;
+        }
+      } catch (error) {
+        console.error(`Error occured in execution: ${error}`);
+        if (currentSequence.onThrow) {
+          console.error(`Switching to ${currentSequence.onThrow.name}`);
+          currentSequence = currentSequence.onThrow;
+        }
+      }
+
+      if (step.type != 'goto' && step.type != 'switch') {
+        i++;
+      }
+    }
+
+  }
+
 
 }

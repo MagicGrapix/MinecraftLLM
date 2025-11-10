@@ -71,7 +71,7 @@ export class GiveItemsAction extends Action {
 }
 
 
-export class SelectBlockAction extends Action {
+export class SelectItemAction extends Action {
   private blockName: string;
 
   constructor(manager: BotManager, blockName: string) {
@@ -147,9 +147,16 @@ export class ClearInventoryAction extends Action {
 
 }
 
+export enum PlaceBlockStatus {
+  Ok,
+  NoBase,
+  EmptyHands,
+  Busy,
+}
+
 
 export class PlaceBlockAction extends Action {
-  private targetPosition: Vec3;
+  private targetPosition: Vec3; //the position on which the block will be placed
 
   constructor(manager: BotManager, targetPosition: Vec3) {
     super(manager);
@@ -159,34 +166,32 @@ export class PlaceBlockAction extends Action {
   public async execute(): Promise<void> {
 
     return new Promise<void>(async (resolve, reject) => {
+
       const bot = this.manager.bot;
+
+      const currentTargetBlock = bot.blockAt(this.targetPosition);
+      if (currentTargetBlock && currentTargetBlock.boundingBox !== 'empty') {
+        reject(PlaceBlockStatus.Busy);
+        return;
+      }
 
       // Check if the bot has a selected block in its hand
       const selectedBlock = bot.heldItem;
       if (!selectedBlock) {
-        reject('No block selected to place.');
+        reject(PlaceBlockStatus.EmptyHands);
+        return;
+      }
+
+      //check we have a block bellow to place on
+      const baseBlock = bot.blockAt(this.targetPosition.offset(0, -1, 0));
+      if (!baseBlock) {
+        reject(PlaceBlockStatus.NoBase);
         return;
       }
 
       try {
-        // Get the block at the target position
-        const targetBlock = bot.blockAt(this.targetPosition);
-
-        // Ensure that we have a valid block to place on
-        if (!targetBlock) {
-          reject('Invalid target position for block placement.');
-          return;
-        }
-
-        // Check if the block above the target position is air or empty (where we will place the block)
-        const aboveTargetBlock = bot.blockAt(this.targetPosition.offset(0, 1, 0));
-        if (aboveTargetBlock && aboveTargetBlock.boundingBox !== 'empty') {
-          reject('Cannot place block; target space is occupied.');
-          return;
-        }
-
         // Place the block on top of the target block (use the top face of the target block)
-        await bot.placeBlock(targetBlock, new Vec3(0, 1, 0));
+        await bot.placeBlock(baseBlock, new Vec3(0, 1, 0));
         console.log(`Placed block ${selectedBlock.name} at ${this.targetPosition}`);
         resolve();
       } catch (error: any) {

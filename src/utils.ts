@@ -111,3 +111,34 @@ export function getBotBlockPosition(bot: Bot): Vec3 {
 
   return blockPosition;
 }
+
+
+/**
+ * Scans surrounding blocks within a radius and returns a map of block names to their positions.
+ * @param bot - The Mineflayer bot instance.
+ * @param radius - The search radius.
+ * @returns A map where the keys are block names and the values are arrays of their positions.
+ */
+function surroundingBlockInventory(bot: Bot, radius: number): Map<string, Vec3[]> {
+  const blockInventory = new Map<string, Vec3[]>();
+  const botPos = bot.entity.position;
+
+  for (let x = -radius; x <= radius; x++) {
+    for (let y = -radius; y <= radius; y++) {
+      for (let z = -radius; z <= radius; z++) {
+        const position = botPos.offset(x, y, z);
+        const block = bot.blockAt(position);
+
+        if (block && block.name) {
+          // Add the position to the map under the block name
+          if (!blockInventory.has(block.name)) {
+            blockInventory.set(block.name, []);
+          }
+          blockInventory.get(block.name)?.push(position);
+        }
+      }
+    }
+  }
+
+  return blockInventory;
+}

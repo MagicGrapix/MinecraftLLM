@@ -1,65 +1,167 @@
+import "./Logger";
+import { DigCapability } from "./capabilities/Dig";
+import { DropCapability } from "./capabilities/Drop";
+import { EquipCapability } from "./capabilities/Equip";
+import { GotoCapability } from "./capabilities/Goto";
+import { PlaceCapability } from "./capabilities/Place";
+import { CapabilityRegistry } from "./capabilities/CapabilityRegistry";
+import { MINECRAFT_VERSION } from "./config";
+import {
+  ExecutionController,
+  type ExecutionEvent,
+} from "./execution/ExecutionController";
+import { Executor } from "./execution/Executor";
+import type { TaskSpec } from "./execution/Task";
+import { MinecraftRuntime } from "./runtime/MinecraftRuntime";
+import { MineflayerWorldQueries } from "./world/MineflayerWorldQueries";
 
-import './Types';
-import { ClearInventoryAction, GiveItemsAction, PlaceBlockAction, SelectItemAction } from './Actions';
-import { ActionSequence, BotManager } from './BotManager';
-import { setDebugEnabled } from './Logger';
-import { getBotBlockPosition } from './Utils';
+async function main(): Promise<void> {
+  const runtime = new MinecraftRuntime({
+    host: process.env.MINECRAFT_HOST ?? "localhost",
+    port: readPort(process.env.MINECRAFT_PORT),
+    username: process.env.MINECRAFT_USERNAME ?? "bot",
+    version: MINECRAFT_VERSION,
+    auth: "offline",
+  });
+  let controller: ExecutionController | null = null;
 
-setDebugEnabled(true);
+  try {
+    console.info("Connecting to Minecraft...");
+    await runtime.connect();
+    console.info(`Connected as ${runtime.bot.username}.`);
 
-const botManager = new BotManager();
-botManager.initialize().then(() => {
+    const world = new MineflayerWorldQueries(runtime);
+    const executor = new Executor({
+      registry: createCapabilityRegistry(),
+      runtime,
+      world,
+    });
+    controller = new ExecutionController({ executor });
+    controller.subscribe(logExecutionEvent);
 
-  // Define a list of items with their quantities
-  const itemsToGive = [
-    { name: 'minecraft:diamond_block', count: 10 },
-    { name: 'minecraft:iron_ingot', count: 20 },
-    { name: 'minecraft:golden_apple', count: 5 }
-  ];
-  botManager.bot.chat("Hello world!");
+    const targetNames = (
+      process.env.DEMO_BLOCKS ?? "oak_log,birch_log,spruce_log"
+    )
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const target = world.findNearestBlocks(targetNames, {
+      maxDistance: 48,
+      count: 1,
+    })[0];
 
-  /*botManager.addAction(new ClearInventoryAction(botManager));
-  botManager.addAction(new GiveItemsAction(botManager, itemsToGive));
-  botManager.addAction(new SelectItemAction(botManager, 'diamond_block'));
-  botManager.addAction(new PlaceBlockAction(botManager, getBotBlockPosition(botManager.bot)));
+    if (!target) {
+      console.warn(
+        `No target block found within 48 blocks (${targetNames.join(", ")}).`,
+      );
+    } else {
+      const taskSpecs: TaskSpec[] = [
+        {
+          capability: "goto",
+          input: { position: target.position, range: 2 },
+        },
+        {
+          capability: "equip",
+          input: {
+            item: process.env.DEMO_TOOL ?? "wooden_axe",
+            destination: "hand",
+          },
+        },
+        {
+          capability: "dig",
+          input: { position: target.position },
+        },
+      ];
 
+      controller.enqueueMany(taskSpecs);
+      const acknowledgement = controller.resume();
+      console.info(
+        `Execution resumed at revision ${acknowledgement.snapshot.revision}; control returned immediately.`,
+      );
+    }
 
+    await waitForShutdown(runtime, controller);
+  } finally {
+    await controller?.shutdown("Minecraft harness stopped.");
+    runtime.disconnect();
+  }
+}
 
+function waitForShutdown(
+  runtime: MinecraftRuntime,
+  controller: ExecutionController,
+): Promise<void> {
+  console.info("Bot remains connected. Press Ctrl+C to stop.");
 
-  let actionSequence1 = new ActionSequence();
-  let actionSequence2 = new ActionSequence();
+  return new Promise((resolve) => {
+    let closing = false;
 
-  let actionSequence2 = actionSequence1.do(Action1, label).doIf(Action2, predicate).exec((Context)).doUntil(Action3, predicate).waitUntil(predicate).goto(label).exit().switch(actionSequence2);
-  let actionSequence1 = ActionSequence.do(Action1, label).doIf(Action2, predicate).doUntil(Action3, predicate).goto(label).exit().switch();
+    const finish = (): void => {
+      if (closing) return;
+      closing = true;
+      process.removeListener("SIGINT", finish);
+      process.removeListener("SIGTERM", finish);
+      runtime.bot.removeListener("end", finish);
+      void controller
+        .shutdown("Process shutdown requested.")
+        .finally(resolve);
+    };
 
-  botManager.executeActionSequence(actionSequence1);
-*/
+    process.once("SIGINT", finish);
+    process.once("SIGTERM", finish);
+    runtime.bot.once("end", finish);
+  });
+}
 
-  const actionSequence2 = new ActionSequence("ActionSequence2");
-  const actionSequence = new ActionSequence("ActionSequence1", actionSequence2);
+function createCapabilityRegistry(): CapabilityRegistry {
+  const registry = new CapabilityRegistry();
+  registry.register(new GotoCapability());
+  registry.register(new DigCapability());
+  registry.register(new EquipCapability());
+  registry.register(new PlaceCapability());
+  registry.register(new DropCapability());
+  return registry;
+}
 
-  actionSequence
-    .do(new ClearInventoryAction(botManager))
-    .do(new GiveItemsAction(botManager, itemsToGive))
-    .do(new SelectItemAction(botManager, 'diamond_block'))
-    .do(new PlaceBlockAction(botManager, getBotBlockPosition(botManager.bot)))
-    .switch(actionSequence2);
+function logExecutionEvent(event: ExecutionEvent): void {
+  if (event.type === "task_started") {
+    console.info(`[${event.task.id}] Starting "${event.task.capability}".`);
+    return;
+  }
 
+  if (event.type === "task_finished") {
+    if (event.result.ok) {
+      console.info(
+        `[${event.task.id}] "${event.task.capability}" succeeded:`,
+        event.result.value,
+      );
+    } else {
+      console.warn(
+        `[${event.task.id}] "${event.task.capability}" failed:`,
+        event.result.error,
+      );
+    }
+    return;
+  }
 
-  actionSequence2
-    .label("start")
-    .wait(2000)
-    .exec(() => {
-      return new Promise((resolve) => {
-        console.info("waiting");
-        resolve();
-      });
-    })
-    .goto("start");
+  if (event.type === "queue_idle") {
+    console.info(
+      `Execution queue is idle in "${event.snapshot.mode}" mode.`,
+    );
+  }
+}
 
+function readPort(value: string | undefined): number {
+  if (value === undefined) return 25565;
 
-  ActionSequence.execute(actionSequence);
+  const port = Number(value);
+  if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
+    throw new Error(`Invalid MINECRAFT_PORT "${value}".`);
+  }
+  return port;
+}
 
-  // Execute the action queue
-  //botManager.execute();
+void main().catch((error: unknown) => {
+  console.error("Executive layer failed to start:", error);
+  process.exitCode = 1;
 });

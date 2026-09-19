@@ -1,9 +1,15 @@
 {
-  "name": "llmbot",
+  "name": "minecraft-llm",
   "version": "1.0.0",
-  "main": "main.js",
+  "private": true,
+  "main": "dist/main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "dev": "ts-node src/main.ts",
+    "dev:give": "ts-node scripts/dev-give-items.ts",
+    "start": "node dist/main.js",
+    "test": "npm run build && node scripts/run-tests.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
@@ -15,10 +21,11 @@
     "typescript": "^5.6.2"
   },
   "dependencies": {
-    "minecraft-data": "^3.68.0",
-    "mineflayer": "^4.20.1",
-    "mineflayer-navigate": "^0.0.10",
+    "minecraft-data": "^3.116.0",
+    "mineflayer": "^4.39.0",
     "mineflayer-pathfinder": "^2.4.5",
-    "vec3": "^0.1.10"
+    "vec3": "^0.1.10",
+    "yaml": "^2.8.1",
+    "zod": "^3.23.8"
   }
 }

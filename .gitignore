@@ -39,3 +39,5 @@ coverage/
 # lockfiles (optional: if you use package-lock.json or yarn.lock instead)
 package-lock.json
 yarn.lock
+
+server/**

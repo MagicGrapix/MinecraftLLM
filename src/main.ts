@@ -1,9 +1,18 @@
 import "./Logger";
+import { AttackCapability } from "./capabilities/Attack";
+import { CloseContainerCapability } from "./capabilities/CloseContainer";
+import { ConsumeCapability } from "./capabilities/Consume";
+import { CraftCapability } from "./capabilities/Craft";
 import { DigCapability } from "./capabilities/Dig";
 import { DropCapability } from "./capabilities/Drop";
 import { EquipCapability } from "./capabilities/Equip";
 import { GotoCapability } from "./capabilities/Goto";
+import { InteractEntityCapability } from "./capabilities/InteractEntity";
+import { OpenContainerCapability } from "./capabilities/OpenContainer";
 import { PlaceCapability } from "./capabilities/Place";
+import { TransferItemCapability } from "./capabilities/TransferItem";
+import { UseBlockCapability } from "./capabilities/UseBlock";
+import { UseItemCapability } from "./capabilities/UseItem";
 import { CapabilityRegistry } from "./capabilities/CapabilityRegistry";
 import { MINECRAFT_VERSION } from "./config";
 import {
@@ -12,6 +21,7 @@ import {
 } from "./execution/ExecutionController";
 import { Executor } from "./execution/Executor";
 import type { TaskSpec } from "./execution/Task";
+import { ContainerSessionManager } from "./runtime/ContainerSessionManager";
 import { MinecraftRuntime } from "./runtime/MinecraftRuntime";
 import { MineflayerWorldQueries } from "./world/MineflayerWorldQueries";
 
@@ -24,6 +34,7 @@ async function main(): Promise<void> {
     auth: "offline",
   });
   let controller: ExecutionController | null = null;
+  let containerSessions: ContainerSessionManager | null = null;
 
   try {
     console.info("Connecting to Minecraft...");
@@ -31,13 +42,24 @@ async function main(): Promise<void> {
     console.info(`Connected as ${runtime.bot.username}.`);
 
     const world = new MineflayerWorldQueries(runtime);
+    containerSessions = new ContainerSessionManager(runtime.bot);
     const executor = new Executor({
-      registry: createCapabilityRegistry(),
+      registry: createCapabilityRegistry(containerSessions),
       runtime,
       world,
     });
     controller = new ExecutionController({ executor });
-    controller.subscribe(logExecutionEvent);
+    controller.subscribe((event) => {
+      logExecutionEvent(event);
+      if (
+        event.type === "queue_changed" &&
+        (event.reason === "clear" ||
+          (event.reason === "replace" &&
+            event.snapshot.pending.length === 0))
+      ) {
+        void containerSessions?.closeActive("Execution queue abandoned.");
+      }
+    });
 
     const targetNames = (
       process.env.DEMO_BLOCKS ?? "oak_log,birch_log,spruce_log"
@@ -83,6 +105,7 @@ async function main(): Promise<void> {
     await waitForShutdown(runtime, controller);
   } finally {
     await controller?.shutdown("Minecraft harness stopped.");
+    await containerSessions?.closeActive("Minecraft harness stopped.");
     runtime.disconnect();
   }
 }
@@ -113,13 +136,24 @@ function waitForShutdown(
   });
 }
 
-function createCapabilityRegistry(): CapabilityRegistry {
+function createCapabilityRegistry(
+  containerSessions: ContainerSessionManager,
+): CapabilityRegistry {
   const registry = new CapabilityRegistry();
   registry.register(new GotoCapability());
   registry.register(new DigCapability());
   registry.register(new EquipCapability());
   registry.register(new PlaceCapability());
   registry.register(new DropCapability());
+  registry.register(new CraftCapability());
+  registry.register(new ConsumeCapability());
+  registry.register(new UseItemCapability());
+  registry.register(new UseBlockCapability());
+  registry.register(new OpenContainerCapability(containerSessions));
+  registry.register(new TransferItemCapability(containerSessions));
+  registry.register(new CloseContainerCapability(containerSessions));
+  registry.register(new AttackCapability());
+  registry.register(new InteractEntityCapability());
   return registry;
 }
 

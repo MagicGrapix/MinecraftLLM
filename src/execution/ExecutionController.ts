@@ -191,7 +191,6 @@ export class ExecutionController {
   clearPending(options: MutationOptions = {}): ControlResult {
     const rejected = this.rejectMutation(options);
     if (rejected) return rejected;
-    if (this.queue.size === 0) return this.success();
 
     const removedIds = this.queue.toArray().map((task) => task.id);
     this.queue.clear();

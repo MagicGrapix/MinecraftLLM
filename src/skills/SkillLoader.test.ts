@@ -54,6 +54,25 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   assert.match(gather.instructions, /Condition de réussite/);
 });
 
+test("craft and hunger skills load as text-only instructions", async () => {
+  const registry = await SkillRegistry.discover(
+    resolve(process.cwd(), "skills"),
+  );
+  const loader = new SkillLoader(
+    registry,
+    capabilities("goto", "equip", "craft", "consume"),
+    createDefaultWorldQueryRegistry(emptyWorld),
+  );
+
+  const craft = await loader.load("craft_item");
+  const hunger = await loader.load("eat_when_hungry");
+
+  assert.deepEqual(craft.requiredCapabilities, ["goto", "craft"]);
+  assert.match(craft.instructions, /recette 3×3/);
+  assert.deepEqual(hunger.requiredCapabilities, ["equip", "consume"]);
+  assert.match(hunger.instructions, /ACTION_NOT_CONFIRMED/);
+});
+
 test("loader rejects unsafe names before resolving a path", async () => {
   const registry = await SkillRegistry.discover(
     resolve(process.cwd(), "skills"),

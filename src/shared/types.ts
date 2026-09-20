@@ -35,6 +35,19 @@ export const EquipmentDestinationSchema = z.enum([
 
 export type EquipmentDestination = z.infer<typeof EquipmentDestinationSchema>;
 
+export const HandSchema = z.enum(["hand", "off-hand"]);
+export type Hand = z.infer<typeof HandSchema>;
+
+export const CursorPositionSchema = z
+  .object({
+    x: z.number().finite().min(0).max(1),
+    y: z.number().finite().min(0).max(1),
+    z: z.number().finite().min(0).max(1),
+  })
+  .strict();
+
+export type CursorPosition = z.infer<typeof CursorPositionSchema>;
+
 export const BlockFaceSchema = z.enum([
   "top",
   "bottom",

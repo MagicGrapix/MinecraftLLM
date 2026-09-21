@@ -70,6 +70,7 @@ const FileSchema = z
 
 export class LandmarkMemory {
   private readonly landmarks = new Map<string, Landmark>();
+  private persistTail: Promise<void> = Promise.resolve();
 
   private constructor(
     readonly filePath: string,
@@ -243,14 +244,24 @@ export class LandmarkMemory {
     return changed.map(cloneLandmark);
   }
 
-  async persist(): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
+  persist(): Promise<void> {
     const content = `${JSON.stringify(
       { version: 1, landmarks: this.list() },
       null,
       2,
     )}\n`;
+    const operation = this.persistTail.then(() =>
+      this.writeSnapshot(content),
+    );
+    // A failed write is still reported to its caller, but must not poison all
+    // future writes queued behind it.
+    this.persistTail = operation.catch(() => undefined);
+    return operation;
+  }
+
+  private async writeSnapshot(content: string): Promise<void> {
+    await mkdir(dirname(this.filePath), { recursive: true });
+    const tempPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     await writeFile(tempPath, content, "utf8");
     await rename(tempPath, this.filePath);
   }

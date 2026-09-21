@@ -31,6 +31,18 @@ test("intent router handles mandatory question and action cases", async () => {
     "action_request",
   );
   assert.equal(
+    (
+      await router.route(
+        "Peux-tu m'expliquer comment construire une table ?",
+      )
+    ).kind,
+    "readonly_question",
+  );
+  assert.equal(
+    (await router.route("Can you explain how to build a chest?")).kind,
+    "readonly_question",
+  );
+  assert.equal(
     (await router.route("où est le coffre ?")).kind,
     "readonly_question",
   );

@@ -202,6 +202,72 @@ test("a successful action plan starts a newly queued future", async () => {
   await agent.shutdown();
 });
 
+test("a committed action plan keeps running when the next LLM round is superseded", async () => {
+  const llm = new FakeLLMClient();
+  llm.enqueue({
+    message: {
+      role: "assistant",
+      content: null,
+      toolCalls: [
+        {
+          id: "enqueue",
+          name: "enqueue_tasks",
+          arguments: '{"tasks":[],"expectedRevision":0}',
+        },
+      ],
+    },
+    finishReason: "tool_calls",
+  });
+  const staleFollowUp = llm.enqueueDeferred({ ignoreAbort: true });
+  llm.enqueue({
+    message: { role: "assistant", content: "Le plan continue." },
+    finishReason: "stop",
+  });
+  const fake = fakeController();
+  const responses: string[] = [];
+  const agent = new Agent({
+    llm,
+    intentRouter: new ChatIntentRouter(llm),
+    contextBuilder: {
+      build: () => [{ role: "user", content: "turn" }],
+    } as unknown as AgentContextBuilder,
+    toolBridge: {
+      catalog: { build: () => [] },
+      execute: async () => ({
+        toolCallId: "enqueue",
+        name: "enqueue_tasks",
+        ok: true,
+        content: '{"ok":true}',
+      }),
+    } as unknown as AgentToolBridge,
+    controller: fake.controller,
+    history: new ConversationHistory(),
+    activities: new RecentActivityBuffer(),
+    maxToolRounds: 3,
+    temperature: 0,
+    maxTokens: 100,
+    turnTimeoutMs: 5_000,
+    respond: async (message) => {
+      responses.push(message);
+    },
+  });
+  agent.start();
+  agent.submitUserMessage("owner", "construis une table");
+
+  await waitUntil(() => llm.requests.length === 2);
+  assert.equal(fake.resumeCalls, 1);
+
+  agent.submitUserMessage("owner", "où est le coffre ?");
+  staleFollowUp.resolve({
+    message: { role: "assistant", content: "réponse obsolète" },
+    finishReason: "stop",
+  });
+
+  await waitUntil(() => responses.includes("Le plan continue."));
+  assert.equal(fake.resumeCalls, 1);
+  await agent.shutdown();
+});
+
 function fakeController(): {
   controller: ExecutionController;
   abortCalls: number;
@@ -213,10 +279,11 @@ function fakeController(): {
     resumeCalls: 0,
     pendingCount: 1,
     revision: 0,
+    mode: "paused" as "paused" | "draining",
   };
   const snapshot = (): ExecutionSnapshot => ({
     revision: state.revision,
-    mode: "paused",
+    mode: state.mode,
     current: null,
     pending: [
       {
@@ -232,11 +299,16 @@ function fakeController(): {
     snapshot,
     abortCurrent: () => {
       state.abortCalls += 1;
+      state.mode = "paused";
       return { ok: true, snapshot: snapshot(), taskIds: [] };
     },
-    pause: () => ({ ok: true, snapshot: snapshot(), taskIds: [] }),
+    pause: () => {
+      state.mode = "paused";
+      return { ok: true, snapshot: snapshot(), taskIds: [] };
+    },
     resume: () => {
       state.resumeCalls += 1;
+      state.mode = "draining";
       return { ok: true, snapshot: snapshot(), taskIds: [] };
     },
   } as unknown as ExecutionController;

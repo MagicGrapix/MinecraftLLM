@@ -92,3 +92,42 @@ test("block landmarks become stale when unloaded and missing only after verifica
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("concurrent landmark mutations persist in call order", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minecraft-landmarks-"));
+  const file = join(root, "landmarks.json");
+  try {
+    let nextId = 0;
+    const memory = await LandmarkMemory.load(file, {
+      createId: () => `landmark-${++nextId}`,
+      now: () => 300,
+    });
+
+    await Promise.all([
+      memory.remember({
+        name: "Table",
+        kind: "crafting_table",
+        dimension: "overworld",
+        position: { x: 1, y: 64, z: 1 },
+        source: "observed",
+        pinned: true,
+      }),
+      memory.remember({
+        name: "Coffre",
+        kind: "chest",
+        dimension: "overworld",
+        position: { x: 2, y: 64, z: 2 },
+        source: "observed",
+        pinned: true,
+      }),
+    ]);
+
+    const reloaded = await LandmarkMemory.load(file);
+    assert.deepEqual(
+      reloaded.list().map((landmark) => landmark.name),
+      ["Coffre", "Table"],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

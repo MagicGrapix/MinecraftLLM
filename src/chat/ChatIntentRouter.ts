@@ -21,6 +21,8 @@ const politeActionPattern =
   /\b(est[- ]ce que tu peux|peux[- ]tu|pourrais[- ]tu|can you|could you)\b/i;
 const readonlyPattern =
   /^(comment|pourquoi|où|quel|quelle|quels|quelles|combien|what|why|where|how)\b/i;
+const explanatoryQuestionPattern =
+  /\b(comment|expliqu(?:e|er|es|ez)|décri(?:s|re|vez)|dis[- ]moi comment|how|explain|describe)\b/i;
 
 export class ChatIntentRouter {
   constructor(
@@ -70,15 +72,18 @@ function routeDeterministically(text: string): ChatIntent | null {
   ) {
     return { kind: "unclear", confidence: 1 };
   }
-  if (politeActionPattern.test(text) && actionPattern.test(text)) {
-    return { kind: "action_request", confidence: 0.98 };
-  }
+  // Explanatory wording wins over polite action wording. This is deliberately
+  // conservative: a mixed/ambiguous request must not receive mutation tools.
   if (
+    explanatoryQuestionPattern.test(text) ||
     readonlyPattern.test(text) ||
     lower === "où" ||
     lower.startsWith("où ")
   ) {
     return { kind: "readonly_question", confidence: 0.95 };
+  }
+  if (politeActionPattern.test(text) && actionPattern.test(text)) {
+    return { kind: "action_request", confidence: 0.98 };
   }
   if (actionPattern.test(text)) {
     return { kind: "action_request", confidence: 0.9 };

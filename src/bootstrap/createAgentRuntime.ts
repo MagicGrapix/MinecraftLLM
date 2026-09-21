@@ -105,14 +105,38 @@ export async function createAgentRuntime(
     ownerUsername: config.botOwnerUsername,
   });
 
+  const landmarkRefreshes = new Set<Promise<void>>();
+  const trackLandmarkRefresh = (
+    event: Extract<
+      import("../execution/ExecutionController").ExecutionEvent,
+      { type: "task_finished" }
+    >,
+  ): void => {
+    const refresh = refreshLandmarksFromTask(
+      event,
+      runtime.bot.game.dimension,
+      landmarks,
+    ).catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      activities.add({
+        kind: "memory_error",
+        summary: "Landmark refresh failed.",
+        data: { error: message, taskId: event.task.id },
+        taskId: event.task.id,
+      });
+      console.error("Landmark refresh failed:", error);
+    });
+    landmarkRefreshes.add(refresh);
+    void refresh.then(() => {
+      landmarkRefreshes.delete(refresh);
+    });
+  };
+
   const unsubscribe = controller.subscribe((event) => {
     agent.notifyExecutionEvent(event);
     if (event.type === "task_finished") {
-      void refreshLandmarksFromTask(
-        event,
-        runtime.bot.game.dimension,
-        landmarks,
-      );
+      trackLandmarkRefresh(event);
     }
     if (
       event.type === "queue_changed" &&
@@ -138,9 +162,10 @@ export async function createAgentRuntime(
         chat?.detach();
         await agent.shutdown();
         await controller.shutdown(reason);
+        unsubscribe();
+        await Promise.all([...landmarkRefreshes]);
         await sessions.closeActive(reason);
         await landmarks.persist();
-        unsubscribe();
         runtime.disconnect(reason);
       })();
       return shutdownPromise;
@@ -148,7 +173,7 @@ export async function createAgentRuntime(
   };
 }
 
-async function refreshLandmarksFromTask(
+export async function refreshLandmarksFromTask(
   event: Extract<
     import("../execution/ExecutionController").ExecutionEvent,
     { type: "task_finished" }
@@ -158,37 +183,69 @@ async function refreshLandmarksFromTask(
 ): Promise<void> {
   const input = event.task.input;
   if (typeof input !== "object" || input === null) return;
-  const candidate =
+  const inputPosition =
     "position" in input
       ? input.position
       : "tablePosition" in input
         ? input.tablePosition
+        : "referencePosition" in input
+          ? input.referencePosition
         : null;
-  if (!isPosition(candidate)) return;
 
   if (
     !event.result.ok &&
     (event.result.error.code === "TARGET_NOT_FOUND" ||
       event.result.error.code === "WORLD_CHANGED")
   ) {
+    if (!isPosition(inputPosition)) return;
     await landmarks.markAtPosition(
       dimension,
-      candidate,
+      inputPosition,
       "stale",
       false,
     );
     return;
   }
+
+  if (!event.result.ok) return;
+
+  if (event.task.capability === "dig" && isPosition(inputPosition)) {
+    await landmarks.markAtPosition(
+      dimension,
+      inputPosition,
+      "missing",
+      true,
+    );
+    return;
+  }
+
+  if (event.task.capability === "place") {
+    const placedPosition =
+      typeof event.result.value === "object" &&
+      event.result.value !== null &&
+      "position" in event.result.value
+        ? event.result.value.position
+        : null;
+    if (isPosition(placedPosition)) {
+      await landmarks.markAtPosition(
+        dimension,
+        placedPosition,
+        "confirmed",
+        true,
+      );
+    }
+    return;
+  }
+
   if (
-    event.result.ok &&
-    (event.task.capability === "place" ||
-      event.task.capability === "use_block" ||
+    isPosition(inputPosition) &&
+    (event.task.capability === "use_block" ||
       event.task.capability === "open_container" ||
       event.task.capability === "craft")
   ) {
     await landmarks.markAtPosition(
       dimension,
-      candidate,
+      inputPosition,
       "confirmed",
       true,
     );

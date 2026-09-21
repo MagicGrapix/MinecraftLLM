@@ -191,6 +191,9 @@ export class Agent {
     const abort = new AbortController();
     this.activeAbort = abort;
     this.thinking = true;
+    let committedPermission: AgentPermissionMode | null = null;
+    let planMutated = false;
+    let executionStoppedByTool = false;
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -206,6 +209,7 @@ export class Agent {
       );
       this.assertCurrent(generationId, abort.signal);
       if (!prepared) return;
+      committedPermission = prepared.permission;
 
       const baseMessages = this.options.contextBuilder.build({
         manualStopped: this.manualStopped,
@@ -221,8 +225,6 @@ export class Agent {
       ];
       let completed = false;
       let hadToolError = false;
-      let planMutated = false;
-      let executionStoppedByTool = false;
 
       for (
         let round = 0;
@@ -263,15 +265,8 @@ export class Agent {
             manualStopped: this.manualStopped,
             generationId,
           });
-          this.assertCurrent(generationId, abort.signal);
-          const toolMessage: LLMMessage = {
-            role: "tool",
-            toolCallId: result.toolCallId,
-            content: result.content,
-          };
-          messages.push(toolMessage);
-          turnMessages.push(toolMessage);
-          hadToolError ||= !result.ok;
+          // Record already-committed side effects before checking whether the
+          // generation was superseded while the bridge call was in flight.
           planMutated ||=
             result.ok &&
             (call.name === "enqueue_tasks" ||
@@ -283,12 +278,28 @@ export class Agent {
             result.ok &&
             (call.name === "pause_execution" ||
               call.name === "abort_current_task");
+          this.assertCurrent(generationId, abort.signal);
+          const toolMessage: LLMMessage = {
+            role: "tool",
+            toolCallId: result.toolCallId,
+            content: result.content,
+          };
+          messages.push(toolMessage);
+          turnMessages.push(toolMessage);
+          hadToolError ||= !result.ok;
           this.options.activities.add({
             kind: "tool",
             summary: `${call.name}: ${result.ok ? "ok" : "error"}`,
             data: parseActivityData(result.content),
           });
         }
+        // A committed physical plan starts before the next LLM round. This is
+        // what lets execution and reflection progress concurrently.
+        this.resumeCommittedPlan(
+          prepared.permission,
+          planMutated,
+          executionStoppedByTool,
+        );
       }
 
       if (!completed) {
@@ -331,21 +342,6 @@ export class Agent {
           "Plan préparé ; je reste arrêté jusqu'à resume.",
           prepared.username,
         );
-      } else if (
-        prepared.permission === "acting" &&
-        planMutated &&
-        !executionStoppedByTool
-      ) {
-        const snapshot = this.options.controller.snapshot();
-        if (
-          snapshot.mode === "paused" &&
-          snapshot.current === null &&
-          snapshot.pending.length > 0
-        ) {
-          this.options.controller.resume({
-            expectedRevision: snapshot.revision,
-          });
-        }
       }
     } catch (error: unknown) {
       const obsolete =
@@ -386,6 +382,17 @@ export class Agent {
       );
     } finally {
       clearTimeout(timeout);
+      // Cancellation can happen after a queue mutation has committed but
+      // before its tool result is added to the conversation. Do not leave that
+      // valid plan stranded in a paused queue. A user stop remains sticky and
+      // therefore blocks this fallback.
+      if (committedPermission) {
+        this.resumeCommittedPlan(
+          committedPermission,
+          planMutated,
+          executionStoppedByTool,
+        );
+      }
       if (this.activeAbort === abort) {
         this.activeAbort = null;
         this.thinking = false;
@@ -485,6 +492,37 @@ export class Agent {
     this.generationId += 1;
     this.activeAbort?.abort(reason);
     return this.generationId;
+  }
+
+  private resumeCommittedPlan(
+    permission: AgentPermissionMode,
+    planMutated: boolean,
+    executionStoppedByTool: boolean,
+  ): void {
+    if (
+      permission !== "acting" ||
+      !planMutated ||
+      executionStoppedByTool ||
+      this.manualStopped
+    ) {
+      return;
+    }
+
+    const snapshot = this.options.controller.snapshot();
+    if (snapshot.mode !== "paused" || snapshot.pending.length === 0) {
+      return;
+    }
+
+    const resumed = this.options.controller.resume({
+      expectedRevision: snapshot.revision,
+    });
+    if (!resumed.ok) {
+      this.options.activities.add({
+        kind: "control_error",
+        summary: "A committed plan could not be resumed.",
+        data: resumed.error,
+      });
+    }
   }
 
   private assertCurrent(

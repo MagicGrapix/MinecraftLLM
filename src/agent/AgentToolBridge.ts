@@ -7,7 +7,11 @@ import type { LandmarkMemory } from "../memory/LandmarkMemory";
 import type { SkillLoader } from "../skills/SkillLoader";
 import type { SkillRegistry } from "../skills/SkillRegistry";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
-import { fixedToolSchemas, ToolCatalogBuilder } from "./ToolCatalogBuilder";
+import {
+  fixedToolSchemas,
+  toJsonSchema,
+  ToolCatalogBuilder,
+} from "./ToolCatalogBuilder";
 
 export type AgentPermissionMode =
   | "readonly"
@@ -46,6 +50,7 @@ const readToolNames = new Set([
   "get_execution_snapshot",
   "list_skills",
   "load_skill",
+  "get_capability_schemas",
   "list_landmarks",
 ]);
 const queueToolNames = new Set([
@@ -79,7 +84,14 @@ export class AgentToolBridge {
     let ok = false;
 
     try {
-      if (!this.isAllowed(call.name, context.permission)) {
+      if (!this.isKnownTool(call.name)) {
+        result = this.options.capabilities.has(call.name)
+          ? failure(
+              "CAPABILITY_REQUIRES_QUEUE",
+              `"${call.name}" is a capability, not a directly callable tool. Put it in a TaskSpec and submit it with enqueue_tasks, prepend_task, or replace_pending_tasks.`,
+            )
+          : failure("TOOL_NOT_FOUND", `Unknown tool "${call.name}".`);
+      } else if (!this.isAllowed(call.name, context.permission)) {
         result = failure(
           "PERMISSION_DENIED",
           `Tool "${call.name}" is not allowed in ${context.permission} mode.`,
@@ -177,6 +189,38 @@ export class AgentToolBridge {
         return success(
           await this.options.skillLoader.load(input.name as string),
         );
+      case "get_capability_schemas": {
+        const names = input.names as string[];
+        const unknown = names.filter(
+          (name) => !this.options.capabilities.has(name),
+        );
+        if (unknown.length > 0) {
+          return failure(
+            "UNKNOWN_CAPABILITY",
+            `Unknown capabilities: ${unknown.join(", ")}.`,
+            {
+              unknown,
+              available: this.options.capabilities
+                .list()
+                .map(({ name }) => name),
+            },
+          );
+        }
+        return success({
+          capabilities: names.map((name) => {
+            const capability = this.options.capabilities.get(name);
+            if (!capability) {
+              throw new Error(`Capability "${name}" disappeared.`);
+            }
+            return {
+              name: capability.name,
+              description: capability.description,
+              inputSchema: toJsonSchema(capability.inputSchema),
+            };
+          }),
+          note: "Use these schemas only for the current generation. Runtime validation remains authoritative.",
+        });
+      }
       case "list_landmarks":
         return success(this.options.landmarks.list());
       case "enqueue_tasks": {
@@ -335,6 +379,13 @@ export class AgentToolBridge {
     return (
       mode === "resume_review" &&
       (name === "pause_execution" || name === "abort_current_task")
+    );
+  }
+
+  private isKnownTool(name: string): boolean {
+    return (
+      this.options.queries.has(name) ||
+      Object.prototype.hasOwnProperty.call(fixedToolSchemas, name)
     );
   }
 }

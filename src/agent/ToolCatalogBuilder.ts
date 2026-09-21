@@ -9,10 +9,14 @@ import type { AgentPermissionMode } from "./AgentToolBridge";
 
 const EmptySchema = z.object({}).strict();
 const RevisionSchema = z.number().int().nonnegative();
+const CapabilitySchemaNamesSchema = z
+  .array(z.string().trim().min(1))
+  .min(1)
+  .max(4);
 const TaskEnvelopeSchema = z
   .object({
     capability: z.string().min(1),
-    input: z.unknown(),
+    input: z.record(z.unknown()),
     timeoutMs: z.number().int().positive().optional(),
   })
   .strict();
@@ -21,6 +25,9 @@ export const fixedToolSchemas = {
   get_execution_snapshot: EmptySchema,
   list_skills: EmptySchema,
   load_skill: z.object({ name: z.string().min(1) }).strict(),
+  get_capability_schemas: z
+    .object({ names: CapabilitySchemaNamesSchema })
+    .strict(),
   list_landmarks: EmptySchema,
   enqueue_tasks: z
     .object({
@@ -86,9 +93,11 @@ const fixedDescriptions: Record<keyof typeof fixedToolSchemas, string> = {
   list_skills: "List available textual skills and their descriptions.",
   load_skill:
     "Load one textual skill with its complete instructions and dependencies.",
+  get_capability_schemas:
+    "Load the exact input schemas for one to four capabilities before adding those capabilities to a TaskSpec. Request only the capabilities needed for the current short plan.",
   list_landmarks: "List remembered important places and their status.",
   enqueue_tasks:
-    "Append validated physical tasks to the future execution queue.",
+    "Append validated physical tasks to the future execution queue. This is the normal way to perform capabilities such as goto, dig, equip, place, craft, or attack; capability names are not direct tools.",
   replace_pending_tasks:
     "Atomically replace all pending tasks without changing the active task.",
   prepend_task: "Insert one validated task at the front of the pending queue.",
@@ -108,6 +117,7 @@ const readTools = new Set([
   "get_execution_snapshot",
   "list_skills",
   "load_skill",
+  "get_capability_schemas",
   "list_landmarks",
 ]);
 const queueTools = new Set([
@@ -134,28 +144,19 @@ export class ToolCatalogBuilder {
       return {
         name,
         description,
-        parameters: toSchema(query.inputSchema),
+        parameters: toJsonSchema(query.inputSchema),
       };
     });
 
-    const taskSchema = buildTaskSchema(capabilities);
     this.fixedTools = new Map(
       Object.entries(fixedToolSchemas).map(([name, schema]) => {
-        const baseSchema = toSchema(schema);
-        const parameters =
-          name === "enqueue_tasks" ||
-          name === "replace_pending_tasks"
-            ? replaceNestedTaskSchema(baseSchema, "tasks", taskSchema)
-            : name === "prepend_task"
-              ? replaceNestedTaskSchema(baseSchema, "task", taskSchema)
-              : baseSchema;
         return [
           name,
           {
             name,
             description:
               fixedDescriptions[name as keyof typeof fixedToolSchemas],
-            parameters,
+            parameters: toJsonSchema(schema),
           },
         ];
       }),
@@ -190,43 +191,9 @@ export class ToolCatalogBuilder {
   }
 }
 
-function buildTaskSchema(
-  capabilities: CapabilityRegistry,
+export function toJsonSchema(
+  schema: z.ZodTypeAny,
 ): Record<string, unknown> {
-  return {
-    oneOf: capabilities.list().map(({ name }) => {
-      const capability = capabilities.get(name);
-      if (!capability) throw new Error(`Capability "${name}" disappeared.`);
-      return {
-        type: "object",
-        properties: {
-          capability: { const: name },
-          input: toSchema(capability.inputSchema),
-          timeoutMs: { type: "integer", minimum: 1 },
-        },
-        required: ["capability", "input"],
-        additionalProperties: false,
-      };
-    }),
-  };
-}
-
-function replaceNestedTaskSchema(
-  schema: Record<string, unknown>,
-  property: "tasks" | "task",
-  taskSchema: Record<string, unknown>,
-): Record<string, unknown> {
-  const properties = asRecord(schema.properties);
-  if (property === "tasks") {
-    const tasks = asRecord(properties.tasks);
-    properties.tasks = { ...tasks, items: taskSchema };
-  } else {
-    properties.task = taskSchema;
-  }
-  return { ...schema, properties };
-}
-
-function toSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   const converted = zodToJsonSchema(schema, {
     target: "openApi3",
     $refStrategy: "none",
@@ -234,10 +201,4 @@ function toSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   const result = { ...converted } as Record<string, unknown>;
   delete result.$schema;
   return result;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null
-    ? { ...(value as Record<string, unknown>) }
-    : {};
 }

@@ -7,12 +7,12 @@ import type { LLMMessage } from "../llm/LLMClient";
 import type { ConversationHistory } from "../memory/ConversationHistory";
 import type { LandmarkMemory } from "../memory/LandmarkMemory";
 import type { RecentActivityBuffer } from "../memory/RecentActivityBuffer";
+import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { LoadedSkill } from "../skills/Skill";
 import type { SkillRegistry } from "../skills/SkillRegistry";
 import type { WorldQueries } from "../world/WorldQueries";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
 import type { AgentPermissionMode } from "./AgentToolBridge";
-import { AGENT_SYSTEM_PROMPT } from "./prompts";
 
 export interface AgentContextRequest {
   readonly manualStopped: boolean;
@@ -35,6 +35,7 @@ export class AgentContextBuilder {
       landmarks: LandmarkMemory;
       activities: RecentActivityBuffer;
       history: ConversationHistory;
+      systemPrompt: PromptTemplate;
       budgetChars: number;
     },
   ) {}
@@ -63,9 +64,12 @@ export class AgentContextBuilder {
       role: "user",
       content: request.currentInput,
     };
-    const baseSystem = `${AGENT_SYSTEM_PROMPT}\n\nCURRENT_CONTEXT=${JSON.stringify(
-      mandatory,
-    )}`;
+    const renderSystem = (recentActivity: unknown): string =>
+      this.dependencies.systemPrompt.render({
+        current_context: JSON.stringify(mandatory),
+        recent_activity: JSON.stringify(recentActivity),
+      });
+    const baseSystem = renderSystem([]);
 
     let used =
       baseSystem.length + JSON.stringify(userMessage).length;
@@ -89,19 +93,33 @@ export class AgentContextBuilder {
 
     const system: LLMMessage = {
       role: "system",
-      content: `${baseSystem}\nRECENT_ACTIVITY=${JSON.stringify(
-        selectedActivities,
-      )}`,
+      content: renderSystem(selectedActivities),
     };
-    return [
+    const messages: LLMMessage[] = [
       system,
       ...selectedGroups.flatMap((group) => group),
       userMessage,
     ];
+    console.debug("Agent context assembled.", {
+      generationId: request.generationId,
+      permission: request.permission,
+      wakeReason: request.wakeReason,
+      executionRevision: mandatory.execution.revision,
+      executionMode: mandatory.execution.mode,
+      pendingTasks: mandatory.execution.pending.length,
+      hasCurrentTask: mandatory.execution.current !== null,
+      pinnedLandmarks: mandatory.pinnedLandmarks.length,
+      selectedActivities: selectedActivities.length,
+      selectedHistoryGroups: selectedGroups.length,
+      messageCount: messages.length,
+      contextChars: JSON.stringify(messages).length,
+      budgetChars: this.dependencies.budgetChars,
+    });
+    return messages;
   }
 }
 
-function compactSnapshot(snapshot: ExecutionSnapshot): unknown {
+function compactSnapshot(snapshot: ExecutionSnapshot) {
   return {
     revision: snapshot.revision,
     mode: snapshot.mode,

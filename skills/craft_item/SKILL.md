@@ -1,6 +1,6 @@
 ---
 name: craft_item
-description: Fabriquer un item avec la grille personnelle ou une table de craft explicite.
+description: Craft an item with the personal grid or an explicitly located crafting table.
 required_capabilities:
   - goto
   - craft
@@ -11,13 +11,13 @@ required_queries:
 
 # Craft item
 
-Lis l'inventaire avant toute fabrication. Utilise la station `"inventory"` uniquement pour une recette
-2×2. Pour une recette 3×3, trouve une `crafting_table`, ajoute `goto` vers elle, puis appelle `craft`
-avec `station: "crafting_table"` et sa position exacte.
+Read the inventory before crafting. Use the `"inventory"` station only for a 2x2 recipe. For a 3x3
+recipe, find a `crafting_table`, add a `goto` task for it, then call `craft` with
+`station: "crafting_table"` and its exact observed position.
 
-Si `craft` retourne `MISSING_ITEM`, utilise `missingIngredients` comme liste de sous-objectifs. Si le
-code est `RECIPE_NOT_FOUND`, ne répète pas la même demande sans changer l'item ou la station. Si la
-table est hors de portée, corrige la navigation plutôt que la capability.
+If `craft` returns `MISSING_ITEM`, use `missingIngredients` as the list of sub-objectives. If the code
+is `RECIPE_NOT_FOUND`, do not repeat the same request without changing the item or station. If the
+table is out of reach, correct navigation rather than the capability.
 
-La réussite doit toujours être vérifiée avec `get_inventory`; la quantité réellement produite peut
-dépasser légèrement la quantité demandée lorsque la recette fabrique plusieurs items à la fois.
+Always verify success with `get_inventory`. The actual quantity produced may slightly exceed the
+requested quantity when a recipe produces several items at once.

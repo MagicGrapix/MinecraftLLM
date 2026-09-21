@@ -27,6 +27,8 @@ export interface LLMTool {
 export interface LLMRequest {
   readonly messages: readonly LLMMessage[];
   readonly tools?: readonly LLMTool[];
+  readonly responseFormat?: "json_object";
+  readonly reasoningEffort?: "none" | "low" | "medium" | "high" | "max";
   readonly temperature?: number;
   readonly maxTokens?: number;
   readonly signal?: AbortSignal;
@@ -34,6 +36,7 @@ export interface LLMRequest {
 
 export interface LLMResponse {
   readonly message: Extract<LLMMessage, { role: "assistant" }>;
+  readonly reasoning?: string;
   readonly finishReason: string | null;
   readonly usage?: {
     readonly promptTokens?: number;

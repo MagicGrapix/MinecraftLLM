@@ -1,4 +1,4 @@
-import "./Logger";
+import { getFullTraceFilePath, getLogFilePath } from "./Logger";
 import { resolve } from "node:path";
 import { loadAgentConfig } from "./agent/AgentConfig";
 import {
@@ -15,6 +15,10 @@ import { MinecraftRuntime } from "./runtime/MinecraftRuntime";
 
 async function main(): Promise<void> {
   const config = loadAgentConfig();
+  console.info("Session file logging enabled.", {
+    logFile: getLogFilePath(),
+    fullTraceFile: getFullTraceFilePath(),
+  });
   const landmarks =
     config.botMode === "agent"
       ? await LandmarkMemory.load(

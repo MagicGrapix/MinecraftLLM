@@ -1,6 +1,6 @@
 ---
 name: eat_when_hungry
-description: Choisir et consommer un aliment lorsque le niveau de nourriture est bas.
+description: Select and consume food when the bot's food level is low.
 required_capabilities:
   - equip
   - consume
@@ -11,13 +11,13 @@ required_queries:
 
 # Eat when hungry
 
-Lis d'abord `get_self`. Si la nourriture est basse, utilise `get_inventory` pour choisir un aliment
-adapté réellement disponible. Ajoute ensuite `equip` vers `"hand"`, puis `consume` avec le même
-`expectedItem` et `hand: "hand"`.
+Call `get_self` first. If the food level is low, use `get_inventory` to select a suitable food item
+that is actually available. Then add `equip` for `"hand"`, followed by `consume` with the same
+`expectedItem` and `hand: "hand"`.
 
-Après le résultat de `consume`, relis `get_self` et vérifie que la nourriture a augmenté. Un
-`NOT_CONSUMABLE` impose de choisir un autre item. Un `MISSING_ITEM` impose de relire l'inventaire. Un
-`ACTION_NOT_CONFIRMED` ne doit jamais être interprété comme un repas réussi.
+After the `consume` result, call `get_self` again and verify that the food level increased.
+`NOT_CONSUMABLE` requires selecting another item. `MISSING_ITEM` requires reading the inventory again.
+Never interpret `ACTION_NOT_CONFIRMED` as a successful meal.
 
-Ne consomme pas si la nourriture est déjà pleine, sauf si l'objectif explicite concerne l'effet d'une
-potion, du lait ou du miel.
+Do not consume anything when the food level is already full unless the explicit objective concerns an
+effect from a potion, milk, or honey.

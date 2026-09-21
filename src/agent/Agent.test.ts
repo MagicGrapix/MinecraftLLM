@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChatIntentRouter } from "../chat/ChatIntentRouter";
+import type { ChatIntentRouter } from "../chat/ChatIntentRouter";
 import type {
   ExecutionController,
   ExecutionSnapshot,
@@ -9,10 +9,72 @@ import { FakeLLMClient } from "../llm/FakeLLMClient";
 import { LLMError } from "../llm/LLMError";
 import { ConversationHistory } from "../memory/ConversationHistory";
 import { RecentActivityBuffer } from "../memory/RecentActivityBuffer";
+import { PromptTemplate } from "../prompts/PromptTemplate";
 import { sleep } from "../shared/helper";
 import { AgentContextBuilder } from "./AgentContextBuilder";
 import { AgentToolBridge } from "./AgentToolBridge";
-import { Agent } from "./Agent";
+import { Agent, compactTurnForHistory } from "./Agent";
+
+const TEST_PROMPTS = {
+  resumeReview: PromptTemplate.fromString("resume", "Review the plan."),
+  executionFinished: PromptTemplate.fromString(
+    "finished",
+    "Task={{task}} Result={{result}} Revision={{revision}}",
+  ),
+  executionIdle: PromptTemplate.fromString(
+    "idle",
+    "Idle at revision {{revision}}",
+  ),
+};
+
+test("capability schemas remain available in-turn but are compacted in history", () => {
+  const messages = [
+    { role: "user" as const, content: "coupe le bois" },
+    {
+      role: "assistant" as const,
+      content: null,
+      toolCalls: [
+        {
+          id: "schemas",
+          name: "get_capability_schemas",
+          arguments: '{"names":["goto","dig"]}',
+        },
+      ],
+    },
+    {
+      role: "tool" as const,
+      toolCallId: "schemas",
+      content: JSON.stringify({
+        ok: true,
+        value: {
+          capabilities: [
+            {
+              name: "goto",
+              inputSchema: { distinctiveLargeGotoSchema: "x".repeat(2_000) },
+            },
+            {
+              name: "dig",
+              inputSchema: { distinctiveLargeDigSchema: "x".repeat(2_000) },
+            },
+          ],
+        },
+      }),
+    },
+    { role: "assistant" as const, content: "plan prêt" },
+  ];
+
+  const compacted = compactTurnForHistory(messages);
+  const serialized = JSON.stringify(compacted);
+  assert.match(serialized, /loadedCapabilitySchemas/);
+  assert.match(serialized, /goto/);
+  assert.match(serialized, /dig/);
+  assert.doesNotMatch(serialized, /distinctiveLargeGotoSchema/);
+  assert.doesNotMatch(serialized, /distinctiveLargeDigSchema/);
+  assert.ok(JSON.stringify(messages).length > serialized.length + 3_000);
+
+  const history = new ConversationHistory();
+  assert.equal(history.appendTurn(compacted), true);
+});
 
 test("a late stale generation cannot execute tools", async () => {
   const llm = new FakeLLMClient();
@@ -26,7 +88,7 @@ test("a late stale generation cannot execute tools", async () => {
   const history = new ConversationHistory();
   const agent = new Agent({
     llm,
-    intentRouter: new ChatIntentRouter(llm),
+    intentRouter: testIntentRouter(),
     contextBuilder: {
       build: ({ currentInput }: { currentInput: string }) => [
         { role: "system", content: "system" },
@@ -48,6 +110,7 @@ test("a late stale generation cannot execute tools", async () => {
     controller: fakeController().controller,
     history,
     activities: new RecentActivityBuffer(),
+    prompts: TEST_PROMPTS,
     maxToolRounds: 3,
     temperature: 0,
     maxTokens: 100,
@@ -83,18 +146,77 @@ test("a late stale generation cannot execute tools", async () => {
   await agent.shutdown();
 });
 
+test("a token-limited response is discarded before any tool executes", async () => {
+  const llm = new FakeLLMClient();
+  llm.enqueue({
+    message: {
+      role: "assistant",
+      content: "partial",
+      toolCalls: [
+        {
+          id: "truncated-call",
+          name: "enqueue_tasks",
+          arguments: '{"tasks":',
+        },
+      ],
+    },
+    finishReason: "length",
+  });
+  const toolCalls: string[] = [];
+  const responses: string[] = [];
+  const history = new ConversationHistory();
+  const agent = new Agent({
+    llm,
+    intentRouter: testIntentRouter(),
+    contextBuilder: {
+      build: () => [{ role: "user", content: "action" }],
+    } as unknown as AgentContextBuilder,
+    toolBridge: {
+      catalog: { build: () => [] },
+      execute: async (call: { name: string }) => {
+        toolCalls.push(call.name);
+        return {
+          toolCallId: "x",
+          name: call.name,
+          ok: true,
+          content: '{"ok":true}',
+        };
+      },
+    } as unknown as AgentToolBridge,
+    controller: fakeController().controller,
+    history,
+    activities: new RecentActivityBuffer(),
+    prompts: TEST_PROMPTS,
+    maxToolRounds: 3,
+    temperature: 0,
+    maxTokens: 100,
+    turnTimeoutMs: 5_000,
+    respond: async (message) => {
+      responses.push(message);
+    },
+  });
+  agent.start();
+  agent.submitUserMessage("owner", "construis une table");
+
+  await waitUntil(() => responses.some((message) => message.includes("limite de tokens")));
+  assert.deepEqual(toolCalls, []);
+  assert.equal(history.turnCount(), 0);
+  await agent.shutdown();
+});
+
 test("stop is immediate and preserves pending work", async () => {
   const llm = new FakeLLMClient();
   const fake = fakeController();
   const responses: string[] = [];
   const agent = new Agent({
     llm,
-    intentRouter: new ChatIntentRouter(llm),
+    intentRouter: testIntentRouter(),
     contextBuilder: {} as AgentContextBuilder,
     toolBridge: {} as AgentToolBridge,
     controller: fake.controller,
     history: new ConversationHistory(),
     activities: new RecentActivityBuffer(),
+    prompts: TEST_PROMPTS,
     maxToolRounds: 3,
     temperature: 0,
     maxTokens: 100,
@@ -121,7 +243,7 @@ test("failed resume review keeps manual stop sticky", async () => {
   const responses: string[] = [];
   const agent = new Agent({
     llm,
-    intentRouter: new ChatIntentRouter(llm),
+    intentRouter: testIntentRouter(),
     contextBuilder: {
       build: () => [{ role: "user", content: "resume review" }],
     } as unknown as AgentContextBuilder,
@@ -131,6 +253,7 @@ test("failed resume review keeps manual stop sticky", async () => {
     controller: fake.controller,
     history: new ConversationHistory(),
     activities: new RecentActivityBuffer(),
+    prompts: TEST_PROMPTS,
     maxToolRounds: 3,
     temperature: 0,
     maxTokens: 100,
@@ -172,7 +295,7 @@ test("a successful action plan starts a newly queued future", async () => {
   const fake = fakeController();
   const agent = new Agent({
     llm,
-    intentRouter: new ChatIntentRouter(llm),
+    intentRouter: testIntentRouter(),
     contextBuilder: {
       build: () => [{ role: "user", content: "action" }],
     } as unknown as AgentContextBuilder,
@@ -188,6 +311,7 @@ test("a successful action plan starts a newly queued future", async () => {
     controller: fake.controller,
     history: new ConversationHistory(),
     activities: new RecentActivityBuffer(),
+    prompts: TEST_PROMPTS,
     maxToolRounds: 3,
     temperature: 0,
     maxTokens: 100,
@@ -227,7 +351,7 @@ test("a committed action plan keeps running when the next LLM round is supersede
   const responses: string[] = [];
   const agent = new Agent({
     llm,
-    intentRouter: new ChatIntentRouter(llm),
+    intentRouter: testIntentRouter(),
     contextBuilder: {
       build: () => [{ role: "user", content: "turn" }],
     } as unknown as AgentContextBuilder,
@@ -243,6 +367,7 @@ test("a committed action plan keeps running when the next LLM round is supersede
     controller: fake.controller,
     history: new ConversationHistory(),
     activities: new RecentActivityBuffer(),
+    prompts: TEST_PROMPTS,
     maxToolRounds: 3,
     temperature: 0,
     maxTokens: 100,
@@ -324,6 +449,15 @@ function fakeController(): {
       return state.resumeCalls;
     },
   };
+}
+
+function testIntentRouter(): ChatIntentRouter {
+  return {
+    route: async (text: string) =>
+      text.includes("où")
+        ? { kind: "readonly_question", confidence: 5 }
+        : { kind: "action_request", confidence: 5 },
+  } as ChatIntentRouter;
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {

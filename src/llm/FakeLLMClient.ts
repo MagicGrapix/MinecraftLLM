@@ -75,6 +75,12 @@ function cloneRequest(request: LLMRequest): LLMRequest {
   return {
     messages: structuredClone(request.messages),
     ...(request.tools ? { tools: structuredClone(request.tools) } : {}),
+    ...(request.responseFormat
+      ? { responseFormat: request.responseFormat }
+      : {}),
+    ...(request.reasoningEffort
+      ? { reasoningEffort: request.reasoningEffort }
+      : {}),
     ...(request.temperature === undefined
       ? {}
       : { temperature: request.temperature }),

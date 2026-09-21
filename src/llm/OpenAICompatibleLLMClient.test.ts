@@ -20,6 +20,7 @@ test("OpenAI adapter maps text, usage, and all function calls", async () => {
             finish_reason: "tool_calls",
             message: {
               content: null,
+              reasoning: "I should inspect the world first.",
               tool_calls: [
                 {
                   id: "call_1",
@@ -52,14 +53,19 @@ test("OpenAI adapter maps text, usage, and all function calls", async () => {
 
   const response = await client.complete({
     messages: [{ role: "user", content: "observe" }],
+    responseFormat: "json_object",
+    reasoningEffort: "none",
   });
 
   const actualBody = (sentBody ?? {}) as Record<string, unknown>;
   assert.equal(actualBody.model, options.model);
+  assert.deepEqual(actualBody.response_format, { type: "json_object" });
+  assert.equal(actualBody.reasoning_effort, "none");
   assert.deepEqual(response.message.toolCalls, [
     { id: "call_1", name: "get_self", arguments: "{}" },
     { id: "call_2", name: "get_inventory", arguments: "{}" },
   ]);
+  assert.equal(response.reasoning, "I should inspect the world first.");
   assert.equal(response.usage?.totalTokens, 15);
 });
 

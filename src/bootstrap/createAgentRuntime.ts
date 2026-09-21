@@ -11,6 +11,7 @@ import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
 import { ConversationHistory } from "../memory/ConversationHistory";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
 import { RecentActivityBuffer } from "../memory/RecentActivityBuffer";
+import { loadAgentPrompts } from "../prompts/AgentPrompts";
 import { ContainerSessionManager } from "../runtime/ContainerSessionManager";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
 import { toVec3 } from "../runtime/PositionAdapter";
@@ -40,6 +41,9 @@ export async function createAgentRuntime(
     resolve(process.cwd(), "skills"),
   );
   const skillLoader = new SkillLoader(skills, capabilities, queries);
+  const prompts = await loadAgentPrompts(
+    resolve(process.cwd(), config.promptsDirectory),
+  );
   const landmarks =
     preloadedLandmarks ??
     (await LandmarkMemory.load(
@@ -79,20 +83,26 @@ export async function createAgentRuntime(
     landmarks,
     activities,
     history,
+    systemPrompt: prompts.system,
     budgetChars: config.llmContextBudgetChars,
   });
 
   let chat: MinecraftChatAdapter | null = null;
   const agent = new Agent({
     llm,
-    intentRouter: new ChatIntentRouter(llm),
+    intentRouter: new ChatIntentRouter(
+      llm,
+      prompts.intentClassifier,
+    ),
     contextBuilder,
     toolBridge: bridge,
     controller,
     history,
     activities,
+    prompts,
     maxToolRounds: config.llmMaxToolRounds,
     temperature: config.llmTemperature,
+    reasoningEffort: config.llmReasoningEffort,
     maxTokens: config.llmMaxTokens,
     turnTimeoutMs: config.llmRequestTimeoutMs,
     respond: async (message) => {

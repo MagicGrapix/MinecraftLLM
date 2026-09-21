@@ -7,9 +7,11 @@ import type { LLMClient, LLMMessage } from "../llm/LLMClient";
 import { LLMError } from "../llm/LLMError";
 import type { ConversationHistory } from "../memory/ConversationHistory";
 import type { RecentActivityBuffer } from "../memory/RecentActivityBuffer";
+import type { AgentPrompts } from "../prompts/AgentPrompts";
 import { AgentContextBuilder } from "./AgentContextBuilder";
 import { AgentMailbox, type AgentWakeEvent } from "./AgentMailbox";
 import type { AgentRunState } from "./AgentState";
+import { writeTrace } from "../TraceLog";
 import {
   AgentToolBridge,
   type AgentPermissionMode,
@@ -24,8 +26,13 @@ interface AgentOptions {
   readonly controller: ExecutionController;
   readonly history: ConversationHistory;
   readonly activities: RecentActivityBuffer;
+  readonly prompts: Pick<
+    AgentPrompts,
+    "resumeReview" | "executionFinished" | "executionIdle"
+  >;
   readonly maxToolRounds: number;
   readonly temperature: number;
+  readonly reasoningEffort?: "none" | "low" | "medium" | "high" | "max";
   readonly maxTokens: number;
   readonly turnTimeoutMs: number;
   readonly respond: (message: string, username?: string) => Promise<void>;
@@ -66,6 +73,13 @@ export class Agent {
   ): void {
     if (this.shutdownRequested) return;
     const generationId = this.supersede("New user message.");
+    console.info("User message queued for the agent.", {
+      generationId,
+      username,
+      readonlyOnly,
+      manualStopped: this.manualStopped,
+      message: text,
+    });
     this.options.activities.add({
       kind: "user_message",
       summary: `${username}: ${text}`,
@@ -108,6 +122,11 @@ export class Agent {
     const generationId = this.supersede("Resume requested.");
     this.manualStopped = true;
     this.options.controller.pause();
+    console.info("Resume review queued.", {
+      generationId,
+      username,
+      pendingTasks: this.options.controller.snapshot().pending.length,
+    });
     this.mailbox.push({
       type: "resume_requested",
       username,
@@ -144,7 +163,14 @@ export class Agent {
     }
 
     const wake = this.wakePolicy.fromExecutionEvent(event);
-    if (wake) this.mailbox.push(wake);
+    if (wake) {
+      console.debug("Execution event queued as an agent wake.", {
+        eventType: event.type,
+        revision: event.snapshot.revision,
+        taskId: "task" in event ? event.task.id : undefined,
+      });
+      this.mailbox.push(wake);
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -200,6 +226,12 @@ export class Agent {
       abort.abort("Agent turn timed out.");
     }, this.options.turnTimeoutMs);
     const startedAt = Date.now();
+    console.info("Agent generation started.", {
+      generationId,
+      wakeType: wake.type,
+      manualStopped: this.manualStopped,
+      mailboxSize: this.mailbox.size,
+    });
 
     try {
       const prepared = await this.prepareWake(
@@ -210,6 +242,12 @@ export class Agent {
       this.assertCurrent(generationId, abort.signal);
       if (!prepared) return;
       committedPermission = prepared.permission;
+      console.debug("Agent wake prepared.", {
+        generationId,
+        permission: prepared.permission,
+        username: prepared.username,
+        input: preview(prepared.input),
+      });
 
       const baseMessages = this.options.contextBuilder.build({
         manualStopped: this.manualStopped,
@@ -231,16 +269,79 @@ export class Agent {
         round <= this.options.maxToolRounds;
         round += 1
       ) {
-        const response = await this.options.llm.complete({
+        const tools = this.options.toolBridge.catalog.build(
+          prepared.permission,
+        );
+        const messageChars = JSON.stringify(messages).length;
+        const toolSchemaChars = JSON.stringify(tools).length;
+        const llmStartedAt = Date.now();
+        console.info("Agent LLM round started.", {
+          generationId,
+          round,
+          permission: prepared.permission,
+          messageCount: messages.length,
+          messageChars,
+          toolCount: tools.length,
+          toolSchemaChars,
+          estimatedInputChars: messageChars + toolSchemaChars,
+          maxOutputTokens: this.options.maxTokens,
+          toolNames: tools.map((tool) => tool.name),
+        });
+        const llmRequest = {
           messages,
-          tools: this.options.toolBridge.catalog.build(
-            prepared.permission,
-          ),
+          tools,
           temperature: this.options.temperature,
+          reasoningEffort: this.options.reasoningEffort,
           maxTokens: this.options.maxTokens,
           signal: abort.signal,
+        } as const;
+        writeTrace("agent.llm.request", {
+          generationId,
+          round,
+          permission: prepared.permission,
+          request: {
+            ...llmRequest,
+            signal: undefined,
+          },
         });
+        const response = await this.options.llm.complete(llmRequest);
         this.assertCurrent(generationId, abort.signal);
+        writeTrace("agent.llm.response", {
+          generationId,
+          round,
+          permission: prepared.permission,
+          response,
+        });
+        console.info("Agent LLM round completed.", {
+          generationId,
+          round,
+          durationMs: Date.now() - llmStartedAt,
+          finishReason: response.finishReason,
+          usage: response.usage,
+          responseText: preview(response.message.content),
+          toolCalls: (response.message.toolCalls ?? []).map((call) => ({
+            id: call.id,
+            name: call.name,
+            arguments: preview(call.arguments),
+          })),
+        });
+        if (response.finishReason === "length") {
+          console.warn("Agent LLM output reached the token limit.", {
+            generationId,
+            round,
+            maxTokens: this.options.maxTokens,
+            usage: response.usage,
+            discardedText: preview(response.message.content),
+            discardedToolCalls: (response.message.toolCalls ?? []).map(
+              (call) => call.name,
+            ),
+          });
+          await this.options.respond(
+            "Ma réflexion a atteint la limite de tokens avant d'être terminée. Je n'exécute pas cette réponse tronquée.",
+            prepared.username,
+          );
+          return;
+        }
         messages.push(response.message);
         turnMessages.push(response.message);
 
@@ -260,6 +361,19 @@ export class Agent {
 
         for (const call of calls) {
           this.assertCurrent(generationId, abort.signal);
+          console.info("Agent tool call started.", {
+            generationId,
+            round,
+            toolCallId: call.id,
+            toolName: call.name,
+            arguments: preview(call.arguments),
+          });
+          writeTrace("agent.tool.started", {
+            generationId,
+            round,
+            permission: prepared.permission,
+            call,
+          });
           const result = await this.options.toolBridge.execute(call, {
             permission: prepared.permission,
             manualStopped: this.manualStopped,
@@ -287,6 +401,21 @@ export class Agent {
           messages.push(toolMessage);
           turnMessages.push(toolMessage);
           hadToolError ||= !result.ok;
+          console.info("Agent tool call completed.", {
+            generationId,
+            round,
+            toolCallId: call.id,
+            toolName: call.name,
+            ok: result.ok,
+            result: preview(result.content),
+          });
+          writeTrace("agent.tool.completed", {
+            generationId,
+            round,
+            permission: prepared.permission,
+            call,
+            result,
+          });
           this.options.activities.add({
             kind: "tool",
             summary: `${call.name}: ${result.ok ? "ok" : "error"}`,
@@ -303,14 +432,21 @@ export class Agent {
       }
 
       if (!completed) {
+        console.warn("Agent tool-round limit reached.", {
+          generationId,
+          maxToolRounds: this.options.maxToolRounds,
+          hadToolError,
+        });
         await this.options.respond(
-          "Je m'arrête ici : la limite de réflexion a été atteinte.",
+          `Je n'ai pas réussi à terminer le plan après ${this.options.maxToolRounds} tours d'outils. J'arrête ce tour pour éviter une boucle.`,
           prepared.username,
         );
         return;
       }
       this.assertCurrent(generationId, abort.signal);
-      this.options.history.appendTurn(turnMessages);
+      this.options.history.appendTurn(
+        compactTurnForHistory(turnMessages),
+      );
 
       if (wake.type === "resume_requested") {
         if (hadToolError) {
@@ -458,8 +594,7 @@ export class Agent {
     if (wake.type === "resume_requested") {
       return {
         permission: "resume_review",
-        input:
-          "Revalide le plan en attente avec l'état frais. Corrige ou vide les tâches futures si nécessaire. Ne reprends pas toi-même.",
+        input: this.options.prompts.resumeReview.render(),
         username: wake.username,
       };
     }
@@ -468,13 +603,11 @@ export class Agent {
         permission: this.manualStopped
           ? "planning_stopped"
           : "acting",
-        input: `Traite ce résultat d'exécution et adapte le futur plan si nécessaire: ${JSON.stringify(
-          {
-            task: wake.event.task,
-            result: wake.event.result,
-            revision: wake.event.snapshot.revision,
-          },
-        )}`,
+        input: this.options.prompts.executionFinished.render({
+          task: JSON.stringify(wake.event.task),
+          result: JSON.stringify(wake.event.result),
+          revision: wake.event.snapshot.revision,
+        }),
       };
     }
     if (wake.type === "execution_idle") {
@@ -482,7 +615,9 @@ export class Agent {
         permission: this.manualStopped
           ? "planning_stopped"
           : "acting",
-        input: `La queue est inactive à la révision ${wake.event.snapshot.revision}. Évalue brièvement si la directive est terminée.`,
+        input: this.options.prompts.executionIdle.render({
+          revision: wake.event.snapshot.revision,
+        }),
       };
     }
     return null;
@@ -522,7 +657,17 @@ export class Agent {
         summary: "A committed plan could not be resumed.",
         data: resumed.error,
       });
+      console.warn("Committed execution plan could not be resumed.", {
+        revision: snapshot.revision,
+        error: resumed.error,
+      });
+      return;
     }
+    console.info("Committed execution plan resumed.", {
+      previousRevision: snapshot.revision,
+      revision: resumed.snapshot.revision,
+      pendingTasks: resumed.snapshot.pending.length,
+    });
   }
 
   private assertCurrent(
@@ -542,4 +687,69 @@ function parseActivityData(content: string): unknown {
   } catch {
     return { malformedToolResult: content.slice(0, 500) };
   }
+}
+
+export function compactTurnForHistory(
+  messages: readonly LLMMessage[],
+): readonly LLMMessage[] {
+  const toolNamesById = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const call of message.toolCalls ?? []) {
+      toolNamesById.set(call.id, call.name);
+    }
+  }
+
+  return messages.map((message) => {
+    if (
+      message.role !== "tool" ||
+      toolNamesById.get(message.toolCallId) !== "get_capability_schemas"
+    ) {
+      return structuredClone(message);
+    }
+
+    const parsed = parseJsonRecord(message.content);
+    if (parsed?.ok !== true) return structuredClone(message);
+    const value = parseRecord(parsed.value);
+    const capabilities = Array.isArray(value?.capabilities)
+      ? value.capabilities
+      : [];
+    const loaded = capabilities.flatMap((capability) => {
+      const record = parseRecord(capability);
+      return typeof record?.name === "string" ? [record.name] : [];
+    });
+    return {
+      role: "tool",
+      toolCallId: message.toolCallId,
+      content: JSON.stringify({
+        ok: true,
+        value: {
+          loadedCapabilitySchemas: loaded,
+          schemasOmittedFromHistory: true,
+        },
+      }),
+    };
+  });
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    return parseRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function preview(value: string | null | undefined, maxLength = 800): string | null {
+  if (value === null || value === undefined) return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, maxLength)}…`;
 }

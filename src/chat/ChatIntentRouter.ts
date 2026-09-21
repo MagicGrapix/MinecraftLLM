@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { LLMClient } from "../llm/LLMClient";
-import { INTENT_CLASSIFIER_PROMPT } from "../agent/prompts";
+import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { ChatIntent } from "./ChatIntent";
 
 const IntentSchema = z
@@ -11,85 +11,88 @@ const IntentSchema = z
       "conversation",
       "unclear",
     ]),
-    confidence: z.number().min(0).max(1),
+    confidence: z.number().int().min(1).max(5),
   })
   .strict();
-
-const actionPattern =
-  /\b(construis|construire|fabrique|fabriquer|craft|va|vas|viens|creuse|mine|attaque|ouvre|ferme|prends|pose|donne|mange|utilise|déplace|ramasse|build|make|go|dig|attack|open|close|take|place|eat|use)\b/i;
-const politeActionPattern =
-  /\b(est[- ]ce que tu peux|peux[- ]tu|pourrais[- ]tu|can you|could you)\b/i;
-const readonlyPattern =
-  /^(comment|pourquoi|où|quel|quelle|quels|quelles|combien|what|why|where|how)\b/i;
-const explanatoryQuestionPattern =
-  /\b(comment|expliqu(?:e|er|es|ez)|décri(?:s|re|vez)|dis[- ]moi comment|how|explain|describe)\b/i;
 
 export class ChatIntentRouter {
   constructor(
     private readonly llm: LLMClient,
-    private readonly confidenceThreshold = 0.7,
+    private readonly prompt: PromptTemplate,
+    private readonly confidenceThreshold = 3,
   ) {}
 
   async route(text: string, signal?: AbortSignal): Promise<ChatIntent> {
     const normalized = text.trim().replace(/\s+/g, " ");
-    const deterministic = routeDeterministically(normalized);
-    if (deterministic) return deterministic;
+    const startedAt = Date.now();
+    console.debug("Intent classification started.", {
+      message: normalized,
+      confidenceThreshold: this.confidenceThreshold,
+      prompt: this.prompt.sourcePath,
+    });
 
     const response = await this.llm.complete({
       messages: [
-        { role: "system", content: INTENT_CLASSIFIER_PROMPT },
+        { role: "system", content: this.prompt.render() },
         { role: "user", content: normalized },
       ],
+      responseFormat: "json_object",
+      reasoningEffort: "none",
       temperature: 0,
-      maxTokens: 80,
+      maxTokens: 160,
       signal,
     });
     signal?.throwIfAborted();
+    console.debug("Intent classification response received.", {
+      durationMs: Date.now() - startedAt,
+      finishReason: response.finishReason,
+      usage: response.usage,
+      content: response.message.content,
+    });
     if (!response.message.content) {
-      return { kind: "unclear", confidence: 0 };
+      console.warn("Intent classification returned empty content.");
+      return { kind: "unclear", confidence: 1 };
     }
 
     try {
       const parsed = IntentSchema.parse(
-        JSON.parse(response.message.content),
+        parseJsonObject(response.message.content),
       );
-      if (parsed.confidence < this.confidenceThreshold) {
+      if (
+        parsed.kind !== "unclear" &&
+        parsed.confidence < this.confidenceThreshold
+      ) {
+        console.info("Intent confidence is below the action threshold.", {
+          classifiedKind: parsed.kind,
+          confidence: parsed.confidence,
+          threshold: this.confidenceThreshold,
+        });
         return { kind: "unclear", confidence: parsed.confidence };
       }
       return parsed;
-    } catch {
-      return { kind: "unclear", confidence: 0 };
+    } catch (error: unknown) {
+      console.warn("Intent classification output was invalid.", {
+        content: response.message.content,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { kind: "unclear", confidence: 1 };
     }
   }
 }
 
-function routeDeterministically(text: string): ChatIntent | null {
-  const lower = text.toLocaleLowerCase("fr");
-  if (
-    lower === "attends" ||
-    lower === "attend" ||
-    lower === "wait"
-  ) {
-    return { kind: "unclear", confidence: 1 };
+function parseJsonObject(content: string): unknown {
+  const trimmed = content.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+    if (fenced?.[1]) return JSON.parse(fenced[1]);
+
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    }
+    throw new Error("The classifier response does not contain a JSON object.");
   }
-  // Explanatory wording wins over polite action wording. This is deliberately
-  // conservative: a mixed/ambiguous request must not receive mutation tools.
-  if (
-    explanatoryQuestionPattern.test(text) ||
-    readonlyPattern.test(text) ||
-    lower === "où" ||
-    lower.startsWith("où ")
-  ) {
-    return { kind: "readonly_question", confidence: 0.95 };
-  }
-  if (politeActionPattern.test(text) && actionPattern.test(text)) {
-    return { kind: "action_request", confidence: 0.98 };
-  }
-  if (actionPattern.test(text)) {
-    return { kind: "action_request", confidence: 0.9 };
-  }
-  if (/^(salut|bonjour|hello|merci|thanks)\b/i.test(text)) {
-    return { kind: "conversation", confidence: 0.95 };
-  }
-  return null;
 }

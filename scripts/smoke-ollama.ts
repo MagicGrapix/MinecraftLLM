@@ -1,6 +1,8 @@
+import { resolve } from "node:path";
 import { loadAgentConfig } from "../src/agent/AgentConfig";
 import type { LLMMessage } from "../src/llm/LLMClient";
 import { OpenAICompatibleLLMClient } from "../src/llm/OpenAICompatibleLLMClient";
+import { PromptTemplate } from "../src/prompts/PromptTemplate";
 
 async function smoke(): Promise<void> {
   const config = loadAgentConfig();
@@ -10,14 +12,26 @@ async function smoke(): Promise<void> {
     model: config.llmModel,
     requestTimeoutMs: config.llmRequestTimeoutMs,
   });
+  const promptRoot = resolve(process.cwd(), config.promptsDirectory);
+  const [systemPrompt, textPrompt, toolPrompt, replayPrompt, abortPrompt] =
+    await Promise.all([
+      PromptTemplate.load(resolve(promptRoot, "smoke-system.md")),
+      PromptTemplate.load(resolve(promptRoot, "smoke-text-request.md")),
+      PromptTemplate.load(resolve(promptRoot, "smoke-tool-request.md")),
+      PromptTemplate.load(resolve(promptRoot, "smoke-tool-replay.md")),
+      PromptTemplate.load(resolve(promptRoot, "smoke-abort-request.md")),
+    ]);
 
   const text = await client.complete({
     messages: [
       {
         role: "system",
-        content: "Réponds directement, sans raisonnement ni explication.",
+        content: systemPrompt.render(),
       },
-      { role: "user", content: "Réponds uniquement par: ollama-ok" },
+      {
+        role: "user",
+        content: textPrompt.render({ expected_text: "ollama-ok" }),
+      },
     ],
     temperature: 0,
     maxTokens: 256,
@@ -41,8 +55,10 @@ async function smoke(): Promise<void> {
     messages: [
       {
         role: "user",
-        content:
-          'Appelle obligatoirement smoke_echo avec {"value":"tool-ok"}.',
+        content: toolPrompt.render({
+          tool_name: "smoke_echo",
+          arguments: '{"value":"tool-ok"}',
+        }),
       },
     ],
     tools: [tool],
@@ -56,7 +72,7 @@ async function smoke(): Promise<void> {
   const replay: LLMMessage[] = [
     {
       role: "user",
-      content: "Appelle smoke_echo puis confirme son résultat.",
+      content: replayPrompt.render({ tool_name: "smoke_echo" }),
     },
     first.message,
     {
@@ -78,7 +94,7 @@ async function smoke(): Promise<void> {
     messages: [
       {
         role: "user",
-        content: "Écris une très longue histoire sans t'arrêter.",
+        content: abortPrompt.render(),
       },
     ],
     signal: abort.signal,

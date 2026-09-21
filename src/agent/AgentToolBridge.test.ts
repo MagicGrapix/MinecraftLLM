@@ -43,6 +43,14 @@ test("bridge enforces permissions, validation, and revisions", async () => {
       execute: async () => success(null),
     };
     capabilities.register(capability);
+    capabilities.register({
+      name: "hidden_action",
+      description: "A capability that was not requested.",
+      inputSchema: z
+        .object({ hiddenDistinctiveField: z.string() })
+        .strict(),
+      execute: async () => success(null),
+    });
     const queries = createDefaultWorldQueryRegistry(world);
     const skills = await SkillRegistry.discover(
       resolve(process.cwd(), "skills"),
@@ -85,6 +93,39 @@ test("bridge enforces permissions, validation, and revisions", async () => {
     );
     assert.equal(enqueued.ok, true);
     assert.equal(controller.snapshot().pending.length, 1);
+
+    const schemas = await bridge.execute(
+      call("get_capability_schemas", { names: ["test_action"] }),
+      context("readonly"),
+    );
+    assert.equal(schemas.ok, true);
+    assert.match(schemas.content, /test_action/);
+    assert.match(schemas.content, /value/);
+    assert.doesNotMatch(schemas.content, /hiddenDistinctiveField/);
+
+    const unknownSchema = await bridge.execute(
+      call("get_capability_schemas", { names: ["missing_action"] }),
+      context("readonly"),
+    );
+    assert.equal(unknownSchema.ok, false);
+    assert.match(unknownSchema.content, /UNKNOWN_CAPABILITY/);
+
+    const tooManySchemas = await bridge.execute(
+      call("get_capability_schemas", {
+        names: ["one", "two", "three", "four", "five"],
+      }),
+      context("readonly"),
+    );
+    assert.equal(tooManySchemas.ok, false);
+    assert.match(tooManySchemas.content, /INVALID_ARGUMENT/);
+
+    const directCapability = await bridge.execute(
+      call("test_action", { value: 1 }),
+      context("acting"),
+    );
+    assert.equal(directCapability.ok, false);
+    assert.match(directCapability.content, /CAPABILITY_REQUIRES_QUEUE/);
+    assert.match(directCapability.content, /enqueue_tasks/);
 
     for (const permission of [
       "planning_stopped",
@@ -135,6 +176,29 @@ test("bridge enforces permissions, validation, and revisions", async () => {
       readonlyCatalog.some((tool) => tool.name === "get_self"),
       true,
     );
+    assert.equal(
+      readonlyCatalog.some(
+        (tool) => tool.name === "get_capability_schemas",
+      ),
+      true,
+    );
+
+    const actingCatalog = bridge.catalog.build("acting");
+    const serializedCatalog = JSON.stringify(actingCatalog);
+    assert.ok(
+      serializedCatalog.length < 10_000,
+      `Acting catalog is unexpectedly large: ${serializedCatalog.length} chars.`,
+    );
+    assert.doesNotMatch(serializedCatalog, /hiddenDistinctiveField/);
+    for (const queueTool of [
+      "enqueue_tasks",
+      "replace_pending_tasks",
+      "prepend_task",
+    ]) {
+      const tool = actingCatalog.find(({ name }) => name === queueTool);
+      assert.ok(tool);
+      assert.doesNotMatch(JSON.stringify(tool.parameters), /oneOf/);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -179,7 +243,7 @@ test("bridge returns structured errors for malformed JSON and forged tools", asy
       context("acting"),
     );
     assert.equal(forged.ok, false);
-    assert.match(forged.content, /PERMISSION_DENIED/);
+    assert.match(forged.content, /TOOL_NOT_FOUND/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

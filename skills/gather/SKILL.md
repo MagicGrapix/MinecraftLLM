@@ -1,6 +1,6 @@
 ---
 name: gather
-description: Récolter une quantité donnée d'une ressource présente dans le monde.
+description: Gather a requested quantity of a resource found in the world.
 required_capabilities:
   - goto
   - equip
@@ -12,45 +12,48 @@ required_queries:
 
 # Gather
 
-## Quand utiliser ce skill
+## When to use this skill
 
-Utilise cette technique lorsqu'un objectif demande d'obtenir une quantité précise d'une ressource
-qui peut être récoltée dans les chunks actuellement connus, par exemple des bûches ou de la pierre.
+Use this technique when an objective requires a specific quantity of a resource that can be gathered
+from currently known chunks, such as logs or stone.
 
-## Informations à obtenir avant d'agir
+## Information to obtain before acting
 
-1. Appelle `get_inventory` pour mesurer la quantité déjà possédée.
-2. Calcule la quantité restante.
-3. Appelle `find_nearest_blocks` avec le nom exact du bloc recherché.
-4. Vérifie si un outil adapté est disponible avant de proposer `equip`.
+1. Call `get_inventory` to measure the quantity already held.
+2. Calculate the remaining quantity.
+3. Call `find_nearest_blocks` with the exact Minecraft block name.
+4. Check whether a suitable tool is available before proposing `equip`.
 
-## Stratégie recommandée
+## Recommended strategy
 
-Travaille par petits horizons. Pour chaque cible connue :
+Work in short horizons. For each known target:
 
-1. propose un `TaskSpec` `goto` avec une portée suffisante ;
-2. propose `equip` seulement si un outil utile est disponible ;
-3. propose `dig` à la position exacte du bloc ;
-4. attends les résultats avant de sélectionner la cible suivante ;
-5. redemande l'inventaire après quelques blocs ou après un résultat ambigu.
+1. create a `goto` `TaskSpec` with sufficient range;
+2. add an `equip` `TaskSpec` only when a useful tool is available;
+3. add a `dig` `TaskSpec` at the block's exact observed position;
+4. wait for results before selecting the next target;
+5. query the inventory again after several blocks or after an ambiguous result.
 
-Ne produis pas de coordonnées inventées. Toutes les positions doivent provenir d'une World Query.
+Capabilities are never called directly as tools. Submit the `TaskSpec` objects through
+`enqueue_tasks`, using the latest execution revision.
 
-## Gestion des erreurs
+Never invent coordinates. Every position must come from a World Query.
 
-- `TARGET_NOT_FOUND` ou `WORLD_CHANGED` : relance `find_nearest_blocks`, car l'observation est obsolète.
-- `NO_PATH` : essaie une autre cible connue plutôt que de répéter immédiatement la même tâche.
-- `OUT_OF_REACH` : ajoute ou corrige une tâche `goto`.
-- `MISSING_ITEM` sur `equip` : continue sans outil si la ressource reste récoltable, sinon signale le
-  prérequis manquant.
-- `TIMEOUT` ou `INTERRUPTED` : relis le snapshot d'exécution et le monde avant de replanifier.
+## Error handling
 
-## Condition de réussite
+- `TARGET_NOT_FOUND` or `WORLD_CHANGED`: call `find_nearest_blocks` again because the observation is stale.
+- `NO_PATH`: try another known target instead of immediately repeating the same task.
+- `OUT_OF_REACH`: add or correct a `goto` task.
+- `MISSING_ITEM` from `equip`: continue without a tool if the resource remains gatherable; otherwise
+  report the missing prerequisite.
+- `TIMEOUT` or `INTERRUPTED`: read a fresh execution snapshot and observe the world before replanning.
 
-La réussite est vérifiée uniquement avec `get_inventory`. Le skill est terminé lorsque la quantité
-totale de la ressource demandée est supérieure ou égale à la quantité cible.
+## Success condition
 
-## Limites connues
+Verify success only with `get_inventory`. The skill is complete when the total quantity of the
+requested resource is greater than or equal to the target quantity.
 
-Ce skill n'explore pas de nouveaux chunks, ne fabrique pas d'outil et ne ramasse pas explicitement les
-items éloignés. Il suppose que les drops sont collectés naturellement à proximité du bloc creusé.
+## Known limitations
+
+This skill does not explore new chunks, craft tools, or explicitly collect distant item drops. It
+assumes nearby drops are collected naturally after digging.

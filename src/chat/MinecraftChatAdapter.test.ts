@@ -4,49 +4,53 @@ import test from "node:test";
 import type { Bot } from "mineflayer";
 import type { Agent } from "../agent/Agent";
 import { FakeLLMClient } from "../llm/FakeLLMClient";
+import { PromptTemplate } from "../prompts/PromptTemplate";
 import { ChatIntentRouter } from "./ChatIntentRouter";
 import {
   MinecraftChatAdapter,
   splitChatMessage,
 } from "./MinecraftChatAdapter";
 
-test("intent router handles mandatory question and action cases", async () => {
-  const llm = new FakeLLMClient();
-  const router = new ChatIntentRouter(llm);
+const TEST_INTENT_PROMPT = PromptTemplate.fromString(
+  "intent-test",
+  "Classify the message as JSON.",
+);
 
+test("intent router uses the LLM for question and action cases", async () => {
+  const llm = new FakeLLMClient();
+  const router = new ChatIntentRouter(llm, TEST_INTENT_PROMPT);
+  const cases = [
+    ["construis une table de craft", "action_request"],
+    [
+      "comment tu penses construire une table de craft ?",
+      "readonly_question",
+    ],
+    ["est-ce que tu peux construire une table ?", "action_request"],
+    [
+      "Peux-tu m'expliquer comment construire une table ?",
+      "readonly_question",
+    ],
+    ["Can you explain how to build a chest?", "readonly_question"],
+    ["où est le coffre ?", "readonly_question"],
+    ["attends", "unclear"],
+  ] as const;
+
+  for (const [message, expectedKind] of cases) {
+    enqueueIntent(llm, expectedKind, expectedKind === "unclear" ? 4 : 5);
+    assert.equal((await router.route(message)).kind, expectedKind);
+  }
+
+  assert.equal(llm.requests.length, cases.length);
   assert.equal(
-    (await router.route("construis une table de craft")).kind,
-    "action_request",
+    llm.requests.every(
+      (request) => request.responseFormat === "json_object",
+    ),
+    true,
   );
   assert.equal(
-    (
-      await router.route(
-        "comment tu penses construire une table de craft ?",
-      )
-    ).kind,
-    "readonly_question",
+    llm.requests.every((request) => request.reasoningEffort === "none"),
+    true,
   );
-  assert.equal(
-    (await router.route("est-ce que tu peux construire une table ?")).kind,
-    "action_request",
-  );
-  assert.equal(
-    (
-      await router.route(
-        "Peux-tu m'expliquer comment construire une table ?",
-      )
-    ).kind,
-    "readonly_question",
-  );
-  assert.equal(
-    (await router.route("Can you explain how to build a chest?")).kind,
-    "readonly_question",
-  );
-  assert.equal(
-    (await router.route("où est le coffre ?")).kind,
-    "readonly_question",
-  );
-  assert.equal((await router.route("attends")).kind, "unclear");
 });
 
 test("invalid classifier output becomes unclear", async () => {
@@ -55,10 +59,23 @@ test("invalid classifier output becomes unclear", async () => {
     message: { role: "assistant", content: "not-json" },
     finishReason: "stop",
   });
-  const intent = await new ChatIntentRouter(llm).route(
-    "ce truc là peut-être",
-  );
-  assert.equal(intent.kind, "unclear");
+  const intent = await new ChatIntentRouter(
+    llm,
+    TEST_INTENT_PROMPT,
+  ).route("ce truc là peut-être");
+  assert.deepEqual(intent, { kind: "unclear", confidence: 1 });
+});
+
+test("low classifier confidence becomes unclear on the five-point scale", async () => {
+  const llm = new FakeLLMClient();
+  enqueueIntent(llm, "action_request", 2);
+
+  const intent = await new ChatIntentRouter(
+    llm,
+    TEST_INTENT_PROMPT,
+  ).route("peut-être fais quelque chose");
+
+  assert.deepEqual(intent, { kind: "unclear", confidence: 2 });
 });
 
 test("chat adapter reserves controls and mutations for the owner", async () => {
@@ -125,3 +142,21 @@ test("chat responses are split without oversized chunks", () => {
   assert.equal(chunks.length, 5);
   assert.equal(chunks.every((chunk) => chunk.length <= 100), true);
 });
+
+function enqueueIntent(
+  llm: FakeLLMClient,
+  kind:
+    | "readonly_question"
+    | "action_request"
+    | "conversation"
+    | "unclear",
+  confidence: number,
+): void {
+  llm.enqueue({
+    message: {
+      role: "assistant",
+      content: JSON.stringify({ kind, confidence }),
+    },
+    finishReason: "stop",
+  });
+}

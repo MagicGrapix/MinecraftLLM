@@ -10,6 +10,8 @@
     "dev:demo": "ts-node scripts/dev-demo.ts",
     "dev:give": "ts-node scripts/dev-give-items.ts",
     "smoke:ollama": "ts-node scripts/smoke-ollama.ts",
+    "smoke:intent": "ts-node scripts/smoke-intent.ts",
+    "check:ollama": "ts-node scripts/check-ollama-context.ts",
     "start": "node dist/main.js",
     "test": "npm run build && node scripts/run-tests.cjs",
     "typecheck": "tsc --noEmit"

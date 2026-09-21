@@ -42,7 +42,7 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   assert.deepEqual(gatherSummary, {
     name: "gather",
     description:
-      "Récolter une quantité donnée d'une ressource présente dans le monde.",
+      "Gather a requested quantity of a resource found in the world.",
   });
 
   const gather = await loader.load("gather");
@@ -51,7 +51,7 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
     "get_inventory",
     "find_nearest_blocks",
   ]);
-  assert.match(gather.instructions, /Condition de réussite/);
+  assert.match(gather.instructions, /Success condition/);
 });
 
 test("craft and hunger skills load as text-only instructions", async () => {
@@ -68,7 +68,7 @@ test("craft and hunger skills load as text-only instructions", async () => {
   const hunger = await loader.load("eat_when_hungry");
 
   assert.deepEqual(craft.requiredCapabilities, ["goto", "craft"]);
-  assert.match(craft.instructions, /recette 3×3/);
+  assert.match(craft.instructions, /3x3\s+recipe/);
   assert.deepEqual(hunger.requiredCapabilities, ["equip", "consume"]);
   assert.match(hunger.instructions, /ACTION_NOT_CONFIRMED/);
 });

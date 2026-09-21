@@ -11,6 +11,7 @@ import type {
 import { ConversationHistory } from "../memory/ConversationHistory";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
 import { RecentActivityBuffer } from "../memory/RecentActivityBuffer";
+import { PromptTemplate } from "../prompts/PromptTemplate";
 import { SkillRegistry } from "../skills/SkillRegistry";
 import type { WorldQueries } from "../world/WorldQueries";
 import { createDefaultWorldQueryRegistry } from "../world/queries/defaultQueries";
@@ -65,6 +66,10 @@ test("context always preserves stop state, snapshot, pinned landmarks, and curre
       landmarks,
       activities,
       history,
+      systemPrompt: PromptTemplate.fromString(
+        "test-system",
+        "CONTEXT={{current_context}}\nACTIVITY={{recent_activity}}",
+      ),
       budgetChars: 2_500,
     });
 

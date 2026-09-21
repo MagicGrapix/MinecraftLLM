@@ -69,6 +69,16 @@ export class OpenAICompatibleLLMClient implements LLMClient {
                 })),
               }
             : {}),
+          ...(request.responseFormat === undefined
+            ? {}
+            : {
+                response_format: {
+                  type: request.responseFormat,
+                },
+              }),
+          ...(request.reasoningEffort === undefined
+            ? {}
+            : { reasoning_effort: request.reasoningEffort }),
           ...(request.temperature === undefined
             ? {}
             : { temperature: request.temperature }),
@@ -138,6 +148,12 @@ function parseResponse(raw: unknown): LLMResponse {
     typeof message.content === "string" || message.content === null
       ? message.content
       : null;
+  const reasoning =
+    typeof message.reasoning === "string"
+      ? message.reasoning
+      : typeof message.reasoning_content === "string"
+        ? message.reasoning_content
+        : undefined;
   const toolCalls = parseToolCalls(message.tool_calls);
   if (content === null && toolCalls.length === 0) {
     throw new LLMError(
@@ -171,6 +187,7 @@ function parseResponse(raw: unknown): LLMResponse {
       content,
       ...(toolCalls.length > 0 ? { toolCalls } : {}),
     },
+    ...(reasoning === undefined ? {} : { reasoning }),
     finishReason:
       typeof choice.finish_reason === "string"
         ? choice.finish_reason

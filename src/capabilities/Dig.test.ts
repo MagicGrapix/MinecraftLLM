@@ -133,5 +133,6 @@ function createContext(bot: Bot): ExecutionContext {
     runtime,
     world: {} as WorldQueries,
     signal: new AbortController().signal,
+    deferCancellationUntil: () => undefined,
   };
 }

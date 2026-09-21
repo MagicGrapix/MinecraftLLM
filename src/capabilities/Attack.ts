@@ -2,6 +2,10 @@ import type { Entity } from "prismarine-entity";
 import { z } from "zod";
 import { failure, success, type TaskResult } from "../execution/TaskResult";
 import type { Capability, ExecutionContext } from "./Capability";
+import {
+  entityInteractionRange,
+  isEntityVisibleAtCursor,
+} from "./EntityTargeting";
 
 export interface AttackInput {
   entityId: number;
@@ -46,13 +50,6 @@ export class AttackCapability
         { retryable: true, facts: { entityId: input.entityId } },
       );
     }
-    if (entity.position.distanceTo(bot.entity.position) > 4.5) {
-      return failure("OUT_OF_REACH", `Entity ${input.entityId} is out of reach.`, {
-        retryable: true,
-        facts: { entityId: input.entityId },
-      });
-    }
-
     let outcome: AttackOutput["outcome"] | null = null;
     const markHurt = (target: Entity): void => {
       if (target.id === input.entityId) outcome = "hurt";
@@ -75,6 +72,17 @@ export class AttackCapability
           "ENTITY_NOT_FOUND",
           `Entity ${input.entityId} disappeared before the attack.`,
           { retryable: true, facts: { entityId: input.entityId } },
+        );
+      }
+      const maxDistance = entityInteractionRange(bot);
+      if (!isEntityVisibleAtCursor(bot, input.entityId, maxDistance)) {
+        return failure(
+          "OUT_OF_REACH",
+          `Entity ${input.entityId} is outside the interaction range or obstructed.`,
+          {
+            retryable: true,
+            facts: { entityId: input.entityId, maxDistance },
+          },
         );
       }
 

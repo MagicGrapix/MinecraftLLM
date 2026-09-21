@@ -53,7 +53,7 @@ export class MinecraftRuntime {
         cleanup();
 
         const movements = new Movements(bot);
-        movements.allow1by1towers = true;
+        configureCapabilitySafeMovements(movements);
         bot.pathfinder.setMovements(movements);
 
         this.connected = true;
@@ -86,4 +86,16 @@ export class MinecraftRuntime {
     this.connected = false;
     this.botInstance.quit(reason);
   }
+}
+
+export function configureCapabilitySafeMovements(
+  movements: Pick<
+    Movements,
+    "canDig" | "allow1by1towers" | "scafoldingBlocks"
+  >,
+): void {
+  // World mutations belong to explicit dig/place tasks, never to navigation.
+  movements.canDig = false;
+  movements.allow1by1towers = false;
+  movements.scafoldingBlocks = [];
 }

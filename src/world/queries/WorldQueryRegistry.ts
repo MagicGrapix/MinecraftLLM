@@ -10,7 +10,7 @@ import type {
   WorldQuerySummary,
 } from "./WorldQuery";
 
-interface RegisteredWorldQuery {
+export interface RegisteredWorldQuery {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: z.ZodType<unknown>;
@@ -47,6 +47,10 @@ export class WorldQueryRegistry {
       name,
       description,
     }));
+  }
+
+  get(name: string): RegisteredWorldQuery | undefined {
+    return this.queries.get(name);
   }
 
   async execute(name: string, input: unknown): Promise<QueryResult> {

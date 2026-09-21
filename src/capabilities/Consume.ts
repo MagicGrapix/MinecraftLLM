@@ -102,6 +102,7 @@ export class ConsumeCapability
 
     const inventoryBefore = snapshotInventory(bot);
     const countBefore = countInventoryItem(bot, itemName);
+    const handCountBefore = heldItem.count;
     const foodBefore = bot.food;
     const healthBefore = bot.health;
     const effectsBefore = effectIds(bot.entity.effects);
@@ -122,14 +123,16 @@ export class ConsumeCapability
         const healthAfter = bot.health;
         const effectsAfter = effectIds(bot.entity.effects);
         const delta = inventoryDelta(inventoryBefore, inventoryAfter);
+        const currentHandItem = getHandItem(bot, input.hand);
+        const handStackConsumed =
+          !currentHandItem ||
+          currentHandItem.name !== itemName ||
+          currentHandItem.count < handCountBefore;
 
-        if (
-          countAfter !== countBefore ||
-          foodAfter !== foodBefore ||
-          healthAfter !== healthBefore ||
-          !sameNumbers(effectsBefore, effectsAfter) ||
-          Object.keys(delta).length > 0
-        ) {
+        // Health/effect changes and unrelated inventory updates can happen
+        // concurrently. Only a decrease of the expected item (globally or in
+        // the selected hand) proves that this consumption completed.
+        if (countAfter < countBefore || handStackConsumed) {
           return success({
             item: itemName,
             hand: input.hand,
@@ -166,16 +169,6 @@ function effectIds(
   effects: Readonly<Record<number, unknown>>,
 ): readonly number[] {
   return Object.keys(effects).map(Number).sort((left, right) => left - right);
-}
-
-function sameNumbers(
-  left: readonly number[],
-  right: readonly number[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((value, index) => value === right[index])
-  );
 }
 
 function returnedContainers(

@@ -97,6 +97,42 @@ test("abortCurrent returns INTERRUPTED instead of INTERNAL_ERROR", async () => {
   }
 });
 
+test("abortCurrent waits for a registered physical operation to settle", async () => {
+  let releaseOperation!: () => void;
+  const physicalOperation = new Promise<void>((resolve) => {
+    releaseOperation = resolve;
+  });
+  const capability: Capability<Record<string, never>, { done: true }> = {
+    name: "barrier",
+    inputSchema: z.object({}).strict(),
+    execute: async (_input, context) => {
+      context.deferCancellationUntil(physicalOperation);
+      await physicalOperation;
+      context.signal.throwIfAborted();
+      return success({ done: true });
+    },
+  };
+  const executor = createExecutor(capability);
+  const task = taskFactory.create({ capability: "barrier", input: {} });
+
+  let settled = false;
+  const running = executor.execute(task).finally(() => {
+    settled = true;
+  });
+  assert.equal(executor.abortCurrent("Stop after the physical operation."), true);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.equal(settled, false);
+  assert.equal(executor.currentTask?.id, task.id);
+
+  releaseOperation();
+  const result = await running;
+
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "INTERRUPTED");
+  assert.equal(executor.currentTask, null);
+});
+
 test("an unexpected capability exception returns INTERNAL_ERROR", async () => {
   const capability: Capability<Record<string, never>, never> = {
     name: "crash",

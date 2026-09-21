@@ -23,6 +23,24 @@ test("attack requires a hurt, death, or disappearance confirmation", async () =>
   if (result.ok) assert.equal(result.value.outcome, "hurt");
 });
 
+test("attack refuses an obstructed entity before sending a hit", async () => {
+  const { bot } = fakeEntityBot();
+  let attacked = false;
+  bot.entityAtCursor = () => null;
+  bot.attack = () => {
+    attacked = true;
+  };
+
+  const result = await new AttackCapability().execute(
+    { entityId: 42, expectedType: "zombie" },
+    context(bot),
+  );
+
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "OUT_OF_REACH");
+  assert.equal(attacked, false);
+});
+
 test("interact_entity confirms an entity update on the main hand", async () => {
   const { bot, entity, emitter } = fakeEntityBot("cow");
   bot.activateEntity = async () => {
@@ -47,12 +65,30 @@ test("interact_entity never treats a sent request as confirmation", async () => 
   const { bot } = fakeEntityBot("cow");
 
   const result = await new InteractEntityCapability().execute(
-    { entityId: 42, hand: "hand", interaction: "use_on" },
+    { entityId: 42, hand: "hand", interaction: "use_held_item" },
     context(bot),
   );
 
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.code, "ACTION_NOT_CONFIRMED");
+});
+
+test("interact_entity refuses an obstructed entity before interaction", async () => {
+  const { bot } = fakeEntityBot("cow");
+  let activated = false;
+  bot.entityAtCursor = () => null;
+  bot.activateEntity = async () => {
+    activated = true;
+  };
+
+  const result = await new InteractEntityCapability().execute(
+    { entityId: 42, hand: "hand", interaction: "activate" },
+    context(bot),
+  );
+
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "OUT_OF_REACH");
+  assert.equal(activated, false);
 });
 
 function fakeEntityBot(name = "zombie"): {
@@ -79,6 +115,7 @@ function fakeEntityBot(name = "zombie"): {
     attack: () => undefined,
     activateEntity: async () => undefined,
     useOn: () => undefined,
+    entityAtCursor: () => entity,
     waitForTicks: async () => undefined,
     closeWindow: async () => undefined,
   }) as unknown as Bot;
@@ -90,5 +127,6 @@ function context(bot: Bot): ExecutionContext {
     runtime: { bot } as unknown as MinecraftRuntime,
     world: {} as WorldQueries,
     signal: new AbortController().signal,
+    deferCancellationUntil: () => undefined,
   };
 }

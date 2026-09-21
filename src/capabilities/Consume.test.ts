@@ -95,10 +95,56 @@ test("usingHeldItem alone never confirms consumption", async () => {
   if (!result.ok) assert.equal(result.error.code, "ACTION_NOT_CONFIRMED");
 });
 
+test("unrelated health, effect, and inventory changes do not confirm consumption", async () => {
+  const heldItem = { name: "bread", count: 2, metadata: 0, slot: 36 };
+  let health = 20;
+  let effects: Record<number, unknown> = {};
+  let pickedUpCobblestone = false;
+  const bot = {
+    heldItem,
+    usingHeldItem: false,
+    food: 12,
+    get health() {
+      return health;
+    },
+    entity: {
+      get effects() {
+        return effects;
+      },
+    },
+    registry: { foodsByName: { bread: { name: "bread" } } },
+    inventory: {
+      slots: [],
+      items: () => [
+        heldItem,
+        ...(pickedUpCobblestone
+          ? [{ name: "cobblestone", count: 1, metadata: 0, slot: 9 }]
+          : []),
+      ],
+    },
+    activateItem: () => undefined,
+    deactivateItem: () => undefined,
+    waitForTicks: async () => {
+      health = 19;
+      effects = { 1: {} };
+      pickedUpCobblestone = true;
+    },
+  } as unknown as Bot;
+
+  const result = await new ConsumeCapability().execute(
+    { expectedItem: "bread", hand: "hand" },
+    createContext(bot),
+  );
+
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "ACTION_NOT_CONFIRMED");
+});
+
 function createContext(bot: Bot): ExecutionContext {
   return {
     runtime: { bot } as unknown as MinecraftRuntime,
     world: {} as WorldQueries,
     signal: new AbortController().signal,
+    deferCancellationUntil: () => undefined,
   };
 }

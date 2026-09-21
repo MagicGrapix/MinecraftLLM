@@ -33,6 +33,10 @@ yarn-error.log*
 # Coverage directory
 coverage/
 
+# Local world-specific agent memory
+data/landmarks.json
+data/landmarks.json.corrupt-*
+
 # eslint
 .eslintcache
 

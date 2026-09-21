@@ -7,10 +7,12 @@ export interface ExecutionContext {
   readonly runtime: MinecraftRuntime;
   readonly world: WorldQueries;
   readonly signal: AbortSignal;
+  readonly deferCancellationUntil: (operation: Promise<unknown>) => void;
 }
 
 export interface Capability<Input, Output> {
   readonly name: string;
+  readonly description?: string;
   readonly inputSchema: z.ZodType<Input>;
   execute(
     input: Input,

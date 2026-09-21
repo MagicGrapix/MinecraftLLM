@@ -3,12 +3,16 @@ import type { Window } from "prismarine-windows";
 import { z } from "zod";
 import { failure, success, type TaskResult } from "../execution/TaskResult";
 import type { Capability, ExecutionContext } from "./Capability";
+import {
+  entityInteractionRange,
+  isEntityVisibleAtCursor,
+} from "./EntityTargeting";
 
 export interface InteractEntityInput {
   entityId: number;
   expectedType?: string;
   hand: "hand";
-  interaction: "activate" | "use_on";
+  interaction: "activate" | "use_held_item";
 }
 
 export interface InteractEntityOutput {
@@ -27,7 +31,7 @@ export class InteractEntityCapability
       entityId: z.number().int().nonnegative(),
       expectedType: z.string().trim().min(1).optional(),
       hand: z.literal("hand"),
-      interaction: z.enum(["activate", "use_on"]),
+      interaction: z.enum(["activate", "use_held_item"]),
     })
     .strict();
 
@@ -51,12 +55,6 @@ export class InteractEntityCapability
         `Expected entity type "${input.expectedType}" but found "${entityType}".`,
         { retryable: true, facts: { entityId: input.entityId } },
       );
-    }
-    if (entity.position.distanceTo(bot.entity.position) > 4.5) {
-      return failure("OUT_OF_REACH", `Entity ${input.entityId} is out of reach.`, {
-        retryable: true,
-        facts: { entityId: input.entityId },
-      });
     }
     if (bot.currentWindow) {
       return failure("BLOCKED", "A window is already open.", {
@@ -89,6 +87,17 @@ export class InteractEntityCapability
           "ENTITY_NOT_FOUND",
           `Entity ${input.entityId} disappeared before interaction.`,
           { retryable: true, facts: { entityId: input.entityId } },
+        );
+      }
+      const maxDistance = entityInteractionRange(bot);
+      if (!isEntityVisibleAtCursor(bot, input.entityId, maxDistance)) {
+        return failure(
+          "OUT_OF_REACH",
+          `Entity ${input.entityId} is outside the interaction range or obstructed.`,
+          {
+            retryable: true,
+            facts: { entityId: input.entityId, maxDistance },
+          },
         );
       }
 

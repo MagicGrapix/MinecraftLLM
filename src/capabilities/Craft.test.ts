@@ -32,6 +32,40 @@ test("craft verifies the produced inventory quantity", async () => {
   }
 });
 
+test("craft performs one bounded operation at a time", async () => {
+  let logs = 2;
+  let planks = 0;
+  let craftCalls = 0;
+  const recipe = fakeRecipe(5, 4, [{ id: 17, count: -1 }]);
+  const bot = fakeBot({
+    counts: (id) => (id === 17 ? logs : id === 5 ? planks : 0),
+    recipes: [recipe],
+    craft: async () => {
+      craftCalls += 1;
+      logs -= 1;
+      planks += 4;
+    },
+  });
+
+  const result = await new CraftCapability().execute(
+    { item: "oak_planks", quantity: 8, station: "inventory" },
+    createContext(bot),
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(craftCalls, 2);
+});
+
+test("craft limits the requested output quantity", () => {
+  const parsed = new CraftCapability().inputSchema.safeParse({
+    item: "oak_planks",
+    quantity: 65,
+    station: "inventory",
+  });
+
+  assert.equal(parsed.success, false);
+});
+
 test("craft reports the deterministic recipe with least missing items", async () => {
   const expensive = fakeRecipe(5, 1, [{ id: 17, count: -3 }]);
   const cheapest = fakeRecipe(5, 1, [{ id: 18, count: -1 }]);
@@ -153,5 +187,6 @@ function createContext(bot: Bot): ExecutionContext {
     runtime: { bot } as unknown as MinecraftRuntime,
     world: {} as WorldQueries,
     signal: new AbortController().signal,
+    deferCancellationUntil: () => undefined,
   };
 }

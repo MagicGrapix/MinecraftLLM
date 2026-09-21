@@ -10,18 +10,20 @@ import { errorMessage, normalizeMinecraftName } from "../shared/helper";
 import { BlockPositionSchema } from "../shared/types";
 import type { Capability, ExecutionContext } from "./Capability";
 
+const MAX_CRAFT_OUTPUT_QUANTITY = 64;
+
 const CraftInputSchema = z.discriminatedUnion("station", [
   z
     .object({
       item: z.string().trim().min(1),
-      quantity: z.number().int().positive(),
+      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY),
       station: z.literal("inventory"),
     })
     .strict(),
   z
     .object({
       item: z.string().trim().min(1),
-      quantity: z.number().int().positive(),
+      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY),
       station: z.literal("crafting_table"),
       tablePosition: BlockPositionSchema,
     })
@@ -153,12 +155,24 @@ export class CraftCapability implements Capability<CraftInput, CraftOutput> {
     bot.on("windowOpen", closeCraftingWindowAfterAbort);
 
     try {
-      await bot.craft(
-        selected.recipe,
-        selected.operations,
-        tableBlock ?? undefined,
-      );
-      context.signal.throwIfAborted();
+      // Mineflayer cannot cancel an inventory craft already in progress. Run
+      // one operation at a time and keep the Executor occupied until the
+      // current operation settles if the task is interrupted.
+      for (
+        let operationIndex = 0;
+        operationIndex < selected.operations;
+        operationIndex += 1
+      ) {
+        context.signal.throwIfAborted();
+        const craftOperation = bot.craft(
+          selected.recipe,
+          1,
+          tableBlock ?? undefined,
+        );
+        context.deferCancellationUntil(craftOperation);
+        await craftOperation;
+        context.signal.throwIfAborted();
+      }
 
       if (input.station === "crafting_table") {
         const tableAfter = bot.blockAt(toVec3(input.tablePosition));

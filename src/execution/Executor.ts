@@ -104,11 +104,20 @@ export class Executor {
       cancellation: null,
     };
     this.currentExecution = execution;
+    const cancellationBarriers = new Set<Promise<void>>();
 
     const context: ExecutionContext = {
       runtime: this.runtime,
       world: this.world,
       signal: execution.controller.signal,
+      deferCancellationUntil: (operation) => {
+        const barrier = operation.then(
+          () => undefined,
+          () => undefined,
+        );
+        cancellationBarriers.add(barrier);
+        void barrier.finally(() => cancellationBarriers.delete(barrier));
+      },
     };
 
     try {
@@ -122,6 +131,7 @@ export class Executor {
       );
     } catch (error: unknown) {
       if (execution.cancellation?.kind === "timeout") {
+        await waitForCancellationBarriers(cancellationBarriers);
         return failure("TIMEOUT", execution.cancellation.reason, {
           retryable: true,
           facts: { taskId: task.id, timeoutMs },
@@ -129,6 +139,7 @@ export class Executor {
       }
 
       if (execution.cancellation?.kind === "interrupted") {
+        await waitForCancellationBarriers(cancellationBarriers);
         return failure("INTERRUPTED", execution.cancellation.reason, {
           retryable: true,
           facts: { taskId: task.id },
@@ -157,5 +168,13 @@ export class Executor {
       reason: `Task timed out after ${timeoutMs} ms.`,
     };
     execution.controller.abort(execution.cancellation);
+  }
+}
+
+async function waitForCancellationBarriers(
+  barriers: ReadonlySet<Promise<void>>,
+): Promise<void> {
+  while (barriers.size > 0) {
+    await Promise.all([...barriers]);
   }
 }

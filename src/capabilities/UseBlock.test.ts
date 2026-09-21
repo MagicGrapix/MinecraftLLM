@@ -81,5 +81,6 @@ function context(bot: Bot): ExecutionContext {
     runtime: { bot } as unknown as MinecraftRuntime,
     world: {} as WorldQueries,
     signal: new AbortController().signal,
+    deferCancellationUntil: () => undefined,
   };
 }

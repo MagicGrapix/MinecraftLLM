@@ -9,7 +9,7 @@ function collectTests(directory) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       tests.push(...collectTests(path));
-    } else if (entry.isFile() && entry.name.endsWith(".test.js")) {
+    } else if (entry.isFile() && entry.name.endsWith(".test.ts")) {
       tests.push(path);
     }
   }
@@ -17,14 +17,17 @@ function collectTests(directory) {
   return tests.sort();
 }
 
-const tests = collectTests(join(process.cwd(), "dist"));
+const requestedDirectory = process.argv[2] ?? "tests/unit";
+const tests = collectTests(join(process.cwd(), requestedDirectory));
 if (tests.length === 0) {
-  console.error("No compiled test files were found.");
+  console.error(`No TypeScript test files were found in ${requestedDirectory}.`);
   process.exit(1);
 }
 
-const result = spawnSync(process.execPath, ["--test", ...tests], {
-  stdio: "inherit",
-});
+const result = spawnSync(
+  process.execPath,
+  ["-r", "ts-node/register", "--test", ...tests],
+  { stdio: "inherit" },
+);
 
 process.exit(result.status ?? 1);

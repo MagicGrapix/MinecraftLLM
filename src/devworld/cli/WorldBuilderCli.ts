@@ -1,0 +1,221 @@
+import {
+  createInterface,
+  type Interface as ReadlineInterface,
+} from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import type { Position } from "../../shared/types";
+import type { WorldBuilder } from "../WorldBuilder";
+import type { WorldControllerRuntime } from "../controller/WorldControllerRuntime";
+import type { CommandExecutor } from "../execution/CommandExecutor";
+import type { WorldPlan } from "../WorldPlan";
+import {
+  parseWorldCommand,
+  type GenerativeWorldCommand,
+  type WorldCliCommand,
+} from "./parseWorldCommand";
+
+export interface WorldBuilderCliOptions {
+  readonly runtime: WorldControllerRuntime;
+  readonly builder: WorldBuilder;
+  readonly executor: CommandExecutor;
+  readonly commandsPerSecond: number;
+  readonly readline?: Pick<ReadlineInterface, "question" | "close">;
+  readonly writeLine?: (message: string) => void;
+}
+
+export class WorldBuilderCli {
+  private readonly readline: Pick<
+    ReadlineInterface,
+    "question" | "close"
+  >;
+  private readonly writeLine: (message: string) => void;
+  private closed = false;
+
+  constructor(private readonly options: WorldBuilderCliOptions) {
+    this.readline =
+      options.readline ?? createInterface({ input, output });
+    this.writeLine = options.writeLine ?? console.info;
+  }
+
+  async run(): Promise<void> {
+    this.printHelp();
+    while (!this.closed) {
+      let line: string;
+      try {
+        line = await this.readline.question("> ");
+      } catch {
+        break;
+      }
+      try {
+        const action = await this.executeLine(line);
+        if (action === "quit") break;
+      } catch (error: unknown) {
+        this.writeLine(
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    this.close();
+  }
+
+  async executeLine(
+    line: string,
+  ): Promise<"continue" | "quit"> {
+    const command = parseWorldCommand(line);
+    switch (command.kind) {
+      case "help":
+        this.printHelp();
+        return "continue";
+      case "status":
+        this.printStatus();
+        return "continue";
+      case "quit":
+        return "quit";
+      case "clear":
+        await this.executePlan(this.options.builder.clear());
+        return "continue";
+      case "reset":
+        this.requireAgentPosition();
+        this.warnAboutFlatProfile();
+        await this.executePlan(this.options.builder.reset());
+        return "continue";
+      case "preview":
+        this.previewPlan(
+          this.generateRelativePlan(command.command),
+        );
+        return "continue";
+      case "tree":
+      case "forest":
+      case "ore":
+        await this.executePlan(this.generateRelativePlan(command));
+        return "continue";
+    }
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.readline.close();
+  }
+
+  private generateRelativePlan(
+    command: GenerativeWorldCommand,
+  ): WorldPlan {
+    const center = this.requireAgentPosition();
+    if (command.kind === "tree") {
+      return this.options.builder.addTree(center, command.radius);
+    }
+    if (command.kind === "forest") {
+      return this.options.builder.addForest(
+        center,
+        command.trees,
+        command.radius,
+      );
+    }
+    return this.options.builder.addOre(
+      center,
+      command.ore,
+      command.size,
+    );
+  }
+
+  private requireAgentPosition(): Position {
+    const position = this.options.runtime.getAgentPosition();
+    if (!position) {
+      throw new Error(
+        "The configured agent player is not connected in the overworld.",
+      );
+    }
+    return position;
+  }
+
+  private warnAboutFlatProfile(): void {
+    const observation = this.options.runtime.readFlatProfile();
+    if (!observation.matches) {
+      this.writeLine(
+        `Warning: flat profile differs at ${observation.position.x},${observation.position.z}. ` +
+          `Expected ${observation.expected.join("/")} but observed ${observation.actual.join("/")}.`,
+      );
+    }
+  }
+
+  private previewPlan(plan: WorldPlan): void {
+    this.printPlan(plan, true);
+    this.writeLine("Preview only; no command sent.");
+  }
+
+  private async executePlan(plan: WorldPlan): Promise<void> {
+    this.printPlan(plan, false);
+    this.writeLine(
+      `Executing at up to ${this.options.commandsPerSecond} commands/second...`,
+    );
+    const result = await this.options.executor.execute(plan);
+    if (result.status === "completed") {
+      this.writeLine(
+        `Plan completed; ${result.commandsSent} commands sent.`,
+      );
+    } else {
+      this.writeLine(
+        `Plan ${result.status}: ${result.error ?? "unknown error"}`,
+      );
+    }
+  }
+
+  private printPlan(plan: WorldPlan, includeCommands: boolean): void {
+    this.writeLine(`Generated plan: ${plan.description}`);
+    this.writeLine(`Commands: ${plan.commands.length}`);
+    this.writeLine(
+      `Estimated blocks changed: ${plan.estimatedBlocksChanged}`,
+    );
+    this.writeLine(`Affected bounds: ${formatBounds(plan)}`);
+    if (includeCommands) {
+      for (const command of plan.commands) {
+        this.writeLine(`  /${command.text}`);
+      }
+    }
+  }
+
+  private printStatus(): void {
+    const executor = this.options.executor.snapshot();
+    const agent = this.options.runtime.getAgentPosition();
+    this.writeLine(
+      [
+        `connected=${this.options.runtime.isConnected}`,
+        `opVerified=${this.options.runtime.isOperatorVerified}`,
+        `dimension=${
+          this.options.runtime.isConnected
+            ? this.options.runtime.bot.game.dimension
+            : "disconnected"
+        }`,
+        `agent=${agent ? `${agent.x},${agent.y},${agent.z}` : "offline"}`,
+        `activePlan=${executor.activePlanId ?? "none"}`,
+        `pendingPlans=${executor.pendingPlans}`,
+        `reservedCommands=${executor.reservedCommands}`,
+      ].join(" "),
+    );
+  }
+
+  private printHelp(): void {
+    this.writeLine(
+      [
+        "Commands:",
+        "  help",
+        "  status",
+        "  tree [radius]",
+        "  forest <trees> <radius>",
+        "  ore <iron|coal> <size>",
+        "  clear",
+        "  reset",
+        "  preview tree [radius]",
+        "  preview forest <trees> <radius>",
+        "  preview ore <iron|coal> <size>",
+        "  quit",
+      ].join("\n"),
+    );
+  }
+}
+
+function formatBounds(plan: WorldPlan): string {
+  const { min, max } = plan.affectedBounds;
+  return `(${min.x},${min.y},${min.z}) -> (${max.x},${max.y},${max.z})`;
+}

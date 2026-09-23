@@ -9,6 +9,7 @@
     "dev:agent": "ts-node scripts/dev/agent.ts",
     "dev:demo": "ts-node scripts/dev/demo.ts",
     "dev:give": "ts-node scripts/dev/give-items.ts",
+    "dev:world": "ts-node scripts/dev/world-builder.ts",
     "smoke:ollama": "ts-node scripts/smoke/ollama.ts",
     "smoke:intent": "ts-node scripts/smoke/intent.ts",
     "check:ollama": "ts-node scripts/diagnostics/check-ollama-context.ts",

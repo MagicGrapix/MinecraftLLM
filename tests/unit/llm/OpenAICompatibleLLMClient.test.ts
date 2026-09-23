@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { OpenAICompatibleLLMClient } from "../../../src/llm/OpenAICompatibleLLMClient";
+import { buildOpenAIRequestBody } from "../../../src/llm/openaiRequestBody";
+import { AgentInspector } from "../../../src/debug/AgentInspector";
 
 const options = {
   baseUrl: "http://localhost:11434/v1",
@@ -157,4 +159,84 @@ test("OpenAI adapter maps AbortSignal cancellation", async () => {
       "code" in error &&
       error.code === "ABORTED",
   );
+});
+
+test("buildOpenAIRequestBody matches the exact transport payload and omits trace", async () => {
+  let sentBody: Record<string, unknown> | null = null;
+  const inspector = new AgentInspector(5, "llm-session");
+  const client = new OpenAICompatibleLLMClient(
+    { ...options, inspector },
+    {
+      create: async (body) => {
+        sentBody = body;
+        return {
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: "done",
+                reasoning_content: "because",
+              },
+            },
+          ],
+          usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+        };
+      },
+    },
+  );
+  const request = {
+    messages: [{ role: "user" as const, content: "hi" }],
+    temperature: 0.2,
+    maxTokens: 32,
+    reasoningEffort: "none" as const,
+    trace: {
+      generationId: 4,
+      round: 0,
+      wakeType: "user_message",
+      permission: "acting",
+    },
+  };
+  inspector.beginRound(request.trace);
+  const expected = buildOpenAIRequestBody(request, options.model);
+  const response = await client.complete(request);
+  assert.deepEqual(sentBody, expected);
+  assert.equal("trace" in (sentBody ?? {}), false);
+  assert.equal(response.reasoning, "because");
+  const snapshot = inspector.finalizeRound(4, 0, "completed");
+  assert.equal(snapshot?.response?.content, "done");
+  assert.equal(snapshot?.response?.reasoning, "because");
+  assert.equal(
+    (snapshot?.rawResponse as { usage?: { total_tokens?: number } } | undefined)
+      ?.usage?.total_tokens,
+    3,
+  );
+  assert.equal("apiKey" in (snapshot?.requestBody ?? {}), false);
+});
+
+test("OpenAI adapter records inspector errors without leaking the API key", async () => {
+  const inspector = new AgentInspector(5, "error-session");
+  const client = new OpenAICompatibleLLMClient(
+    { ...options, apiKey: "super-secret", inspector },
+    {
+      create: async () => {
+        throw new Error("boom");
+      },
+    },
+  );
+  const trace = {
+    generationId: 1,
+    round: 0,
+    wakeType: "user_message",
+    permission: "acting",
+  };
+  inspector.beginRound(trace);
+  await assert.rejects(() =>
+    client.complete({
+      messages: [{ role: "user", content: "hi" }],
+      trace,
+    }),
+  );
+  const snapshot = inspector.finalizeRound(1, 0, "error");
+  assert.equal(snapshot?.error, "boom");
+  assert.equal(JSON.stringify(snapshot).includes("super-secret"), false);
 });

@@ -24,6 +24,16 @@ export interface LLMTool {
   readonly parameters: Record<string, unknown>;
 }
 
+/** Local metadata never sent on the wire to the LLM provider. */
+export interface LLMRequestTrace {
+  readonly generationId: number;
+  readonly round: number;
+  readonly wakeType: string;
+  readonly permission: string;
+  readonly executionRevision?: number;
+  readonly eventRevision?: number;
+}
+
 export interface LLMRequest {
   readonly messages: readonly LLMMessage[];
   readonly tools?: readonly LLMTool[];
@@ -32,6 +42,7 @@ export interface LLMRequest {
   readonly temperature?: number;
   readonly maxTokens?: number;
   readonly signal?: AbortSignal;
+  readonly trace?: LLMRequestTrace;
 }
 
 export interface LLMResponse {

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent LLM Inspector</title>
+    <link rel="stylesheet" href="/inspector.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Agent LLM Inspector</h1>
+        <p id="statusLine">Connecting…</p>
+      </div>
+      <div class="controls">
+        <button id="liveBtn" type="button" class="active">Live</button>
+        <button id="pauseBtn" type="button">Pause</button>
+        <button id="latestBtn" type="button">Voir le plus récent</button>
+        <span id="newBadge" class="badge hidden">0 nouveaux rounds</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <h2>Générations et rounds</h2>
+          <input
+            id="searchInput"
+            type="search"
+            placeholder="Rechercher…"
+            autocomplete="off"
+          />
+        </div>
+        <div id="roundList" class="round-list"></div>
+      </aside>
+
+      <section class="detail">
+        <div class="detail-head">
+          <h2 id="detailTitle">Aucun round sélectionné</h2>
+          <button id="copyBtn" type="button" disabled>Copy</button>
+        </div>
+        <nav class="tabs" id="tabs">
+          <button type="button" data-tab="messages" class="active">Messages</button>
+          <button type="button" data-tab="tools">Tools</button>
+          <button type="button" data-tab="raw">Raw request</button>
+          <button type="button" data-tab="response">Response</button>
+          <button type="button" data-tab="executions">Tool executions</button>
+          <button type="button" data-tab="metadata">Metadata</button>
+        </nav>
+        <div id="detailBody" class="detail-body">
+          <p class="empty">Sélectionnez un round pour inspecter le contexte exact.</p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/inspector.js"></script>
+  </body>
+</html>

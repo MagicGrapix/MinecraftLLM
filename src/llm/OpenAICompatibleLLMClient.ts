@@ -1,12 +1,13 @@
 import OpenAI from "openai";
+import type { AgentInspector } from "../debug/AgentInspector";
 import type {
   LLMClient,
-  LLMMessage,
   LLMRequest,
   LLMResponse,
   LLMToolCall,
 } from "./LLMClient";
 import { LLMError } from "./LLMError";
+import { buildOpenAIRequestBody } from "./openaiRequestBody";
 
 export interface OpenAICompatibleLLMClientOptions {
   readonly baseUrl: string;
@@ -14,6 +15,7 @@ export interface OpenAICompatibleLLMClientOptions {
   readonly model: string;
   readonly requestTimeoutMs: number;
   readonly maxRetries?: number;
+  readonly inspector?: AgentInspector;
 }
 
 interface CompletionTransport {
@@ -52,79 +54,34 @@ export class OpenAICompatibleLLMClient implements LLMClient {
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
     request.signal?.throwIfAborted();
+    const body = buildOpenAIRequestBody(request, this.options.model);
+    if (request.trace && this.options.inspector) {
+      this.options.inspector.recordRequest(request.trace, body);
+    }
     try {
-      const raw = await this.transport.create(
-        {
-          model: this.options.model,
-          messages: request.messages.map(toOpenAIMessage),
-          ...(request.tools && request.tools.length > 0
-            ? {
-                tools: request.tools.map((tool) => ({
-                  type: "function",
-                  function: {
-                    name: tool.name,
-                    description: tool.description,
-                    parameters: tool.parameters,
-                  },
-                })),
-              }
-            : {}),
-          ...(request.responseFormat === undefined
-            ? {}
-            : {
-                response_format: {
-                  type: request.responseFormat,
-                },
-              }),
-          ...(request.reasoningEffort === undefined
-            ? {}
-            : { reasoning_effort: request.reasoningEffort }),
-          ...(request.temperature === undefined
-            ? {}
-            : { temperature: request.temperature }),
-          ...(request.maxTokens === undefined
-            ? {}
-            : { max_tokens: request.maxTokens }),
-        },
-        { signal: request.signal },
-      );
+      const raw = await this.transport.create(body, {
+        signal: request.signal,
+      });
       request.signal?.throwIfAborted();
-      return parseResponse(raw);
+      const response = parseResponse(raw);
+      if (request.trace && this.options.inspector) {
+        this.options.inspector.recordResponse(request.trace, response, raw);
+      }
+      return response;
     } catch (error: unknown) {
-      if (error instanceof LLMError) throw error;
-      throw mapLLMError(error, request.signal);
+      const mapped =
+        error instanceof LLMError
+          ? error
+          : mapLLMError(error, request.signal);
+      if (request.trace && this.options.inspector) {
+        this.options.inspector.recordError(request.trace, mapped.message);
+      }
+      throw mapped;
     }
   }
 }
 
-function toOpenAIMessage(message: LLMMessage): Record<string, unknown> {
-  if (message.role === "assistant") {
-    return {
-      role: message.role,
-      content: message.content,
-      ...(message.toolCalls && message.toolCalls.length > 0
-        ? {
-            tool_calls: message.toolCalls.map((call) => ({
-              id: call.id,
-              type: "function",
-              function: {
-                name: call.name,
-                arguments: call.arguments,
-              },
-            })),
-          }
-        : {}),
-    };
-  }
-  if (message.role === "tool") {
-    return {
-      role: "tool",
-      tool_call_id: message.toolCallId,
-      content: message.content,
-    };
-  }
-  return { role: message.role, content: message.content };
-}
+export { buildOpenAIRequestBody } from "./openaiRequestBody";
 
 function parseResponse(raw: unknown): LLMResponse {
   if (!isRecord(raw) || !Array.isArray(raw.choices) || !raw.choices[0]) {

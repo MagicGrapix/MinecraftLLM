@@ -5,6 +5,14 @@ import { AgentToolBridge } from "../agent/AgentToolBridge";
 import { Agent } from "../agent/Agent";
 import { ChatIntentRouter } from "../chat/ChatIntentRouter";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
+import { AgentInspector } from "../debug/AgentInspector";
+import {
+  startAgentInspectorServer,
+  type AgentInspectorServerHandle,
+} from "../debug/AgentInspectorServer";
+import {
+  resolveInspectorUiRoot,
+} from "../debug/resolveInspectorUiRoot";
 import { ExecutionController } from "../execution/ExecutionController";
 import { Executor } from "../execution/Executor";
 import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
@@ -25,6 +33,7 @@ export interface RunningAgentRuntime {
   readonly agent: Agent;
   readonly controller: ExecutionController;
   readonly chat: MinecraftChatAdapter;
+  readonly inspector: AgentInspector | null;
   shutdown(reason?: string): Promise<void>;
 }
 
@@ -57,11 +66,16 @@ export async function createAgentRuntime(
   const controller = new ExecutionController({ executor });
   const activities = new RecentActivityBuffer(15);
   const history = new ConversationHistory(6, 16_000);
+  const inspector = config.inspectorEnabled
+    ? new AgentInspector(config.inspectorMaxRounds)
+    : null;
+  let inspectorServer: AgentInspectorServerHandle | null = null;
   const llm = new OpenAICompatibleLLMClient({
     baseUrl: config.llmBaseUrl,
     apiKey: config.llmApiKey,
     model: config.llmModel,
     requestTimeoutMs: config.llmRequestTimeoutMs,
+    ...(inspector ? { inspector } : {}),
   });
   const bridge = new AgentToolBridge({
     controller,
@@ -105,6 +119,7 @@ export async function createAgentRuntime(
     reasoningEffort: config.llmReasoningEffort,
     maxTokens: config.llmMaxTokens,
     turnTimeoutMs: config.llmRequestTimeoutMs,
+    ...(inspector ? { inspector } : {}),
     respond: async (message) => {
       await chat?.send(message);
     },
@@ -114,6 +129,37 @@ export async function createAgentRuntime(
     agent,
     ownerUsername: config.botOwnerUsername,
   });
+
+  if (inspector) {
+    try {
+      inspectorServer = await startAgentInspectorServer({
+        inspector,
+        host: config.inspectorHost,
+        port: config.inspectorPort,
+        uiRoot: resolveInspectorUiRoot(),
+        getAgentState: () => agent.state(),
+      });
+      console.info(`Agent inspector available at ${inspectorServer.url}`);
+    } catch (error: unknown) {
+      const code =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof (error as { code?: unknown }).code === "string"
+          ? (error as { code: string }).code
+          : null;
+      if (code === "EADDRINUSE") {
+        console.warn(
+          `Agent inspector port ${config.inspectorPort} is already in use; continuing without the inspector server.`,
+        );
+      } else {
+        console.warn(
+          "Agent inspector failed to start; continuing without it.",
+          error,
+        );
+      }
+    }
+  }
 
   const landmarkRefreshes = new Set<Promise<void>>();
   const trackLandmarkRefresh = (
@@ -166,6 +212,7 @@ export async function createAgentRuntime(
     agent,
     controller,
     chat,
+    inspector,
     shutdown(reason = "Agent runtime stopped."): Promise<void> {
       if (shutdownPromise) return shutdownPromise;
       shutdownPromise = (async () => {
@@ -176,6 +223,14 @@ export async function createAgentRuntime(
         await Promise.all([...landmarkRefreshes]);
         await sessions.closeActive(reason);
         await landmarks.persist();
+        if (inspectorServer) {
+          try {
+            await inspectorServer.close();
+          } catch (error: unknown) {
+            console.warn("Agent inspector shutdown failed:", error);
+          }
+          inspectorServer = null;
+        }
         runtime.disconnect(reason);
       })();
       return shutdownPromise;

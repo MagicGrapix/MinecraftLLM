@@ -16,6 +16,10 @@ const EnvironmentSchema = z.object({
   BOT_MODE: z.enum(["agent", "demo"]).default("agent"),
   LANDMARKS_FILE: z.string().min(1).default("./data/landmarks.json"),
   PROMPTS_DIR: z.string().min(1).default("./prompts"),
+  AGENT_INSPECTOR_ENABLED: booleanEnvironment(true),
+  AGENT_INSPECTOR_HOST: z.literal("127.0.0.1").default("127.0.0.1"),
+  AGENT_INSPECTOR_PORT: integerEnvironment(3_001, 1, 65_535),
+  AGENT_INSPECTOR_MAX_ROUNDS: integerEnvironment(30, 1, 1_000),
 });
 
 export interface AgentConfig {
@@ -32,6 +36,10 @@ export interface AgentConfig {
   readonly botMode: "agent" | "demo";
   readonly landmarksFile: string;
   readonly promptsDirectory: string;
+  readonly inspectorEnabled: boolean;
+  readonly inspectorHost: "127.0.0.1";
+  readonly inspectorPort: number;
+  readonly inspectorMaxRounds: number;
 }
 
 export function loadAgentConfig(
@@ -52,6 +60,10 @@ export function loadAgentConfig(
     botMode: parsed.BOT_MODE,
     landmarksFile: parsed.LANDMARKS_FILE,
     promptsDirectory: parsed.PROMPTS_DIR,
+    inspectorEnabled: parsed.AGENT_INSPECTOR_ENABLED,
+    inspectorHost: parsed.AGENT_INSPECTOR_HOST,
+    inspectorPort: parsed.AGENT_INSPECTOR_PORT,
+    inspectorMaxRounds: parsed.AGENT_INSPECTOR_MAX_ROUNDS,
   };
 }
 
@@ -77,4 +89,17 @@ function integerEnvironment(
       value === undefined || value === "" ? defaultValue : Number(value),
     z.number().int().min(minimum).max(maximum),
   );
+}
+
+function booleanEnvironment(
+  defaultValue: boolean,
+): z.ZodType<boolean, z.ZodTypeDef, unknown> {
+  return z.preprocess((value) => {
+    if (value === undefined || value === "") return defaultValue;
+    if (typeof value === "boolean") return value;
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "0") return false;
+    return value;
+  }, z.boolean());
 }

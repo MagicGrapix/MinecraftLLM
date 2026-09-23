@@ -1,9 +1,14 @@
 import type { ChatIntentRouter } from "../chat/ChatIntentRouter";
+import type { AgentInspector } from "../debug/AgentInspector";
 import type {
   ExecutionController,
   ExecutionEvent,
 } from "../execution/ExecutionController";
-import type { LLMClient, LLMMessage } from "../llm/LLMClient";
+import type {
+  LLMClient,
+  LLMMessage,
+  LLMRequestTrace,
+} from "../llm/LLMClient";
 import { LLMError } from "../llm/LLMError";
 import type { ConversationHistory } from "../memory/ConversationHistory";
 import type { RecentActivityBuffer } from "../memory/RecentActivityBuffer";
@@ -36,6 +41,7 @@ interface AgentOptions {
   readonly maxTokens: number;
   readonly turnTimeoutMs: number;
   readonly respond: (message: string, username?: string) => Promise<void>;
+  readonly inspector?: AgentInspector;
 }
 
 export class Agent {
@@ -264,6 +270,11 @@ export class Agent {
       let completed = false;
       let hadToolError = false;
 
+      const eventRevision =
+        wake.type === "execution_finished" || wake.type === "execution_idle"
+          ? wake.event.snapshot.revision
+          : undefined;
+
       for (
         let round = 0;
         round <= this.options.maxToolRounds;
@@ -274,6 +285,27 @@ export class Agent {
         );
         const messageChars = JSON.stringify(messages).length;
         const toolSchemaChars = JSON.stringify(tools).length;
+        const metrics = {
+          messageCount: messages.length,
+          messageChars,
+          toolCount: tools.length,
+          toolSchemaChars,
+          estimatedInputChars: messageChars + toolSchemaChars,
+        };
+        const executionRevision =
+          this.options.controller.snapshot().revision;
+        const trace: LLMRequestTrace = {
+          generationId,
+          round,
+          wakeType: wake.type,
+          permission: prepared.permission,
+          executionRevision,
+          ...(eventRevision === undefined ? {} : { eventRevision }),
+        };
+        this.options.inspector?.beginRound({
+          ...trace,
+          metrics,
+        });
         const llmStartedAt = Date.now();
         console.info("Agent LLM round started.", {
           generationId,
@@ -294,6 +326,7 @@ export class Agent {
           reasoningEffort: this.options.reasoningEffort,
           maxTokens: this.options.maxTokens,
           signal: abort.signal,
+          trace,
         } as const;
         writeTrace("agent.llm.request", {
           generationId,
@@ -336,6 +369,11 @@ export class Agent {
               (call) => call.name,
             ),
           });
+          this.options.inspector?.finalizeRound(
+            generationId,
+            round,
+            "token_limit_discarded",
+          );
           await this.options.respond(
             "Ma réflexion a atteint la limite de tokens avant d'être terminée. Je n'exécute pas cette réponse tronquée.",
             prepared.username,
@@ -348,6 +386,11 @@ export class Agent {
         const calls = response.message.toolCalls ?? [];
         if (calls.length === 0) {
           completed = true;
+          this.options.inspector?.finalizeRound(
+            generationId,
+            round,
+            "completed",
+          );
           if (response.message.content?.trim()) {
             await this.options.respond(
               response.message.content.trim(),
@@ -357,7 +400,14 @@ export class Agent {
           }
           break;
         }
-        if (round === this.options.maxToolRounds) break;
+        if (round === this.options.maxToolRounds) {
+          this.options.inspector?.finalizeRound(
+            generationId,
+            round,
+            "tool_round_limit",
+          );
+          break;
+        }
 
         for (const call of calls) {
           this.assertCurrent(generationId, abort.signal);
@@ -373,6 +423,11 @@ export class Agent {
             round,
             permission: prepared.permission,
             call,
+          });
+          this.options.inspector?.recordToolStarted(generationId, round, {
+            toolCallId: call.id,
+            name: call.name,
+            arguments: call.arguments,
           });
           const result = await this.options.toolBridge.execute(call, {
             permission: prepared.permission,
@@ -392,6 +447,13 @@ export class Agent {
             result.ok &&
             (call.name === "pause_execution" ||
               call.name === "abort_current_task");
+          this.options.inspector?.recordToolCompleted(generationId, round, {
+            toolCallId: call.id,
+            name: call.name,
+            arguments: call.arguments,
+            result: result.content,
+            ok: result.ok,
+          });
           this.assertCurrent(generationId, abort.signal);
           const toolMessage: LLMMessage = {
             role: "tool",
@@ -422,6 +484,11 @@ export class Agent {
             data: parseActivityData(result.content),
           });
         }
+        this.options.inspector?.finalizeRound(
+          generationId,
+          round,
+          "completed",
+        );
         // A committed physical plan starts before the next LLM round. This is
         // what lets execution and reflection progress concurrently.
         this.resumeCommittedPlan(
@@ -484,6 +551,10 @@ export class Agent {
         generationId !== this.generationId ||
         (abort.signal.aborted && !timedOut);
       if (obsolete) {
+        this.options.inspector?.finalizeOpenRounds(
+          generationId,
+          generationId !== this.generationId ? "superseded" : "aborted",
+        );
         console.info("Agent generation cancelled or stale.", {
           generationId,
           wakeType: wake.type,
@@ -491,6 +562,11 @@ export class Agent {
         return;
       }
       if (timedOut) {
+        this.options.inspector?.finalizeOpenRounds(
+          generationId,
+          "error",
+          "Agent turn timed out.",
+        );
         this.options.activities.add({
           kind: "agent_error",
           summary: "Agent turn timed out.",
@@ -505,6 +581,11 @@ export class Agent {
         error instanceof LLMError
           ? `Ollama indisponible (${error.code}).`
           : "Je n'ai pas pu terminer cette réflexion.";
+      this.options.inspector?.finalizeOpenRounds(
+        generationId,
+        "error",
+        error instanceof Error ? error.message : String(error),
+      );
       this.options.activities.add({
         kind: "agent_error",
         summary: message,

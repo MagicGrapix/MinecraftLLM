@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-inspector-ui.cjs",
     "dev": "ts-node src/main.ts",
     "dev:agent": "ts-node scripts/dev/agent.ts",
     "dev:demo": "ts-node scripts/dev/demo.ts",

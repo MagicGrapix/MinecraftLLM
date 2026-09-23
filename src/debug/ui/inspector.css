@@ -1,0 +1,263 @@
+:root {
+  --bg: #12141a;
+  --panel: #1a1e27;
+  --panel-2: #222833;
+  --border: #2f3645;
+  --text: #e8ecf4;
+  --muted: #9aa3b5;
+  --accent: #6ea8fe;
+  --system: #7dd3c0;
+  --user: #f0c674;
+  --assistant: #9ab6ff;
+  --tool: #d7a1ff;
+  --danger: #ff8f8f;
+  --ok: #8fd39a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 "Segoe UI", Tahoma, sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.topbar p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button.active {
+  background: #2a3a55;
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.badge {
+  background: #3a2a12;
+  color: #ffd28a;
+  border: 1px solid #6a4d1c;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.badge.hidden {
+  display: none;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  min-height: 0;
+  flex: 1;
+}
+
+.sidebar,
+.detail {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.sidebar-head,
+.detail-head {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.sidebar-head {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.sidebar-head h2,
+.detail-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+#searchInput {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.round-list {
+  overflow: auto;
+  padding: 8px;
+}
+
+.round-item {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 6px;
+  background: var(--panel-2);
+}
+
+.round-item.selected {
+  border-color: var(--accent);
+  background: #243146;
+}
+
+.round-item .meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.round-item .preview {
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.detail-body {
+  overflow: auto;
+  padding: 12px;
+  min-height: 0;
+  flex: 1;
+}
+
+.empty {
+  color: var(--muted);
+}
+
+.message,
+.block {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.message.system {
+  border-left: 4px solid var(--system);
+}
+
+.message.user {
+  border-left: 4px solid var(--user);
+}
+
+.message.assistant {
+  border-left: 4px solid var(--assistant);
+}
+
+.message.tool {
+  border-left: 4px solid var(--tool);
+}
+
+.role {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+pre,
+.code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
+details.fold {
+  margin-top: 8px;
+}
+
+details.fold > summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.status-ok {
+  color: var(--ok);
+}
+
+.status-error {
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}

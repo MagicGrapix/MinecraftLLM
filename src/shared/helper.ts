@@ -63,6 +63,23 @@ export function sleep(durationMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
+export function parseJsonObjectText(content: string): unknown {
+  const trimmed = content.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+    if (fenced?.[1]) return JSON.parse(fenced[1]);
+
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    }
+    throw new Error("The response does not contain a JSON object.");
+  }
+}
+
 export function isPathInside(root: string, candidate: string): boolean {
   const relativePath = relative(resolve(root), resolve(candidate));
   return (

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Bot } from "mineflayer";
-import type { Agent } from "../../../src/agent/Agent";
+import type { SequentialAgent } from "../../../src/agent/SequentialAgent";
 import { FakeLLMClient } from "../../../src/llm/FakeLLMClient";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 import { ChatIntentRouter } from "../../../src/chat/ChatIntentRouter";
@@ -106,7 +106,7 @@ test("chat adapter reserves controls and mutations for the owner", async () => {
     ) => {
       received.push({ username, text, readonlyOnly });
     },
-  } as unknown as Agent;
+  } as unknown as SequentialAgent;
   const adapter = new MinecraftChatAdapter({
     bot,
     agent,

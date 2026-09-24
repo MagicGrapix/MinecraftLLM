@@ -27,11 +27,13 @@ export interface LLMTool {
 /** Local metadata never sent on the wire to the LLM provider. */
 export interface LLMRequestTrace {
   readonly generationId: number;
+  readonly phase: "intent" | "question" | "planning" | "review" | "memory";
+  readonly reflection: number;
   readonly round: number;
+  readonly attempt: number;
   readonly wakeType: string;
   readonly permission: string;
-  readonly executionRevision?: number;
-  readonly eventRevision?: number;
+  readonly contextSnapshot?: unknown;
 }
 
 export interface LLMRequest {
@@ -49,6 +51,7 @@ export interface LLMResponse {
   readonly message: Extract<LLMMessage, { role: "assistant" }>;
   readonly reasoning?: string;
   readonly finishReason: string | null;
+  readonly raw?: unknown;
   readonly usage?: {
     readonly promptTokens?: number;
     readonly completionTokens?: number;

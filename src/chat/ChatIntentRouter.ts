@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { LLMClient } from "../llm/LLMClient";
+import type { LLMClient, LLMRequestTrace } from "../llm/LLMClient";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { ChatIntent } from "./ChatIntent";
 
@@ -22,7 +22,11 @@ export class ChatIntentRouter {
     private readonly confidenceThreshold = 3,
   ) {}
 
-  async route(text: string, signal?: AbortSignal): Promise<ChatIntent> {
+  async route(
+    text: string,
+    signal?: AbortSignal,
+    trace?: LLMRequestTrace,
+  ): Promise<ChatIntent> {
     const normalized = text.trim().replace(/\s+/g, " ");
     const startedAt = Date.now();
     console.debug("Intent classification started.", {
@@ -41,6 +45,7 @@ export class ChatIntentRouter {
       temperature: 0,
       maxTokens: 160,
       signal,
+      trace,
     });
     signal?.throwIfAborted();
     console.debug("Intent classification response received.", {

@@ -149,6 +149,7 @@ function parseResponse(raw: unknown): LLMResponse {
       typeof choice.finish_reason === "string"
         ? choice.finish_reason
         : null,
+    raw: structuredClone(raw),
     ...(usage ? { usage } : {}),
   };
 }

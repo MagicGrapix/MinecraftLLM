@@ -5,6 +5,7 @@ export type InspectorRoundStatus =
   | "aborted"
   | "token_limit_discarded"
   | "tool_round_limit"
+  | "invalid_response"
   | "error";
 
 export interface InspectorToolExecution {
@@ -19,12 +20,18 @@ export interface InspectorRound {
   readonly id: string;
   readonly timestamp: number;
   readonly generationId: number;
+  readonly phase: "intent" | "question" | "planning" | "review" | "memory";
+  readonly reflection: number;
   readonly round: number;
+  readonly attempt: number;
   readonly wakeType: string;
   readonly permission: string;
-  readonly executionRevision?: number;
-  readonly eventRevision?: number;
   readonly status: InspectorRoundStatus;
+  readonly contextSnapshot?: unknown;
+  readonly decision?: unknown;
+  readonly memoryBefore?: string;
+  readonly memoryAfter?: string;
+  readonly validationError?: string;
   readonly request?: {
     readonly model: string;
     readonly messages: unknown[];
@@ -62,7 +69,10 @@ export interface InspectorRoundSummary {
   readonly id: string;
   readonly timestamp: number;
   readonly generationId: number;
+  readonly phase: InspectorRound["phase"];
+  readonly reflection: number;
   readonly round: number;
+  readonly attempt: number;
   readonly wakeType: string;
   readonly permission: string;
   readonly status: InspectorRoundStatus;
@@ -86,6 +96,9 @@ export interface InspectorStatus {
   readonly inProgress: readonly {
     readonly id: string;
     readonly generationId: number;
+    readonly phase: InspectorRound["phase"];
+    readonly reflection: number;
     readonly round: number;
+    readonly attempt: number;
   }[];
 }

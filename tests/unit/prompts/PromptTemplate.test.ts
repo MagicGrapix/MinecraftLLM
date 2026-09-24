@@ -30,23 +30,16 @@ test("all runtime agent prompts load from Markdown and render", async () => {
   const prompts = await loadAgentPrompts(resolve(process.cwd(), "prompts"));
 
   const system = prompts.system.render({
-    current_context: '{"mode":"paused"}',
-    recent_activity: "[]",
+    current_context: '{"mode":"idle"}',
   });
   assert.match(system, /Minecraft Agent/);
-  assert.match(system, /"mode":"paused"/);
+  assert.match(system, /"mode":"idle"/);
   assert.match(prompts.intentClassifier.render(), /1 to 5/);
   assert.match(
-    prompts.executionFinished.render({
-      task: "{}",
-      result: "{}",
-      revision: 4,
+    prompts.memoryUpdate.render({
+      max_chars: 500,
+      memory_input: { oldMemory: "Crafted planks." },
     }),
-    /revision: 4/i,
+    /500/,
   );
-  assert.match(
-    prompts.executionIdle.render({ revision: 5 }),
-    /revision 5/i,
-  );
-  assert.match(prompts.resumeReview.render(), /Revalidate/);
 });

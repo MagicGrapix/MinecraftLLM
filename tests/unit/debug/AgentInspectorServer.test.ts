@@ -4,27 +4,27 @@ import test from "node:test";
 import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { startAgentInspectorServer } from "../../../src/debug/AgentInspectorServer";
 import { resolveInspectorUiRoot } from "../../../src/debug/resolveInspectorUiRoot";
+import type { LLMRequestTrace } from "../../../src/llm/LLMClient";
 
 test("inspector HTTP routes serve compact list, detail, UI, and status", async () => {
   const inspector = new AgentInspector(10, "http-session");
-  const trace = {
+  const current = inspectorTrace({
     generationId: 7,
-    round: 0,
+    phase: "planning",
     wakeType: "user_message",
-    permission: "acting",
-  };
-  inspector.beginRound(trace);
-  inspector.recordRequest(trace, {
+  });
+  inspector.beginRound(current);
+  inspector.recordRequest(current, {
     model: "qwen",
     messages: [{ role: "user", content: "build a table" }],
     tools: [],
   });
-  inspector.recordResponse(trace, {
+  inspector.recordResponse(current, {
     message: { role: "assistant", content: "ok" },
     finishReason: "stop",
     usage: { promptTokens: 3, completionTokens: 1, totalTokens: 4 },
   });
-  const snapshot = inspector.finalizeRound(7, 0, "completed");
+  const snapshot = inspector.finalizeRound(current, "completed");
   assert.ok(snapshot);
 
   const server = await startAgentInspectorServer({
@@ -100,4 +100,19 @@ async function fetchJson(url: string): Promise<any> {
   const response = await fetch(url);
   assert.equal(response.ok, true);
   return response.json();
+}
+
+function inspectorTrace(
+  overrides: Partial<LLMRequestTrace> = {},
+): LLMRequestTrace {
+  return {
+    generationId: 1,
+    phase: "planning",
+    reflection: 0,
+    round: 0,
+    attempt: 0,
+    wakeType: "reflection",
+    permission: "action",
+    ...overrides,
+  };
 }

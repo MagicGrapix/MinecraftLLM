@@ -1,29 +1,21 @@
 import type { z } from "zod";
 import type { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
-import type { ExecutionController } from "../execution/ExecutionController";
 import type { TaskSpec } from "../execution/Task";
 import type { LLMToolCall } from "../llm/LLMClient";
 import type { LandmarkMemory } from "../memory/LandmarkMemory";
 import type { SkillLoader } from "../skills/SkillLoader";
 import type { SkillRegistry } from "../skills/SkillRegistry";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
+import type { AgentDecision } from "./AgentDecision";
+import { ModelResponseError } from "./ModelResponseError";
 import {
+  decisionToolNames,
   fixedToolSchemas,
   toJsonSchema,
   ToolCatalogBuilder,
 } from "./ToolCatalogBuilder";
 
-export type AgentPermissionMode =
-  | "readonly"
-  | "planning_stopped"
-  | "acting"
-  | "resume_review";
-
-export interface AgentToolExecutionContext {
-  readonly permission: AgentPermissionMode;
-  readonly manualStopped: boolean;
-  readonly generationId: number;
-}
+export type AgentPermissionMode = "readonly" | "action";
 
 export interface AgentToolResult {
   readonly toolCallId: string;
@@ -33,7 +25,6 @@ export interface AgentToolResult {
 }
 
 interface AgentToolBridgeOptions {
-  readonly controller: ExecutionController;
   readonly capabilities: CapabilityRegistry;
   readonly queries: WorldQueryRegistry;
   readonly skills: SkillRegistry;
@@ -47,20 +38,11 @@ interface AgentToolBridgeOptions {
 }
 
 const readToolNames = new Set([
-  "get_execution_snapshot",
   "list_skills",
   "load_skill",
   "get_capability_schemas",
   "list_landmarks",
 ]);
-const queueToolNames = new Set([
-  "enqueue_tasks",
-  "replace_pending_tasks",
-  "prepend_task",
-  "remove_pending_task",
-  "clear_pending_tasks",
-]);
-const memoryToolNames = new Set(["remember_landmark", "forget_landmark"]);
 
 export class AgentToolBridge {
   readonly catalog: ToolCatalogBuilder;
@@ -75,49 +57,62 @@ export class AgentToolBridge {
     );
   }
 
-  async execute(
-    call: LLMToolCall,
-    context: AgentToolExecutionContext,
-  ): Promise<AgentToolResult> {
+  isDecision(name: string): boolean {
+    return decisionToolNames.has(name);
+  }
+
+  isReadTool(name: string): boolean {
+    return this.options.queries.has(name) || readToolNames.has(name);
+  }
+
+  parseDecision(call: LLMToolCall): AgentDecision {
+    if (!this.isDecision(call.name)) {
+      throw new ModelResponseError(
+        `"${call.name}" is not a terminal agent decision.`,
+      );
+    }
+    const input = this.parseFixedArguments(call);
+    switch (call.name) {
+      case "set_plan": {
+        const tasks = this.validateTasks(input.tasks);
+        return { type: "set_plan", tasks };
+      }
+      case "continue_plan":
+        return { type: "continue_plan" };
+      case "finish_run":
+        return {
+          type: "finish_run",
+          status: input.status as "success" | "failure" | "needs_user",
+          message: input.message as string,
+        };
+      default:
+        throw new ModelResponseError(
+          `Unsupported decision "${call.name}".`,
+        );
+    }
+  }
+
+  async executeRead(call: LLMToolCall): Promise<AgentToolResult> {
     const startedAt = Date.now();
     let result: unknown;
     let ok = false;
-
     try {
-      if (!this.isKnownTool(call.name)) {
-        result = this.options.capabilities.has(call.name)
-          ? failure(
-              "CAPABILITY_REQUIRES_QUEUE",
-              `"${call.name}" is a capability, not a directly callable tool. Put it in a TaskSpec and submit it with enqueue_tasks, prepend_task, or replace_pending_tasks.`,
-            )
-          : failure("TOOL_NOT_FOUND", `Unknown tool "${call.name}".`);
-      } else if (!this.isAllowed(call.name, context.permission)) {
-        result = failure(
-          "PERMISSION_DENIED",
-          `Tool "${call.name}" is not allowed in ${context.permission} mode.`,
+      if (!this.isReadTool(call.name)) {
+        throw new ModelResponseError(
+          `Tool "${call.name}" is not a read/query tool.`,
         );
-      } else if (
-        context.manualStopped &&
-        call.name === "resume_execution"
-      ) {
-        result = failure(
-          "MANUAL_STOP",
-          "Execution is manually stopped; only an explicit chat resume may restart it.",
-        );
-      } else {
-        const parsedArguments = parseArguments(call.arguments);
-        result = await this.dispatch(call.name, parsedArguments);
       }
+      const rawArguments = parseArguments(call.arguments);
+      result = await this.dispatchRead(call.name, rawArguments);
       ok = isSuccessfulResult(result);
     } catch (error: unknown) {
+      if (error instanceof ModelResponseError) throw error;
       result = failure(
         "TOOL_ERROR",
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    console.info("Agent tool completed.", {
-      generationId: context.generationId,
+    console.info("Agent read tool completed.", {
       toolName: call.name,
       ok,
       durationMs: Date.now() - startedAt,
@@ -130,7 +125,80 @@ export class AgentToolBridge {
     };
   }
 
-  private async dispatch(
+  validateResponseCalls(
+    calls: readonly LLMToolCall[],
+    mode: AgentPermissionMode,
+  ):
+    | { readonly kind: "reads"; readonly calls: readonly LLMToolCall[] }
+    | { readonly kind: "decision"; readonly decision: AgentDecision } {
+    if (calls.length === 0) {
+      throw new ModelResponseError(
+        mode === "action"
+          ? "Action reflection must return one decision tool call."
+          : "Readonly reflection must return JSON content.",
+      );
+    }
+    const decisions = calls.filter((call) => this.isDecision(call.name));
+    if (decisions.length > 0) {
+      if (mode !== "action") {
+        throw new ModelResponseError(
+          "Readonly reflection cannot return an action decision.",
+        );
+      }
+      if (calls.length !== 1 || decisions.length !== 1) {
+        throw new ModelResponseError(
+          "A decision must be the only tool call in its response.",
+        );
+      }
+      return {
+        kind: "decision",
+        decision: this.parseDecision(decisions[0]!),
+      };
+    }
+    for (const call of calls) {
+      if (!this.isReadTool(call.name)) {
+        throw new ModelResponseError(`Unknown tool "${call.name}".`);
+      }
+      this.validateReadArguments(call);
+    }
+    return { kind: "reads", calls };
+  }
+
+  private validateReadArguments(call: LLMToolCall): void {
+    const raw = parseArguments(call.arguments);
+    if (this.options.queries.has(call.name)) {
+      const query = this.options.queries.get(call.name);
+      if (!query) throw new ModelResponseError(`Unknown query "${call.name}".`);
+      const parsed = query.inputSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new ModelResponseError(
+          invalidArgumentsMessage(call.name, parsed.error.issues),
+        );
+      }
+      return;
+    }
+    this.parseFixedArguments(call);
+  }
+
+  private parseFixedArguments(
+    call: LLMToolCall,
+  ): Record<string, unknown> {
+    const schema = fixedToolSchemas[
+      call.name as keyof typeof fixedToolSchemas
+    ] as z.ZodTypeAny | undefined;
+    if (!schema) {
+      throw new ModelResponseError(`Unknown tool "${call.name}".`);
+    }
+    const parsed = schema.safeParse(parseArguments(call.arguments));
+    if (!parsed.success) {
+      throw new ModelResponseError(
+        invalidArgumentsMessage(call.name, parsed.error.issues),
+      );
+    }
+    return parsed.data as Record<string, unknown>;
+  }
+
+  private async dispatchRead(
     name: string,
     rawArguments: unknown,
   ): Promise<unknown> {
@@ -166,23 +234,12 @@ export class AgentToolBridge {
       return result;
     }
 
-    const schema = fixedToolSchemas[
-      name as keyof typeof fixedToolSchemas
-    ] as z.ZodTypeAny | undefined;
-    if (!schema) {
-      return failure("TOOL_NOT_FOUND", `Unknown tool "${name}".`);
-    }
-    const parsed = schema.safeParse(rawArguments);
-    if (!parsed.success) {
-      return failure("INVALID_ARGUMENT", `Invalid arguments for "${name}".`, {
-        issues: parsed.error.issues,
-      });
-    }
-    const input = parsed.data as Record<string, unknown>;
-
+    const input = this.parseFixedArguments({
+      id: "validation",
+      name,
+      arguments: JSON.stringify(rawArguments),
+    });
     switch (name) {
-      case "get_execution_snapshot":
-        return success(this.options.controller.snapshot());
       case "list_skills":
         return success(this.options.skills.list());
       case "load_skill":
@@ -192,7 +249,7 @@ export class AgentToolBridge {
       case "get_capability_schemas": {
         const names = input.names as string[];
         const unknown = names.filter(
-          (name) => !this.options.capabilities.has(name),
+          (capability) => !this.options.capabilities.has(capability),
         );
         if (unknown.length > 0) {
           return failure(
@@ -202,15 +259,18 @@ export class AgentToolBridge {
               unknown,
               available: this.options.capabilities
                 .list()
-                .map(({ name }) => name),
+                .map(({ name: capability }) => capability),
             },
           );
         }
         return success({
-          capabilities: names.map((name) => {
-            const capability = this.options.capabilities.get(name);
+          capabilities: names.map((capabilityName) => {
+            const capability =
+              this.options.capabilities.get(capabilityName);
             if (!capability) {
-              throw new Error(`Capability "${name}" disappeared.`);
+              throw new Error(
+                `Capability "${capabilityName}" disappeared.`,
+              );
             }
             return {
               name: capability.name,
@@ -218,106 +278,31 @@ export class AgentToolBridge {
               inputSchema: toJsonSchema(capability.inputSchema),
             };
           }),
-          note: "Use these schemas only for the current generation. Runtime validation remains authoritative.",
         });
       }
       case "list_landmarks":
         return success(this.options.landmarks.list());
-      case "enqueue_tasks": {
-        const tasks = this.validateTasks(input.tasks);
-        if (!tasks.ok) return tasks;
-        return this.options.controller.enqueueMany(tasks.value, {
-          expectedRevision: input.expectedRevision as number,
-        });
-      }
-      case "replace_pending_tasks": {
-        const tasks = this.validateTasks(input.tasks);
-        if (!tasks.ok) return tasks;
-        return this.options.controller.replacePending(tasks.value, {
-          expectedRevision: input.expectedRevision as number,
-        });
-      }
-      case "prepend_task": {
-        const task = this.validateTask(input.task);
-        if (!task.ok) return task;
-        return this.options.controller.prepend(task.value, {
-          expectedRevision: input.expectedRevision as number,
-        });
-      }
-      case "remove_pending_task":
-        return this.options.controller.removePending(
-          input.taskId as string,
-          { expectedRevision: input.expectedRevision as number },
-        );
-      case "clear_pending_tasks":
-        return this.options.controller.clearPending({
-          expectedRevision: input.expectedRevision as number,
-        });
-      case "pause_execution":
-        return this.options.controller.pause({
-          expectedRevision: input.expectedRevision as number,
-        });
-      case "resume_execution":
-        return this.options.controller.resume({
-          expectedRevision: input.expectedRevision as number,
-        });
-      case "abort_current_task":
-        return this.options.controller.abortCurrent(
-          (input.reason as string | undefined) ??
-            "Interrupted by agent.",
-          { expectedRevision: input.expectedRevision as number },
-        );
-      case "remember_landmark":
-        return success(
-          await this.options.landmarks.remember({
-            name: input.name as string,
-            kind: input.kind as
-              | "crafting_table"
-              | "chest"
-              | "bed"
-              | "base"
-              | "custom",
-            dimension: input.dimension as string,
-            position: input.position as { x: number; y: number; z: number },
-            source: input.source as "observed" | "user" | "agent",
-            pinned: input.pinned as boolean,
-          }),
-        );
-      case "forget_landmark":
-        return success({
-          forgotten: await this.options.landmarks.forget(
-            input.id as string,
-          ),
-        });
       default:
         return failure("TOOL_NOT_FOUND", `Unknown tool "${name}".`);
     }
   }
 
-  private validateTasks(value: unknown):
-    | { ok: true; value: TaskSpec[] }
-    | { ok: false; error: unknown } {
-    if (!Array.isArray(value)) {
-      return failure("INVALID_ARGUMENT", "tasks must be an array.");
+  private validateTasks(value: unknown): TaskSpec[] {
+    if (!Array.isArray(value) || value.length === 0) {
+      throw new ModelResponseError("tasks must be a non-empty array.");
     }
-    const tasks: TaskSpec[] = [];
-    for (const candidate of value) {
-      const validated = this.validateTask(candidate);
-      if (!validated.ok) return validated;
-      tasks.push(validated.value);
-    }
-    return { ok: true, value: tasks };
+    return value.map((candidate, index) =>
+      this.validateTask(candidate, index),
+    );
   }
 
-  private validateTask(value: unknown):
-    | { ok: true; value: TaskSpec }
-    | { ok: false; error: unknown } {
+  private validateTask(value: unknown, index: number): TaskSpec {
     if (
       typeof value !== "object" ||
       value === null ||
       typeof (value as { capability?: unknown }).capability !== "string"
     ) {
-      return failure("INVALID_TASK_SPEC", "Malformed TaskSpec.");
+      throw new ModelResponseError(`tasks.${index} is malformed.`);
     }
     const candidate = value as {
       capability: string;
@@ -325,9 +310,8 @@ export class AgentToolBridge {
       timeoutMs?: unknown;
     };
     if (!this.options.capabilities.has(candidate.capability)) {
-      return failure(
-        "INVALID_TASK_SPEC",
-        `Unknown capability "${candidate.capability}".`,
+      throw new ModelResponseError(
+        `tasks.${index}.capability "${candidate.capability}" is unknown.`,
       );
     }
     const validation = this.options.capabilities.validateInput(
@@ -335,10 +319,8 @@ export class AgentToolBridge {
       candidate.input,
     );
     if (!validation.ok) {
-      return failure(
-        "INVALID_TASK_SPEC",
-        `Invalid input for capability "${candidate.capability}".`,
-        { issues: validation.issues },
+      throw new ModelResponseError(
+        `tasks.${index}.input is invalid for "${candidate.capability}".`,
       );
     }
     if (
@@ -346,61 +328,45 @@ export class AgentToolBridge {
       (!Number.isInteger(candidate.timeoutMs) ||
         (candidate.timeoutMs as number) <= 0)
     ) {
-      return failure(
-        "INVALID_TASK_SPEC",
-        "Task timeoutMs must be a positive integer.",
+      throw new ModelResponseError(
+        `tasks.${index}.timeoutMs must be a positive integer.`,
       );
     }
     return {
-      ok: true,
-      value: {
-        capability: candidate.capability,
-        input: validation.input,
-        ...(candidate.timeoutMs === undefined
-          ? {}
-          : { timeoutMs: candidate.timeoutMs as number }),
-      },
+      capability: candidate.capability,
+      input: validation.input,
+      ...(candidate.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: candidate.timeoutMs as number }),
     };
-  }
-
-  private isAllowed(name: string, mode: AgentPermissionMode): boolean {
-    if (this.options.queries.has(name) || readToolNames.has(name)) {
-      return true;
-    }
-    if (mode === "readonly") return false;
-    if (queueToolNames.has(name) || memoryToolNames.has(name)) return true;
-    if (mode === "acting") {
-      return (
-        name === "pause_execution" ||
-        name === "resume_execution" ||
-        name === "abort_current_task"
-      );
-    }
-    return (
-      mode === "resume_review" &&
-      (name === "pause_execution" || name === "abort_current_task")
-    );
-  }
-
-  private isKnownTool(name: string): boolean {
-    return (
-      this.options.queries.has(name) ||
-      Object.prototype.hasOwnProperty.call(fixedToolSchemas, name)
-    );
   }
 }
 
-function parseArguments(raw: string): unknown {
+function parseArguments(raw: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error("Tool arguments are not valid JSON.");
+    throw new ModelResponseError("Tool arguments are not valid JSON.");
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("Tool arguments must be a JSON object.");
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed)
+  ) {
+    throw new ModelResponseError("Tool arguments must be a JSON object.");
   }
-  return parsed;
+  return parsed as Record<string, unknown>;
+}
+
+function invalidArgumentsMessage(
+  name: string,
+  issues: readonly { path: (string | number)[]; message: string }[],
+): string {
+  const details = issues
+    .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+    .join("; ");
+  return `Invalid arguments for "${name}": ${details}`;
 }
 
 function success(value: unknown): { ok: true; value: unknown } {

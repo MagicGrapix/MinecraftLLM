@@ -3,6 +3,7 @@ import test from "node:test";
 import { OpenAICompatibleLLMClient } from "../../../src/llm/OpenAICompatibleLLMClient";
 import { buildOpenAIRequestBody } from "../../../src/llm/openaiRequestBody";
 import { AgentInspector } from "../../../src/debug/AgentInspector";
+import type { LLMRequestTrace } from "../../../src/llm/LLMClient";
 
 const options = {
   baseUrl: "http://localhost:11434/v1",
@@ -189,12 +190,10 @@ test("buildOpenAIRequestBody matches the exact transport payload and omits trace
     temperature: 0.2,
     maxTokens: 32,
     reasoningEffort: "none" as const,
-    trace: {
+    trace: inspectorTrace({
       generationId: 4,
-      round: 0,
       wakeType: "user_message",
-      permission: "acting",
-    },
+    }),
   };
   inspector.beginRound(request.trace);
   const expected = buildOpenAIRequestBody(request, options.model);
@@ -202,7 +201,7 @@ test("buildOpenAIRequestBody matches the exact transport payload and omits trace
   assert.deepEqual(sentBody, expected);
   assert.equal("trace" in (sentBody ?? {}), false);
   assert.equal(response.reasoning, "because");
-  const snapshot = inspector.finalizeRound(4, 0, "completed");
+  const snapshot = inspector.finalizeRound(request.trace, "completed");
   assert.equal(snapshot?.response?.content, "done");
   assert.equal(snapshot?.response?.reasoning, "because");
   assert.equal(
@@ -223,20 +222,32 @@ test("OpenAI adapter records inspector errors without leaking the API key", asyn
       },
     },
   );
-  const trace = {
-    generationId: 1,
-    round: 0,
+  const current = inspectorTrace({
     wakeType: "user_message",
-    permission: "acting",
-  };
-  inspector.beginRound(trace);
+  });
+  inspector.beginRound(current);
   await assert.rejects(() =>
     client.complete({
       messages: [{ role: "user", content: "hi" }],
-      trace,
+      trace: current,
     }),
   );
-  const snapshot = inspector.finalizeRound(1, 0, "error");
+  const snapshot = inspector.finalizeRound(current, "error");
   assert.equal(snapshot?.error, "boom");
   assert.equal(JSON.stringify(snapshot).includes("super-secret"), false);
 });
+
+function inspectorTrace(
+  overrides: Partial<LLMRequestTrace> = {},
+): LLMRequestTrace {
+  return {
+    generationId: 1,
+    phase: "planning",
+    reflection: 0,
+    round: 0,
+    attempt: 0,
+    wakeType: "reflection",
+    permission: "action",
+    ...overrides,
+  };
+}

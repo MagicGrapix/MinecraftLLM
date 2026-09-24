@@ -88,6 +88,7 @@ function cloneRequest(request: LLMRequest): LLMRequest {
       ? {}
       : { maxTokens: request.maxTokens }),
     ...(request.signal ? { signal: request.signal } : {}),
+    ...(request.trace ? { trace: structuredClone(request.trace) } : {}),
   };
 }
 

@@ -2,7 +2,9 @@ import { resolve } from "node:path";
 import type { AgentConfig } from "../agent/AgentConfig";
 import { AgentContextBuilder } from "../agent/AgentContextBuilder";
 import { AgentToolBridge } from "../agent/AgentToolBridge";
-import { Agent } from "../agent/Agent";
+import { MemoryUpdater } from "../agent/MemoryUpdater";
+import { SequentialAgent } from "../agent/SequentialAgent";
+import { WorkingMemory } from "../agent/WorkingMemory";
 import { ChatIntentRouter } from "../chat/ChatIntentRouter";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
 import { AgentInspector } from "../debug/AgentInspector";
@@ -10,15 +12,14 @@ import {
   startAgentInspectorServer,
   type AgentInspectorServerHandle,
 } from "../debug/AgentInspectorServer";
+import { resolveInspectorUiRoot } from "../debug/resolveInspectorUiRoot";
 import {
-  resolveInspectorUiRoot,
-} from "../debug/resolveInspectorUiRoot";
-import { ExecutionController } from "../execution/ExecutionController";
+  SequentialPlanRunner,
+  type SequentialRunnerEvent,
+} from "../execution/SequentialPlanRunner";
 import { Executor } from "../execution/Executor";
 import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
-import { ConversationHistory } from "../memory/ConversationHistory";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
-import { RecentActivityBuffer } from "../memory/RecentActivityBuffer";
 import { loadAgentPrompts } from "../prompts/AgentPrompts";
 import { ContainerSessionManager } from "../runtime/ContainerSessionManager";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
@@ -30,8 +31,8 @@ import { createDefaultWorldQueryRegistry } from "../world/queries/defaultQueries
 import { createCapabilityRegistry } from "./createCapabilities";
 
 export interface RunningAgentRuntime {
-  readonly agent: Agent;
-  readonly controller: ExecutionController;
+  readonly agent: SequentialAgent;
+  readonly runner: SequentialPlanRunner;
   readonly chat: MinecraftChatAdapter;
   readonly inspector: AgentInspector | null;
   shutdown(reason?: string): Promise<void>;
@@ -63,9 +64,8 @@ export async function createAgentRuntime(
     runtime,
     world,
   });
-  const controller = new ExecutionController({ executor });
-  const activities = new RecentActivityBuffer(15);
-  const history = new ConversationHistory(6, 16_000);
+  const runner = new SequentialPlanRunner(executor);
+  const workingMemory = new WorkingMemory(config.memoryMaxChars);
   const inspector = config.inspectorEnabled
     ? new AgentInspector(config.inspectorMaxRounds)
     : null;
@@ -78,7 +78,6 @@ export async function createAgentRuntime(
     ...(inspector ? { inspector } : {}),
   });
   const bridge = new AgentToolBridge({
-    controller,
     capabilities,
     queries,
     skills,
@@ -90,19 +89,24 @@ export async function createAgentRuntime(
   });
   const contextBuilder = new AgentContextBuilder({
     world,
-    controller,
-    capabilities,
-    queries,
-    skills,
     landmarks,
-    activities,
-    history,
+    capabilities,
     systemPrompt: prompts.system,
-    budgetChars: config.llmContextBudgetChars,
   });
 
   let chat: MinecraftChatAdapter | null = null;
-  const agent = new Agent({
+  const memoryUpdater = new MemoryUpdater({
+    llm,
+    prompt: prompts.memoryUpdate,
+    memory: workingMemory,
+    maxRetries: config.responseMaxRetries,
+    maxTokens: config.llmMaxTokens,
+    ...(inspector ? { inspector } : {}),
+    notifyRetry: async (message) => {
+      await chat?.send(message);
+    },
+  });
+  const agent = new SequentialAgent({
     llm,
     intentRouter: new ChatIntentRouter(
       llm,
@@ -110,15 +114,14 @@ export async function createAgentRuntime(
     ),
     contextBuilder,
     toolBridge: bridge,
-    controller,
-    history,
-    activities,
-    prompts,
+    runner,
+    workingMemory,
+    memoryUpdater,
     maxToolRounds: config.llmMaxToolRounds,
+    maxResponseRetries: config.responseMaxRetries,
     temperature: config.llmTemperature,
     reasoningEffort: config.llmReasoningEffort,
     maxTokens: config.llmMaxTokens,
-    turnTimeoutMs: config.llmRequestTimeoutMs,
     ...(inspector ? { inspector } : {}),
     respond: async (message) => {
       await chat?.send(message);
@@ -162,55 +165,25 @@ export async function createAgentRuntime(
   }
 
   const landmarkRefreshes = new Set<Promise<void>>();
-  const trackLandmarkRefresh = (
-    event: Extract<
-      import("../execution/ExecutionController").ExecutionEvent,
-      { type: "task_finished" }
-    >,
-  ): void => {
+  const unsubscribe = runner.subscribe((event) => {
+    if (event.type !== "task_finished") return;
     const refresh = refreshLandmarksFromTask(
       event,
       runtime.bot.game.dimension,
       landmarks,
     ).catch((error: unknown) => {
-      const message =
-        error instanceof Error ? error.message : String(error);
-      activities.add({
-        kind: "memory_error",
-        summary: "Landmark refresh failed.",
-        data: { error: message, taskId: event.task.id },
-        taskId: event.task.id,
-      });
       console.error("Landmark refresh failed:", error);
     });
     landmarkRefreshes.add(refresh);
-    void refresh.then(() => {
-      landmarkRefreshes.delete(refresh);
-    });
-  };
-
-  const unsubscribe = controller.subscribe((event) => {
-    agent.notifyExecutionEvent(event);
-    if (event.type === "task_finished") {
-      trackLandmarkRefresh(event);
-    }
-    if (
-      event.type === "queue_changed" &&
-      (event.reason === "clear" ||
-        (event.reason === "replace" &&
-          event.snapshot.pending.length === 0))
-    ) {
-      void sessions.closeActive("Execution queue abandoned.");
-    }
+    void refresh.finally(() => landmarkRefreshes.delete(refresh));
   });
 
-  agent.start();
   chat.attach();
   let shutdownPromise: Promise<void> | null = null;
 
   return {
     agent,
-    controller,
+    runner,
     chat,
     inspector,
     shutdown(reason = "Agent runtime stopped."): Promise<void> {
@@ -218,7 +191,7 @@ export async function createAgentRuntime(
       shutdownPromise = (async () => {
         chat?.detach();
         await agent.shutdown();
-        await controller.shutdown(reason);
+        await runner.shutdown(reason);
         unsubscribe();
         await Promise.all([...landmarkRefreshes]);
         await sessions.closeActive(reason);
@@ -239,10 +212,7 @@ export async function createAgentRuntime(
 }
 
 export async function refreshLandmarksFromTask(
-  event: Extract<
-    import("../execution/ExecutionController").ExecutionEvent,
-    { type: "task_finished" }
-  >,
+  event: Extract<SequentialRunnerEvent, { type: "task_finished" }>,
   dimension: string,
   landmarks: LandmarkMemory,
 ): Promise<void> {
@@ -255,7 +225,7 @@ export async function refreshLandmarksFromTask(
         ? input.tablePosition
         : "referencePosition" in input
           ? input.referencePosition
-        : null;
+          : null;
 
   if (
     !event.result.ok &&
@@ -271,7 +241,6 @@ export async function refreshLandmarksFromTask(
     );
     return;
   }
-
   if (!event.result.ok) return;
 
   if (event.task.capability === "dig" && isPosition(inputPosition)) {
@@ -283,7 +252,6 @@ export async function refreshLandmarksFromTask(
     );
     return;
   }
-
   if (event.task.capability === "place") {
     const placedPosition =
       typeof event.result.value === "object" &&
@@ -301,7 +269,6 @@ export async function refreshLandmarksFromTask(
     }
     return;
   }
-
   if (
     isPosition(inputPosition) &&
     (event.task.capability === "use_block" ||

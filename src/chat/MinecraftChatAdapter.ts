@@ -1,10 +1,10 @@
 import type { Bot } from "mineflayer";
-import type { Agent } from "../agent/Agent";
+import type { SequentialAgent } from "../agent/SequentialAgent";
 import { sleep } from "../shared/helper";
 
 export interface MinecraftChatAdapterOptions {
   readonly bot: Bot;
-  readonly agent: Agent;
+  readonly agent: SequentialAgent;
   readonly ownerUsername: string;
   readonly maxChunkLength?: number;
   readonly chunkDelayMs?: number;

@@ -9,12 +9,21 @@ import type {
 
 export interface BeginRoundInput {
   readonly generationId: number;
+  readonly phase: InspectorRound["phase"];
+  readonly reflection: number;
   readonly round: number;
+  readonly attempt: number;
   readonly wakeType: string;
   readonly permission: string;
-  readonly executionRevision?: number;
-  readonly eventRevision?: number;
+  readonly contextSnapshot?: unknown;
   readonly metrics?: InspectorRound["metrics"];
+}
+
+export interface InspectorRoundAnnotation {
+  readonly decision?: unknown;
+  readonly memoryBefore?: string;
+  readonly memoryAfter?: string;
+  readonly validationError?: string;
 }
 
 export class AgentInspector {
@@ -33,7 +42,7 @@ export class AgentInspector {
   }
 
   beginRound(input: BeginRoundInput): string {
-    const id = this.roundId(input.generationId, input.round);
+    const id = this.roundId(input);
     const existing = this.drafts.get(id);
     if (existing && existing.status === "in_progress") {
       return id;
@@ -42,15 +51,15 @@ export class AgentInspector {
       id,
       timestamp: Date.now(),
       generationId: input.generationId,
+      phase: input.phase,
+      reflection: input.reflection,
       round: input.round,
+      attempt: input.attempt,
       wakeType: input.wakeType,
       permission: input.permission,
-      ...(input.executionRevision === undefined
+      ...(input.contextSnapshot === undefined
         ? {}
-        : { executionRevision: input.executionRevision }),
-      ...(input.eventRevision === undefined
-        ? {}
-        : { eventRevision: input.eventRevision }),
+        : { contextSnapshot: structuredClone(input.contextSnapshot) }),
       status: "in_progress",
       ...(input.metrics ? { metrics: structuredClone(input.metrics) } : {}),
       toolExecutions: [],
@@ -133,14 +142,13 @@ export class AgentInspector {
   }
 
   recordToolStarted(
-    generationId: number,
-    round: number,
+    trace: LLMRequestTrace,
     execution: Pick<
       InspectorToolExecution,
       "toolCallId" | "name" | "arguments"
     >,
   ): void {
-    const draft = this.requireDraft(generationId, round);
+    const draft = this.requireDraft(trace);
     const index = draft.toolExecutions.findIndex(
       (item) => item.toolCallId === execution.toolCallId,
     );
@@ -157,11 +165,10 @@ export class AgentInspector {
   }
 
   recordToolCompleted(
-    generationId: number,
-    round: number,
+    trace: LLMRequestTrace,
     execution: InspectorToolExecution,
   ): void {
-    const draft = this.requireDraft(generationId, round);
+    const draft = this.requireDraft(trace);
     const index = draft.toolExecutions.findIndex(
       (item) => item.toolCallId === execution.toolCallId,
     );
@@ -180,11 +187,10 @@ export class AgentInspector {
   }
 
   finalizeRound(
-    generationId: number,
-    round: number,
+    trace: LLMRequestTrace,
     status: Exclude<InspectorRoundStatus, "in_progress">,
   ): InspectorRound | null {
-    const id = this.roundId(generationId, round);
+    const id = this.roundId(trace);
     const draft = this.drafts.get(id);
     if (!draft) return null;
     if (draft.status !== "in_progress") {
@@ -209,7 +215,26 @@ export class AgentInspector {
       if (draft.generationId !== generationId) continue;
       if (draft.status !== "in_progress") continue;
       if (error !== undefined) draft.error = error;
-      this.finalizeRound(generationId, draft.round, status);
+      this.finalizeRound(toTrace(draft), status);
+    }
+  }
+
+  annotate(
+    trace: LLMRequestTrace,
+    annotation: InspectorRoundAnnotation,
+  ): void {
+    const draft = this.requireDraft(trace);
+    if (annotation.decision !== undefined) {
+      draft.decision = structuredClone(annotation.decision);
+    }
+    if (annotation.memoryBefore !== undefined) {
+      draft.memoryBefore = annotation.memoryBefore;
+    }
+    if (annotation.memoryAfter !== undefined) {
+      draft.memoryAfter = annotation.memoryAfter;
+    }
+    if (annotation.validationError !== undefined) {
+      draft.validationError = annotation.validationError;
     }
   }
 
@@ -228,7 +253,10 @@ export class AgentInspector {
       .map((draft) => ({
         id: draft.id,
         generationId: draft.generationId,
+        phase: draft.phase,
+        reflection: draft.reflection,
         round: draft.round,
+        attempt: draft.attempt,
       }));
     return {
       enabled: true,
@@ -244,34 +272,43 @@ export class AgentInspector {
     };
   }
 
-  private roundId(generationId: number, round: number): string {
-    return `${this.sessionId}:${generationId}:${round}`;
+  private roundId(
+    input: Pick<
+      LLMRequestTrace,
+      "generationId" | "phase" | "reflection" | "round" | "attempt"
+    >,
+  ): string {
+    return [
+      this.sessionId,
+      input.generationId,
+      input.phase,
+      input.reflection,
+      input.round,
+      input.attempt,
+    ].join(":");
   }
 
   private ensureDraft(trace: LLMRequestTrace): MutableRound {
-    const id = this.roundId(trace.generationId, trace.round);
+    const id = this.roundId(trace);
     const existing = this.drafts.get(id);
     if (existing && existing.status === "in_progress") return existing;
     this.beginRound({
       generationId: trace.generationId,
+      phase: trace.phase,
+      reflection: trace.reflection,
       round: trace.round,
+      attempt: trace.attempt,
       wakeType: trace.wakeType,
       permission: trace.permission,
-      ...(trace.executionRevision === undefined
+      ...(trace.contextSnapshot === undefined
         ? {}
-        : { executionRevision: trace.executionRevision }),
-      ...(trace.eventRevision === undefined
-        ? {}
-        : { eventRevision: trace.eventRevision }),
+        : { contextSnapshot: trace.contextSnapshot }),
     });
     return this.drafts.get(id)!;
   }
 
-  private requireDraft(
-    generationId: number,
-    round: number,
-  ): MutableRound {
-    const id = this.roundId(generationId, round);
+  private requireDraft(trace: LLMRequestTrace): MutableRound {
+    const id = this.roundId(trace);
     const draft = this.drafts.get(id);
     if (!draft || draft.status !== "in_progress") {
       throw new Error(`No in-progress inspector round for ${id}.`);
@@ -292,12 +329,18 @@ interface MutableRound {
   id: string;
   timestamp: number;
   generationId: number;
+  phase: InspectorRound["phase"];
+  reflection: number;
   round: number;
+  attempt: number;
   wakeType: string;
   permission: string;
-  executionRevision?: number;
-  eventRevision?: number;
   status: InspectorRoundStatus;
+  contextSnapshot?: unknown;
+  decision?: unknown;
+  memoryBefore?: string;
+  memoryAfter?: string;
+  validationError?: string;
   request?: InspectorRound["request"];
   requestBody?: Record<string, unknown>;
   metrics?: InspectorRound["metrics"];
@@ -312,16 +355,28 @@ function cloneRound(draft: MutableRound): InspectorRound {
     id: draft.id,
     timestamp: draft.timestamp,
     generationId: draft.generationId,
+    phase: draft.phase,
+    reflection: draft.reflection,
     round: draft.round,
+    attempt: draft.attempt,
     wakeType: draft.wakeType,
     permission: draft.permission,
-    ...(draft.executionRevision === undefined
-      ? {}
-      : { executionRevision: draft.executionRevision }),
-    ...(draft.eventRevision === undefined
-      ? {}
-      : { eventRevision: draft.eventRevision }),
     status: draft.status,
+    ...(draft.contextSnapshot === undefined
+      ? {}
+      : { contextSnapshot: structuredClone(draft.contextSnapshot) }),
+    ...(draft.decision === undefined
+      ? {}
+      : { decision: structuredClone(draft.decision) }),
+    ...(draft.memoryBefore === undefined
+      ? {}
+      : { memoryBefore: draft.memoryBefore }),
+    ...(draft.memoryAfter === undefined
+      ? {}
+      : { memoryAfter: draft.memoryAfter }),
+    ...(draft.validationError === undefined
+      ? {}
+      : { validationError: draft.validationError }),
     ...(draft.request
       ? { request: structuredClone(draft.request) }
       : {}),
@@ -342,6 +397,21 @@ function cloneRound(draft: MutableRound): InspectorRound {
   };
 }
 
+function toTrace(draft: MutableRound): LLMRequestTrace {
+  return {
+    generationId: draft.generationId,
+    phase: draft.phase,
+    reflection: draft.reflection,
+    round: draft.round,
+    attempt: draft.attempt,
+    wakeType: draft.wakeType,
+    permission: draft.permission,
+    ...(draft.contextSnapshot === undefined
+      ? {}
+      : { contextSnapshot: structuredClone(draft.contextSnapshot) }),
+  };
+}
+
 function toSummary(round: InspectorRound): InspectorRoundSummary {
   const preview =
     round.response?.content?.trim() ||
@@ -355,7 +425,10 @@ function toSummary(round: InspectorRound): InspectorRoundSummary {
     id: round.id,
     timestamp: round.timestamp,
     generationId: round.generationId,
+    phase: round.phase,
+    reflection: round.reflection,
     round: round.round,
+    attempt: round.attempt,
     wakeType: round.wakeType,
     permission: round.permission,
     status: round.status,

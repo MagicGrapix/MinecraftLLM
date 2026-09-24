@@ -20,6 +20,8 @@ const EnvironmentSchema = z.object({
   AGENT_INSPECTOR_HOST: z.literal("127.0.0.1").default("127.0.0.1"),
   AGENT_INSPECTOR_PORT: integerEnvironment(3_001, 1, 65_535),
   AGENT_INSPECTOR_MAX_ROUNDS: integerEnvironment(30, 1, 1_000),
+  AGENT_MEMORY_MAX_CHARS: integerEnvironment(500, 1, 100_000),
+  AGENT_RESPONSE_MAX_RETRIES: integerEnvironment(8, 0, 32),
 });
 
 export interface AgentConfig {
@@ -40,6 +42,8 @@ export interface AgentConfig {
   readonly inspectorHost: "127.0.0.1";
   readonly inspectorPort: number;
   readonly inspectorMaxRounds: number;
+  readonly memoryMaxChars: number;
+  readonly responseMaxRetries: number;
 }
 
 export function loadAgentConfig(
@@ -64,6 +68,8 @@ export function loadAgentConfig(
     inspectorHost: parsed.AGENT_INSPECTOR_HOST,
     inspectorPort: parsed.AGENT_INSPECTOR_PORT,
     inspectorMaxRounds: parsed.AGENT_INSPECTOR_MAX_ROUNDS,
+    memoryMaxChars: parsed.AGENT_MEMORY_MAX_CHARS,
+    responseMaxRetries: parsed.AGENT_RESPONSE_MAX_RETRIES,
   };
 }
 

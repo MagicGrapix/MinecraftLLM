@@ -3,7 +3,7 @@
     live: true,
     selectedId: null,
     selectedSnapshot: null,
-    tab: "messages",
+    tab: "run",
     knownIds: new Set(),
     unseenCount: 0,
     search: "",
@@ -83,7 +83,7 @@
     try {
       const status = await fetchJson("/api/status");
       const agent = status.agent
-        ? ` gen=${status.agent.generationId} thinking=${status.agent.thinking}`
+        ? ` mode=${status.agent.mode}${status.agent.run ? ` run=${status.agent.run.id}` : ""}`
         : "";
       els.statusLine.textContent =
         `session ${status.sessionId} · ${status.finalizedCount}/${status.maxRounds} rounds` +
@@ -139,11 +139,12 @@
       for (const round of [...filtered].reverse()) {
         const button = document.createElement("button");
         button.type = "button";
+        button.dataset.id = round.id;
         button.className =
           "round-item" + (round.id === state.selectedId ? " selected" : "");
         button.innerHTML =
-          `<div><strong>Gen ${round.generationId} / Round ${round.round}</strong></div>` +
-          `<div class="meta">${escapeHtml(round.wakeType)} · ${escapeHtml(round.status)} · ${escapeHtml(round.permission)}</div>` +
+          `<div><strong>${escapeHtml(formatRoundLabel(round))}</strong></div>` +
+          `<div class="meta">${escapeHtml(round.phase)} · ${escapeHtml(round.status)}${round.attempt ? ` · retry ${round.attempt}` : ""}</div>` +
           `<div class="preview">${escapeHtml(round.preview)}</div>`;
         button.addEventListener("click", () => {
           void selectRound(round.id, true);
@@ -159,7 +160,9 @@
     const haystack = [
       round.id,
       String(round.generationId),
+      round.phase,
       String(round.round),
+      String(round.attempt ?? 0),
       round.wakeType,
       round.permission,
       round.status,
@@ -191,11 +194,7 @@
     renderDetailShell();
     els.detailBody.scrollTop = detailScroll;
     for (const button of els.roundList.querySelectorAll(".round-item")) {
-      const strong = button.querySelector("strong");
-      const label = strong?.textContent ?? "";
-      const selected =
-        label === `Gen ${round.generationId} / Round ${round.round}`;
-      button.classList.toggle("selected", selected);
+      button.classList.toggle("selected", button.dataset.id === id);
     }
   }
 
@@ -209,7 +208,7 @@
       return;
     }
     els.detailTitle.textContent =
-      `Gen ${round.generationId} / Round ${round.round} · ${round.status}`;
+      `${formatRoundLabel(round)} · ${round.status}`;
     els.copyBtn.disabled = false;
     renderDetailBody();
   }
@@ -219,6 +218,9 @@
     if (!round) return;
     const scrollTop = els.detailBody.scrollTop;
     switch (state.tab) {
+      case "run":
+        els.detailBody.innerHTML = renderRun(round);
+        break;
       case "messages":
         els.detailBody.innerHTML = renderMessages(round);
         break;
@@ -231,6 +233,9 @@
       case "response":
         els.detailBody.innerHTML = renderResponse(round);
         break;
+      case "memory":
+        els.detailBody.innerHTML = renderMemory(round);
+        break;
       case "executions":
         els.detailBody.innerHTML = renderExecutions(round);
         break;
@@ -241,6 +246,40 @@
         els.detailBody.innerHTML = "";
     }
     els.detailBody.scrollTop = scrollTop;
+  }
+
+  function renderRun(round) {
+    const snapshot = round.contextSnapshot ?? {};
+    return renderJson({
+      phase: round.phase,
+      status: round.status,
+      attempt: round.attempt,
+      objective: snapshot.objective ?? null,
+      workingMemory: snapshot.workingMemory ?? null,
+      memoryBefore: round.memoryBefore ?? null,
+      memoryAfter: round.memoryAfter ?? null,
+      currentTask: snapshot.currentTask ?? null,
+      lastTask: snapshot.lastTask ?? null,
+      lastResult: snapshot.lastResult ?? null,
+      remainingPlan: snapshot.remainingPlan ?? null,
+      decision: round.decision ?? null,
+      validationError: round.validationError ?? null,
+    });
+  }
+
+  function renderMemory(round) {
+    if (
+      round.memoryBefore === undefined &&
+      round.memoryAfter === undefined &&
+      !round.contextSnapshot
+    ) {
+      return '<p class="empty">Aucune mémoire enregistrée pour ce round.</p>';
+    }
+    return renderJson({
+      before: round.memoryBefore ?? round.contextSnapshot?.workingMemory ?? "",
+      after: round.memoryAfter ?? null,
+      validationError: round.validationError ?? null,
+    });
   }
 
   function renderMessages(round) {
@@ -338,11 +377,16 @@
       id: round.id,
       timestamp: round.timestamp,
       generationId: round.generationId,
+      phase: round.phase,
+      reflection: round.reflection,
       round: round.round,
+      attempt: round.attempt,
       wakeType: round.wakeType,
       permission: round.permission,
-      executionRevision: round.executionRevision,
-      eventRevision: round.eventRevision,
+      decision: round.decision,
+      validationError: round.validationError,
+      memoryBefore: round.memoryBefore,
+      memoryAfter: round.memoryAfter,
       status: round.status,
       metrics: round.metrics,
       usage: round.response?.usage,
@@ -370,7 +414,14 @@
   async function copyCurrent() {
     if (!state.selectedSnapshot) return;
     const payload =
-      state.tab === "messages"
+      state.tab === "run"
+        ? {
+            context: state.selectedSnapshot.contextSnapshot,
+            decision: state.selectedSnapshot.decision,
+            memoryBefore: state.selectedSnapshot.memoryBefore,
+            memoryAfter: state.selectedSnapshot.memoryAfter,
+          }
+        : state.tab === "messages"
         ? state.selectedSnapshot.request?.messages
         : state.tab === "tools"
           ? state.selectedSnapshot.request?.tools
@@ -383,6 +434,11 @@
                   rawResponse: state.selectedSnapshot.rawResponse,
                   error: state.selectedSnapshot.error,
                 }
+              : state.tab === "memory"
+                ? {
+                    before: state.selectedSnapshot.memoryBefore,
+                    after: state.selectedSnapshot.memoryAfter,
+                  }
               : state.tab === "executions"
                 ? state.selectedSnapshot.toolExecutions
                 : state.selectedSnapshot;
@@ -416,6 +472,12 @@
       throw new Error(`${response.status} ${response.statusText}`);
     }
     return response.json();
+  }
+
+  function formatRoundLabel(round) {
+    const attempt =
+      round.attempt > 0 ? ` · retry ${round.attempt}` : "";
+    return `Run ${round.generationId} · ${round.phase}${attempt}`;
   }
 
   function formatValue(value) {

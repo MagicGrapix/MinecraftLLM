@@ -3,10 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type {
-  ExecutionEvent,
-  ExecutionSnapshot,
-} from "../../../src/execution/ExecutionController";
+import type { SequentialRunnerEvent } from "../../../src/execution/SequentialPlanRunner";
 import { success, type TaskResult } from "../../../src/execution/TaskResult";
 import { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { refreshLandmarksFromTask } from "../../../src/bootstrap/createAgentRuntime";
@@ -62,14 +59,7 @@ function taskFinished(
   capability: string,
   input: unknown,
   result: TaskResult,
-): Extract<ExecutionEvent, { type: "task_finished" }> {
-  const snapshot: ExecutionSnapshot = {
-    revision: 1,
-    mode: "paused",
-    current: null,
-    pending: [],
-    shutdown: false,
-  };
+): Extract<SequentialRunnerEvent, { type: "task_finished" }> {
   return {
     type: "task_finished",
     task: {
@@ -79,6 +69,5 @@ function taskFinished(
       createdAt: 1,
     },
     result,
-    snapshot,
   };
 }

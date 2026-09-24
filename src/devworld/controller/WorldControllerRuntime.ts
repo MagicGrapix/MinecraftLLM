@@ -5,7 +5,10 @@ import { sleep } from "../../shared/helper";
 import type { Position } from "../../shared/types";
 import type { WorldBuilderConfig } from "../WorldBuilderConfig";
 import { flatLayerProfile } from "../BlockCatalog";
-import type { CommandTransport } from "./MineflayerCommandTransport";
+import type {
+  CommandTransport,
+  TransportCommandResult,
+} from "./MineflayerCommandTransport";
 
 export interface FlatProfileObservation {
   readonly position: { readonly x: number; readonly z: number };
@@ -18,6 +21,7 @@ export class WorldControllerRuntime {
   private botInstance: Bot | null = null;
   private connected = false;
   private opVerified = false;
+  private commandTransport: CommandTransport | null = null;
 
   constructor(
     private readonly config: WorldBuilderConfig,
@@ -84,6 +88,7 @@ export class WorldControllerRuntime {
     bot.on("end", () => {
       this.connected = false;
       this.opVerified = false;
+      this.commandTransport = null;
     });
     if (!isOverworld(bot.game.dimension)) {
       throw new Error(
@@ -117,6 +122,22 @@ export class WorldControllerRuntime {
       `tp ${this.config.controllerUsername} ${centerX} ${this.config.controllerParkY} ${centerZ}`,
     );
     await this.waitForArenaChunks(5_000);
+    this.commandTransport = transport;
+  }
+
+  async clearAgentInventory(): Promise<TransportCommandResult> {
+    if (!this.connected || !this.opVerified || !this.commandTransport) {
+      throw new Error("World controller is not ready for admin commands.");
+    }
+    if (!this.getAgentPosition()) {
+      throw new Error(
+        "The configured agent player is not connected in the overworld.",
+      );
+    }
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(this.config.agentUsername)) {
+      throw new Error("Configured agent username is not a valid command target.");
+    }
+    return this.commandTransport.send(`clear ${this.config.agentUsername}`);
   }
 
   getAgentPosition(): Position | null {
@@ -168,6 +189,7 @@ export class WorldControllerRuntime {
     if (!this.botInstance) return;
     this.connected = false;
     this.opVerified = false;
+    this.commandTransport = null;
     this.botInstance.quit(reason);
   }
 

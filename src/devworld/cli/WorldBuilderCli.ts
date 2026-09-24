@@ -74,6 +74,17 @@ export class WorldBuilderCli {
       case "clear":
         await this.executePlan(this.options.builder.clear());
         return "continue";
+      case "clear_inventory": {
+        this.requireAgentPosition();
+        const result = await this.options.runtime.clearAgentInventory();
+        this.writeLine(
+          `Sent /${result.command}. This command deletes items rather than dropping them.`,
+        );
+        for (const response of result.responses) {
+          this.writeLine(`  ${response}`);
+        }
+        return "continue";
+      }
       case "reset":
         this.requireAgentPosition();
         this.warnAboutFlatProfile();
@@ -205,6 +216,7 @@ export class WorldBuilderCli {
         "  forest <trees> <radius>",
         "  ore <iron|coal> <size>",
         "  clear",
+        "  inventory clear all  (permanently delete the agent's items)",
         "  reset",
         "  preview tree [radius]",
         "  preview forest <trees> <radius>",

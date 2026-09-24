@@ -27,6 +27,9 @@ test("terminal parser accepts the command grammar strictly", () => {
     kind: "preview",
     command: { kind: "ore", ore: "iron", size: 8 },
   });
+  assert.deepEqual(parseWorldCommand("inventory clear all"), {
+    kind: "clear_inventory",
+  });
 });
 
 test("terminal parser rejects invalid and unsafe forms", () => {
@@ -42,6 +45,8 @@ test("terminal parser rejects invalid and unsafe forms", () => {
     () => parseWorldCommand("ore diamond 2"),
     /iron.*coal/,
   );
+  assert.throws(() => parseWorldCommand("inventory clear"), /Usage/);
+  assert.throws(() => parseWorldCommand("inventory clear all bot"), /Usage/);
 });
 
 test("preview generates a plan without invoking the executor", async () => {
@@ -149,8 +154,47 @@ test("relative commands and reset refuse an absent agent but clear remains avail
 
   await assert.rejects(cli.executeLine("tree"), /not connected/);
   await assert.rejects(cli.executeLine("reset"), /not connected/);
+  await assert.rejects(cli.executeLine("inventory clear all"), /not connected/);
   await cli.executeLine("clear");
   assert.equal(executions, 1);
+});
+
+test("inventory clear all uses the controller without changing the world", async () => {
+  const config = loadWorldBuilderConfig({});
+  const output: string[] = [];
+  let adminCalls = 0;
+  let worldPlans = 0;
+  const runtime = {
+    getAgentPosition: () => ({ x: 0, y: -60, z: 0 }),
+    clearAgentInventory: async () => {
+      adminCalls += 1;
+      return {
+        command: "clear bot",
+        sentAt: 0,
+        responses: ["Removed 4 items from bot"],
+      };
+    },
+  } as unknown as WorldControllerRuntime;
+  const executor = {
+    execute: async () => {
+      worldPlans += 1;
+      throw new Error("No world plan should execute.");
+    },
+  } as unknown as CommandExecutor;
+  const cli = new WorldBuilderCli({
+    runtime,
+    builder: new WorldBuilder({ config }),
+    executor,
+    commandsPerSecond: 1,
+    readline: { question: async () => "", close: () => undefined },
+    writeLine: (line) => output.push(line),
+  });
+
+  await cli.executeLine("inventory clear all");
+
+  assert.equal(adminCalls, 1);
+  assert.equal(worldPlans, 0);
+  assert.equal(output.some((line) => line.includes("/clear bot")), true);
 });
 
 class LcgRandom implements RandomSource {

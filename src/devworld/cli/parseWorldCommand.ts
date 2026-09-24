@@ -18,6 +18,7 @@ export type WorldCliCommand =
   | { readonly kind: "status" }
   | GenerativeWorldCommand
   | { readonly kind: "clear" }
+  | { readonly kind: "clear_inventory" }
   | { readonly kind: "reset" }
   | {
       readonly kind: "preview";
@@ -48,6 +49,15 @@ export function parseWorldCommand(input: string): WorldCliCommand {
     case "clear":
       requireArgumentCount(name!, arguments_, 0);
       return { kind: "clear" };
+    case "inventory":
+      if (
+        arguments_.length !== 2 ||
+        arguments_[0]?.toLowerCase() !== "clear" ||
+        arguments_[1]?.toLowerCase() !== "all"
+      ) {
+        throw new WorldCommandParseError("Usage: inventory clear all");
+      }
+      return { kind: "clear_inventory" };
     case "reset":
       requireArgumentCount(name!, arguments_, 0);
       return { kind: "reset" };

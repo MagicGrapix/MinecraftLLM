@@ -13,6 +13,7 @@ import { ModelResponseError } from "./ModelResponseError";
 export interface MemoryUpdateInput {
   readonly runId: number;
   readonly reflection: number;
+  readonly round?: number;
   readonly oldMemory: string;
   readonly context: unknown;
   readonly agentResponse: LLMResponse;
@@ -52,7 +53,7 @@ export class MemoryUpdater {
         generationId: input.runId,
         phase: "memory",
         reflection: input.reflection,
-        round: 0,
+        round: input.round ?? 0,
         attempt,
         wakeType: "memory_update",
         permission: "memory",

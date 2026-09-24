@@ -48,6 +48,7 @@ export interface AgentRun {
   lastTask: Task | null;
   lastResult: TaskResult | null;
   memory: string;
+  consecutivePlansWithoutAction: number;
 }
 
 export interface SequentialAgentState {
@@ -65,6 +66,7 @@ interface SequentialAgentOptions {
   readonly memoryUpdater: MemoryUpdater;
   readonly maxToolRounds: number;
   readonly maxResponseRetries: number;
+  readonly maxConsecutivePlansWithoutAction?: number;
   readonly temperature: number;
   readonly reasoningEffort?: "none" | "low" | "medium" | "high" | "max";
   readonly maxTokens: number;
@@ -94,6 +96,11 @@ export class SequentialAgent {
   private shutdownRequested = false;
   private nextRunId = 0;
   private reflection = 0;
+  private pendingOutcomeMemory: {
+    runId: number;
+    reflection: number;
+    result: ReflectionResult;
+  } | null = null;
 
   constructor(private readonly options: SequentialAgentOptions) {}
 
@@ -124,6 +131,7 @@ export class SequentialAgent {
       lastTask: null,
       lastResult: null,
       memory: this.options.workingMemory.read(),
+      consecutivePlansWithoutAction: 0,
     };
     this.activeRun = run;
     this.activeUsername = username;
@@ -299,6 +307,7 @@ export class SequentialAgent {
     try {
       while (!this.shutdownRequested && !this.stopRequested) {
         this.assertNoPhysicalAction();
+        await this.commitPendingOutcomeMemory(run, abort.signal);
         this.setMode(run, "thinking");
         const phase: AgentReflectionPhase =
           run.lastResult === null ? "planning" : "review";
@@ -310,13 +319,24 @@ export class SequentialAgent {
           reflection,
           abort.signal,
         );
+        const decision = result.decision!;
+
+        if (
+          decision.type === "set_plan" &&
+          run.consecutivePlansWithoutAction >=
+            (this.options.maxConsecutivePlansWithoutAction ?? 8)
+        ) {
+          throw new ModelResponseError(
+            "The agent kept replacing its plan without executing a task.",
+          );
+        }
         await this.updateMemory(run, reflection, result, abort.signal);
         abort.signal.throwIfAborted();
-        const decision = result.decision!;
 
         if (decision.type === "set_plan") {
           this.options.runner.setPlan(decision.tasks);
           run.remainingTasks = this.options.runner.remaining();
+          run.consecutivePlansWithoutAction += 1;
           continue;
         }
         if (decision.type === "finish_run") {
@@ -344,10 +364,13 @@ export class SequentialAgent {
           throw new Error("The next sequential task disappeared.");
         }
         this.applyOutcome(run, outcome);
+        run.consecutivePlansWithoutAction = 0;
+        this.pendingOutcomeMemory = { runId: run.id, reflection, result };
         if (this.stopRequested) {
           this.setMode(run, "stopped");
           return;
         }
+        await this.commitPendingOutcomeMemory(run, abort.signal);
       }
     } catch (error: unknown) {
       await this.handleRunError(run, error);
@@ -617,11 +640,13 @@ export class SequentialAgent {
     reflection: number,
     result: ReflectionResult,
     signal: AbortSignal,
+    round = 0,
   ): Promise<void> {
     const oldMemory = this.options.workingMemory.read();
     await this.options.memoryUpdater.update({
       runId: run.id,
       reflection,
+      round,
       oldMemory,
       context: result.context,
       agentResponse: result.response,
@@ -637,6 +662,22 @@ export class SequentialAgent {
       signal,
     });
     run.memory = this.options.workingMemory.read();
+  }
+
+  private async commitPendingOutcomeMemory(
+    run: AgentRun,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const pending = this.pendingOutcomeMemory;
+    if (!pending || pending.runId !== run.id) return;
+    await this.updateMemory(
+      run,
+      pending.reflection,
+      pending.result,
+      signal,
+      1,
+    );
+    this.pendingOutcomeMemory = null;
   }
 
   private applyOutcome(
@@ -672,6 +713,7 @@ export class SequentialAgent {
 
   private finishRun(): void {
     this.options.runner.clear();
+    this.pendingOutcomeMemory = null;
     this.activeRun = null;
     this.activeUsername = undefined;
     this.mode = "idle";

@@ -48,6 +48,7 @@ test("set_plan does not execute and continue_plan runs exactly one task", async 
   enqueueDecision(llm, "continue_plan", {});
   enqueueMemory(llm, "Authorized first dig.");
   executor.enqueue(success({ block: "dirt" }));
+  enqueueMemory(llm, "Dug the dirt.");
   enqueueDecision(llm, "finish_run", {
     status: "success",
     message: "The hole is ready.",
@@ -144,6 +145,7 @@ test("stop and resume review the interrupted task instead of auto-retrying", asy
   assert.equal(agent.state().mode, "stopped");
   assert.equal(executor.started.length, 1);
 
+  enqueueMemory(llm, "Dig was interrupted.");
   enqueueDecision(llm, "finish_run", {
     status: "failure",
     message: "I stopped before finishing the dig.",
@@ -174,6 +176,7 @@ test("LLM never runs while a capability is executing", async () => {
   assert.equal(llm.requests.length, requestsWhileExecuting);
   assert.equal(llm.maxConcurrentRequests, 1);
 
+  enqueueMemory(llm, "Task finished, awaiting review.");
   enqueueDecision(llm, "finish_run", {
     status: "success",
     message: "Done.",
@@ -183,13 +186,73 @@ test("LLM never runs while a capability is executing", async () => {
   await waitForIdle(agent);
 });
 
+test("repeated plans without an action are bounded", async () => {
+  const { agent, llm, executor, replies } = createHarness({
+    maxConsecutivePlansWithoutAction: 2,
+  });
+  enqueueIntent(llm, "action_request");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    enqueueDecision(llm, "set_plan", {
+      tasks: [{ capability: "dig", input: { position: { x: 1, y: 2, z: 3 } } }],
+    });
+    enqueueMemory(llm, `Plan ${attempt + 1}.`);
+  }
+  enqueueDecision(llm, "set_plan", { tasks: [] });
+
+  agent.submitUserMessage("owner", "dig a block");
+  await waitForIdle(agent);
+
+  assert.equal(executor.started.length, 0);
+  assert.match(replies.at(-1)!, /replacing its plan without executing/);
+  assert.equal(
+    llm.requests.filter((request) => request.trace?.phase === "memory").length,
+    2,
+  );
+});
+
+test("a completed task is saved before a failed review", async () => {
+  const { agent, llm, executor, workingMemory } = createHarness({
+    maxResponseRetries: 1,
+  });
+  enqueueIntent(llm, "action_request");
+  enqueueDecision(llm, "set_plan", {
+    tasks: [{ capability: "dig", input: { position: { x: 1, y: 2, z: 3 } } }],
+  });
+  enqueueMemory(llm, "Need to dig.");
+  enqueueDecision(llm, "continue_plan", {});
+  enqueueMemory(llm, "Starting to dig.");
+  executor.enqueue(success({ block: "dirt" }));
+  enqueueMemory(llm, "Successfully dug dirt at 1,2,3.");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    llm.enqueue({
+      message: { role: "assistant", content: "invalid review" },
+      finishReason: "stop",
+    });
+  }
+
+  agent.submitUserMessage("owner", "dig that block");
+  await waitForIdle(agent);
+
+  assert.equal(executor.started.length, 1);
+  assert.equal(workingMemory.read(), "Successfully dug dirt at 1,2,3.");
+  const outcomeUpdate = llm.requests.find(
+    (request) => request.trace?.phase === "memory" && request.trace.round === 1,
+  );
+  assert.ok(outcomeUpdate);
+  assert.match(JSON.stringify(outcomeUpdate.trace?.contextSnapshot), /"ok":true/);
+});
+
 function createHarness(
-  options: { maxResponseRetries?: number } = {},
+  options: {
+    maxResponseRetries?: number;
+    maxConsecutivePlansWithoutAction?: number;
+  } = {},
 ): {
   agent: SequentialAgent;
   llm: FakeLLMClient;
   executor: ScriptedExecutor;
   replies: string[];
+  workingMemory: WorkingMemory;
 } {
   const llm = new FakeLLMClient();
   const executor = new ScriptedExecutor();
@@ -232,13 +295,15 @@ function createHarness(
     memoryUpdater,
     maxToolRounds: 2,
     maxResponseRetries: options.maxResponseRetries ?? 8,
+    maxConsecutivePlansWithoutAction:
+      options.maxConsecutivePlansWithoutAction ?? 8,
     temperature: 0,
     maxTokens: 200,
     respond: async (message) => {
       replies.push(message);
     },
   });
-  return { agent, llm, executor, replies };
+  return { agent, llm, executor, replies, workingMemory };
 }
 
 function stubBridge() {

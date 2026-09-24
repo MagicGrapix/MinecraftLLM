@@ -111,7 +111,7 @@ test("chat adapter reserves controls and mutations for the owner", async () => {
     bot,
     agent,
     ownerUsername: "owner",
-    chunkDelayMs: 0,
+    minMessageIntervalMs: 0,
   });
   adapter.attach();
 
@@ -141,6 +141,27 @@ test("chat responses are split without oversized chunks", () => {
   const chunks = splitChatMessage("a".repeat(450), 100);
   assert.equal(chunks.length, 5);
   assert.equal(chunks.every((chunk) => chunk.length <= 100), true);
+});
+
+test("all outgoing chat messages share the same rate limit", async () => {
+  const sentAt: number[] = [];
+  const bot = {
+    username: "bot",
+    chat: () => sentAt.push(Date.now()),
+  } as unknown as Bot;
+  const adapter = new MinecraftChatAdapter({
+    bot,
+    agent: {} as SequentialAgent,
+    ownerUsername: "owner",
+    maxChunkLength: 5,
+    minMessageIntervalMs: 30,
+  });
+
+  await Promise.all([adapter.send("hello world"), adapter.send("again")]);
+
+  assert.equal(sentAt.length, 3);
+  assert.ok(sentAt[1]! - sentAt[0]! >= 25);
+  assert.ok(sentAt[2]! - sentAt[1]! >= 25);
 });
 
 function enqueueIntent(

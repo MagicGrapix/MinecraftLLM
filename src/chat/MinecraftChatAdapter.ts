@@ -7,18 +7,25 @@ export interface MinecraftChatAdapterOptions {
   readonly agent: SequentialAgent;
   readonly ownerUsername: string;
   readonly maxChunkLength?: number;
-  readonly chunkDelayMs?: number;
+  readonly minMessageIntervalMs?: number;
 }
 
 export class MinecraftChatAdapter {
   private readonly maxChunkLength: number;
-  private readonly chunkDelayMs: number;
+  private readonly minMessageIntervalMs: number;
+  private lastMessageSentAt: number | null = null;
   private attached = false;
   private sendChain = Promise.resolve();
 
   constructor(private readonly options: MinecraftChatAdapterOptions) {
     this.maxChunkLength = options.maxChunkLength ?? 220;
-    this.chunkDelayMs = options.chunkDelayMs ?? 250;
+    this.minMessageIntervalMs = options.minMessageIntervalMs ?? 1_100;
+    if (
+      !Number.isFinite(this.minMessageIntervalMs) ||
+      this.minMessageIntervalMs < 0
+    ) {
+      throw new Error("minMessageIntervalMs must be a non-negative number.");
+    }
   }
 
   attach(): void {
@@ -40,8 +47,14 @@ export class MinecraftChatAdapter {
     const chunks = splitChatMessage(message, this.maxChunkLength);
     const operation = this.sendChain.then(async () => {
       for (let index = 0; index < chunks.length; index += 1) {
+        if (this.lastMessageSentAt !== null) {
+          const remaining =
+            this.minMessageIntervalMs -
+            (Date.now() - this.lastMessageSentAt);
+          if (remaining > 0) await sleep(remaining);
+        }
         this.options.bot.chat(chunks[index]!);
-        if (index + 1 < chunks.length) await sleep(this.chunkDelayMs);
+        this.lastMessageSentAt = Date.now();
       }
     });
     this.sendChain = operation.catch(() => undefined);

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minecraft Agent Prompt Lab</title>
+  <link rel="stylesheet" href="/lab.css">
+  <script src="/lab.js" defer></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Prompt Lab</h1>
+      <p>Real agent and Ollama model · simulated world · no Minecraft connection</p>
+    </div>
+    <div class="header-actions">
+      <span id="status" class="status">Loading…</span>
+      <a href="/inspector" target="_blank" rel="noopener">Open inspector ↗</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="controls">
+      <section>
+        <h2>Scenario</h2>
+        <p>Edit the starting world, then reset to apply it. Reset also reloads prompt files and clears the conversation.</p>
+        <textarea id="scenario" spellcheck="false" aria-label="Scenario JSON"></textarea>
+        <button id="reset" type="button">Reset with this scenario</button>
+      </section>
+
+      <section>
+        <h2>Conversation</h2>
+        <div id="replies" class="replies" aria-live="polite"></div>
+        <form id="message-form">
+          <input id="message" name="message" type="text" autocomplete="off" placeholder="Ask a question or request an action" required>
+          <button id="send" type="submit">Send</button>
+        </form>
+        <button id="stop" class="secondary" type="button">Stop agent</button>
+        <button id="resume" class="secondary" type="button">Resume agent</button>
+      </section>
+
+      <section>
+        <h2>Action checkpoint</h2>
+        <p>Nothing changes in the simulated world until you approve an action. You can inject a failure to test recovery.</p>
+        <pre id="pending" class="data">No action waiting.</pre>
+        <div class="resolution">
+          <button id="approve" type="button">Approve success</button>
+          <select id="failure-code" aria-label="Failure code">
+            <option value="NO_PATH">NO_PATH</option>
+            <option value="BLOCKED">BLOCKED</option>
+            <option value="TARGET_NOT_FOUND">TARGET_NOT_FOUND</option>
+            <option value="OUT_OF_REACH">OUT_OF_REACH</option>
+            <option value="MISSING_ITEM">MISSING_ITEM</option>
+            <option value="WORLD_CHANGED">WORLD_CHANGED</option>
+            <option value="TIMEOUT">TIMEOUT</option>
+            <option value="ACTION_NOT_CONFIRMED">ACTION_NOT_CONFIRMED</option>
+            <option value="INVALID_ARGUMENT">INVALID_ARGUMENT</option>
+            <option value="INTERNAL_ERROR">INTERNAL_ERROR</option>
+          </select>
+          <input id="failure-message" type="text" value="Simulated failure for testing." aria-label="Failure message">
+          <button id="reject" class="secondary" type="button">Inject failure</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Current world and memory</h2>
+        <pre id="world" class="data"></pre>
+      </section>
+      <p id="error" role="alert"></p>
+    </div>
+
+    <section class="inspector-panel">
+      <div class="inspector-heading">
+        <h2>Exact model context</h2>
+        <span>Inspect prompts, tools and responses for each round</span>
+      </div>
+      <iframe title="Model context inspector" src="/inspector"></iframe>
+    </section>
+  </main>
+</body>
+</html>

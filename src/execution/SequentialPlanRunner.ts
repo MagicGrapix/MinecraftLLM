@@ -1,7 +1,7 @@
 import type { Task, TaskSpec } from "./Task";
 import { TaskFactory } from "./TaskFactory";
 import type { TaskResult } from "./TaskResult";
-import type { Executor } from "./Executor";
+import type { TaskExecutor } from "./TaskExecutor";
 
 export type SequentialRunnerEvent =
   | { readonly type: "task_started"; readonly task: Task }
@@ -26,7 +26,7 @@ export class SequentialPlanRunner {
   private shutdownRequested = false;
 
   constructor(
-    private readonly executor: Executor,
+    private readonly executor: TaskExecutor,
     private readonly taskFactory = new TaskFactory(),
   ) {}
 

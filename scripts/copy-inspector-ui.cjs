@@ -7,3 +7,9 @@ const target = join(__dirname, "..", "dist", "debug", "ui");
 mkdirSync(dirname(target), { recursive: true });
 cpSync(source, target, { recursive: true });
 console.info(`Copied inspector UI from ${source} to ${target}`);
+
+const labSource = join(__dirname, "..", "src", "lab", "ui");
+const labTarget = join(__dirname, "..", "dist", "lab", "ui");
+mkdirSync(dirname(labTarget), { recursive: true });
+cpSync(labSource, labTarget, { recursive: true });
+console.info(`Copied prompt lab UI from ${labSource} to ${labTarget}`);

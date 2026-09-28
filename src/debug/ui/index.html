@@ -16,6 +16,7 @@
         <button id="liveBtn" type="button" class="active">Live</button>
         <button id="pauseBtn" type="button">Pause</button>
         <button id="latestBtn" type="button">Voir le plus récent</button>
+        <button id="clearBtn" type="button" title="Effacer les rounds de cette session de debug (les fichiers JSONL sont conservés)" disabled>Clear</button>
         <span id="newBadge" class="badge hidden">0 nouveaux rounds</span>
       </div>
     </header>
@@ -40,17 +41,12 @@
           <button id="copyBtn" type="button" disabled>Copy</button>
         </div>
         <nav class="tabs" id="tabs">
-          <button type="button" data-tab="run" class="active">Run</button>
-          <button type="button" data-tab="messages">Messages</button>
-          <button type="button" data-tab="tools">Tools</button>
-          <button type="button" data-tab="raw">Raw request</button>
+          <button type="button" data-tab="request" class="active">LLM request</button>
           <button type="button" data-tab="response">Response</button>
-          <button type="button" data-tab="memory">Memory</button>
-          <button type="button" data-tab="executions">Tool executions</button>
-          <button type="button" data-tab="metadata">Metadata</button>
+          <button type="button" data-tab="debug">Debug (local)</button>
         </nav>
         <div id="detailBody" class="detail-body">
-          <p class="empty">Sélectionnez un round pour inspecter le contexte exact.</p>
+          <p class="empty">Sélectionnez un round pour voir la requête LLM exacte.</p>
         </div>
       </section>
     </main>

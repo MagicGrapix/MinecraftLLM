@@ -20,7 +20,7 @@ export interface InspectorRound {
   readonly id: string;
   readonly timestamp: number;
   readonly generationId: number;
-  readonly phase: "intent" | "question" | "planning" | "review" | "memory";
+  readonly phase: "intent" | "question" | "planning" | "review" | "memory" | "coordinator" | "planner" | "actioner_planning" | "actioner_review";
   readonly reflection: number;
   readonly round: number;
   readonly attempt: number;

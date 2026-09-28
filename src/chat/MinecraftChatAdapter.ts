@@ -1,10 +1,15 @@
 import type { Bot } from "mineflayer";
-import type { SequentialAgent } from "../agent/SequentialAgent";
 import { sleep } from "../shared/helper";
+
+export interface ChatControlledAgent {
+  submitUserMessage(username: string, text: string, readonlyOnly?: boolean): void;
+  requestStop(username: string): Promise<void>;
+  requestResume(username: string): void;
+}
 
 export interface MinecraftChatAdapterOptions {
   readonly bot: Bot;
-  readonly agent: SequentialAgent;
+  readonly agent: ChatControlledAgent;
   readonly ownerUsername: string;
   readonly maxChunkLength?: number;
   readonly minMessageIntervalMs?: number;

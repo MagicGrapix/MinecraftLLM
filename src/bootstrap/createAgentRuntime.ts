@@ -2,10 +2,10 @@ import { resolve } from "node:path";
 import type { AgentConfig } from "../agent/AgentConfig";
 import { AgentContextBuilder } from "../agent/AgentContextBuilder";
 import { AgentToolBridge } from "../agent/AgentToolBridge";
-import { MemoryUpdater } from "../agent/MemoryUpdater";
 import { SequentialAgent } from "../agent/SequentialAgent";
 import { WorkingMemory } from "../agent/WorkingMemory";
-import { ChatIntentRouter } from "../chat/ChatIntentRouter";
+import { WorkflowAgent } from "../agent/WorkflowAgent";
+import { WorkflowSummaryFile } from "../agent/WorkflowState";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
 import { AgentInspector } from "../debug/AgentInspector";
 import {
@@ -20,7 +20,7 @@ import {
 import { Executor } from "../execution/Executor";
 import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
-import { loadAgentPrompts } from "../prompts/AgentPrompts";
+import { loadWorkflowPrompts } from "../prompts/WorkflowPrompts";
 import { ContainerSessionManager } from "../runtime/ContainerSessionManager";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
 import { toVec3 } from "../runtime/PositionAdapter";
@@ -31,7 +31,7 @@ import { createDefaultWorldQueryRegistry } from "../world/queries/defaultQueries
 import { createCapabilityRegistry } from "./createCapabilities";
 
 export interface RunningAgentRuntime {
-  readonly agent: SequentialAgent;
+  readonly agent: WorkflowAgent;
   readonly runner: SequentialPlanRunner;
   readonly chat: MinecraftChatAdapter;
   readonly inspector: AgentInspector | null;
@@ -51,7 +51,7 @@ export async function createAgentRuntime(
     resolve(process.cwd(), "skills"),
   );
   const skillLoader = new SkillLoader(skills, capabilities, queries);
-  const prompts = await loadAgentPrompts(
+  const prompts = await loadWorkflowPrompts(
     resolve(process.cwd(), config.promptsDirectory),
   );
   const landmarks =
@@ -65,7 +65,7 @@ export async function createAgentRuntime(
     world,
   });
   const runner = new SequentialPlanRunner(executor);
-  const workingMemory = new WorkingMemory(config.memoryMaxChars);
+  const workingMemory = new WorkingMemory(Math.max(config.memoryMaxChars, 2_000));
   const inspector = config.inspectorEnabled
     ? new AgentInspector(config.inspectorMaxRounds)
     : null;
@@ -91,42 +91,42 @@ export async function createAgentRuntime(
     world,
     landmarks,
     capabilities,
-    systemPrompt: prompts.system,
+    systemPrompt: prompts.actioner,
   });
 
   let chat: MinecraftChatAdapter | null = null;
-  const memoryUpdater = new MemoryUpdater({
+  const actionAgent = new SequentialAgent({
     llm,
-    prompt: prompts.memoryUpdate,
-    memory: workingMemory,
-    maxRetries: config.responseMaxRetries,
-    maxTokens: config.llmMaxTokens,
-    ...(inspector ? { inspector } : {}),
-    notifyRetry: async (message) => {
-      await chat?.send(message);
-    },
-  });
-  const agent = new SequentialAgent({
-    llm,
-    intentRouter: new ChatIntentRouter(
-      llm,
-      prompts.intentClassifier,
-    ),
     contextBuilder,
     toolBridge: bridge,
     runner,
     workingMemory,
-    memoryUpdater,
     maxToolRounds: config.llmMaxToolRounds,
     maxResponseRetries: config.responseMaxRetries,
     temperature: config.llmTemperature,
     reasoningEffort: config.llmReasoningEffort,
     maxTokens: config.llmMaxTokens,
     ...(inspector ? { inspector } : {}),
-    respond: async (message) => {
-      await chat?.send(message);
-    },
+    respond: async (message) => { console.warn("Action agent:", message); },
   });
+  const summaryFile = new WorkflowSummaryFile(inspector?.sessionId ?? `${Date.now()}_${process.pid}`);
+  const agent = new WorkflowAgent({
+    llm,
+    actionAgent,
+    world,
+    capabilities,
+    landmarks,
+    prompts,
+    ...(inspector ? { inspector } : {}),
+    temperature: config.llmTemperature,
+    reasoningEffort: config.llmReasoningEffort,
+    maxTokens: config.llmMaxTokens,
+    maxRetries: config.responseMaxRetries,
+    historyMaxChars: config.llmContextBudgetChars,
+    summaryFile,
+    respond: async (message) => { await chat?.send(message); },
+  });
+  console.info("Agent workflow summary file.", { path: summaryFile.path });
   chat = new MinecraftChatAdapter({
     bot: runtime.bot,
     agent,

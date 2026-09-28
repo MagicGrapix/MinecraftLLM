@@ -63,6 +63,22 @@ test("inspector HTTP routes serve compact list, detail, UI, and status", async (
 
     const post = await fetch(`${server.url}/api/rounds`, { method: "POST" });
     assert.equal(post.status, 405);
+
+    const forbidden = await fetch(`${server.url}/api/rounds/clear`, {
+      method: "POST",
+      headers: { origin: "http://example.com" },
+    });
+    assert.equal(forbidden.status, 403);
+    assert.equal((await fetchJson(`${server.url}/api/rounds`)).rounds.length, 1);
+
+    const cleared = await fetch(`${server.url}/api/rounds/clear`, {
+      method: "POST",
+      headers: { origin: server.url },
+    });
+    assert.equal(cleared.status, 200);
+    assert.deepEqual(await cleared.json(), { cleared: 1, sessionId: "http-session" });
+    assert.equal((await fetchJson(`${server.url}/api/rounds`)).rounds.length, 0);
+    assert.equal((await fetch(`${server.url}/api/rounds/${snapshot.id}`)).status, 404);
   } finally {
     await server.close();
   }

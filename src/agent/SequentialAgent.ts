@@ -16,7 +16,7 @@ import type {
 import { LLMError } from "../llm/LLMError";
 import { parseJsonObjectText } from "../shared/helper";
 import { writeTrace } from "../TraceLog";
-import type { AgentDecision } from "./AgentDecision";
+import type { AgentDecision, AgentFinishStatus } from "./AgentDecision";
 import {
   AgentContextBuilder,
   type AgentContextSnapshot,
@@ -56,14 +56,25 @@ export interface SequentialAgentState {
   readonly run: AgentRun | null;
 }
 
+export interface DelegatedActionReport {
+  readonly status: AgentFinishStatus | "interrupted";
+  readonly message: string;
+  readonly outcomes: readonly SequentialTaskOutcome[];
+}
+
+export interface DelegatedTraceContext {
+  readonly generationId: number;
+  readonly delegation: number;
+}
+
 interface SequentialAgentOptions {
   readonly llm: LLMClient;
-  readonly intentRouter: ChatIntentRouter;
+  readonly intentRouter?: ChatIntentRouter;
   readonly contextBuilder: AgentContextBuilder;
   readonly toolBridge: AgentToolBridge;
   readonly runner: SequentialPlanRunner;
   readonly workingMemory: WorkingMemory;
-  readonly memoryUpdater: MemoryUpdater;
+  readonly memoryUpdater?: MemoryUpdater;
   readonly maxToolRounds: number;
   readonly maxResponseRetries: number;
   readonly maxConsecutivePlansWithoutAction?: number;
@@ -101,8 +112,50 @@ export class SequentialAgent {
     reflection: number;
     result: ReflectionResult;
   } | null = null;
+  private delegated: {
+    readonly resolve: (report: DelegatedActionReport) => void;
+    readonly outcomes: SequentialTaskOutcome[];
+  } | null = null;
+  private delegatedTrace: DelegatedTraceContext | null = null;
 
   constructor(private readonly options: SequentialAgentOptions) {}
+
+  runDelegatedStep(
+    objective: string,
+    traceContext?: DelegatedTraceContext,
+  ): Promise<DelegatedActionReport> {
+    if (this.shutdownRequested || this.mode !== "idle" || !objective.trim()) {
+      return Promise.reject(new Error("Action agent is unavailable."));
+    }
+    const run: AgentRun = {
+      id: ++this.nextRunId,
+      objective: objective.trim(),
+      kind: "action",
+      readonlyOnly: false,
+      state: "thinking",
+      remainingTasks: [],
+      currentTask: null,
+      lastTask: null,
+      lastResult: null,
+      memory: "",
+      consecutivePlansWithoutAction: 0,
+    };
+    this.options.workingMemory.clear();
+    this.delegatedTrace = traceContext ?? null;
+    this.activeRun = run;
+    this.mode = "thinking";
+    this.stopRequested = false;
+    this.reflection = 0;
+    const report = new Promise<DelegatedActionReport>((resolve) => {
+      this.delegated = { resolve, outcomes: [] };
+    });
+    const processing = this.processActionRun(run);
+    const tracked = processing.finally(() => {
+      if (this.processing === tracked) this.processing = null;
+    });
+    this.processing = tracked;
+    return report;
+  }
 
   state(): SequentialAgentState {
     return {
@@ -164,6 +217,10 @@ export class SequentialAgent {
     this.activeAbort?.abort("Stopped by user.");
     this.options.runner.abortCurrent("Stopped by user.");
     await this.processing?.catch(() => undefined);
+    if (this.delegated) {
+      this.resolveDelegated("interrupted", "Action interrupted by user.");
+      this.finishRun();
+    }
     await this.options.respond("Bot stopped.", username);
   }
 
@@ -188,6 +245,7 @@ export class SequentialAgent {
     this.activeAbort?.abort("Agent shutdown.");
     this.options.runner.abortCurrent("Agent shutdown.");
     await this.processing?.catch(() => undefined);
+    if (this.delegated) this.resolveDelegated("interrupted", "Action agent shut down.");
   }
 
   private async resume(username: string): Promise<void> {
@@ -225,6 +283,7 @@ export class SequentialAgent {
     const intentTrace = this.trace(run, "intent", 0, 0, "intent", null);
     this.options.inspector?.beginRound(intentTrace);
     try {
+      if (!this.options.intentRouter) throw new Error("Intent router is unavailable.");
       const intent = await this.options.intentRouter.route(
         run.objective,
         abort.signal,
@@ -342,10 +401,11 @@ export class SequentialAgent {
         if (decision.type === "finish_run") {
           this.options.runner.clear();
           run.remainingTasks = [];
-          await this.options.respond(
-            decision.message,
-            this.activeUsername,
-          );
+          if (this.delegated) {
+            this.resolveDelegated(decision.status, decision.message);
+          } else {
+            await this.options.respond(decision.message, this.activeUsername);
+          }
           this.finishRun();
           return;
         }
@@ -642,6 +702,7 @@ export class SequentialAgent {
     signal: AbortSignal,
     round = 0,
   ): Promise<void> {
+    if (!this.options.memoryUpdater) return;
     const oldMemory = this.options.workingMemory.read();
     await this.options.memoryUpdater.update({
       runId: run.id,
@@ -684,6 +745,17 @@ export class SequentialAgent {
     run: AgentRun,
     outcome: SequentialTaskOutcome,
   ): void {
+    if (this.delegated) {
+      this.delegated.outcomes.push(outcome);
+      const recent = this.delegated.outcomes.slice(-6).map(({ task, result }) => ({
+        capability: task.capability,
+        input: task.input,
+        result,
+      }));
+      this.options.workingMemory.replace(
+        JSON.stringify(recent).slice(-this.options.workingMemory.maxLength),
+      );
+    }
     run.currentTask = null;
     run.lastTask = outcome.task;
     run.lastResult = outcome.result;
@@ -704,6 +776,11 @@ export class SequentialAgent {
     }
     console.error("Sequential agent run failed:", error);
     this.options.runner.clear();
+    if (this.delegated) {
+      this.resolveDelegated("failure", errorMessage(error));
+      this.finishRun();
+      return;
+    }
     await this.options.respond(
       `[Bot] Run failed: ${errorMessage(error)}`,
       this.activeUsername,
@@ -715,9 +792,20 @@ export class SequentialAgent {
     this.options.runner.clear();
     this.pendingOutcomeMemory = null;
     this.activeRun = null;
+    this.delegatedTrace = null;
     this.activeUsername = undefined;
     this.mode = "idle";
     this.stopRequested = false;
+  }
+
+  private resolveDelegated(
+    status: DelegatedActionReport["status"],
+    message: string,
+  ): void {
+    const delegated = this.delegated;
+    if (!delegated) return;
+    this.delegated = null;
+    delegated.resolve({ status, message, outcomes: [...delegated.outcomes] });
   }
 
   private setMode(
@@ -746,10 +834,17 @@ export class SequentialAgent {
     contextSnapshot: unknown,
     attempt = 0,
   ): LLMRequestTrace {
+    const rolePhase = this.delegated && phase === "planning"
+      ? "actioner_planning"
+      : this.delegated && phase === "review"
+        ? "actioner_review"
+        : phase;
     return {
-      generationId: run.id,
-      phase,
-      reflection,
+      generationId: this.delegatedTrace?.generationId ?? run.id,
+      phase: rolePhase,
+      reflection: this.delegatedTrace
+        ? this.delegatedTrace.delegation * 1_000 + reflection
+        : reflection,
       round,
       attempt,
       wakeType,

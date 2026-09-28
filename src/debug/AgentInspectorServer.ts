@@ -82,15 +82,31 @@ async function handleRequest(
   options: AgentInspectorServerOptions,
 ): Promise<void> {
   const method = request.method ?? "GET";
-  if (method !== "GET" && method !== "HEAD") {
-    response.setHeader("Allow", "GET, HEAD");
-    sendJson(response, 405, { error: "Method not allowed." });
-    return;
-  }
-
   const hostHeader = request.headers.host ?? `${options.host}:${options.port}`;
   const url = new URL(request.url ?? "/", `http://${hostHeader}`);
   const path = url.pathname;
+
+  if (method === "POST" && path === "/api/rounds/clear") {
+    const origin = request.headers.origin;
+    if (origin && origin !== `http://${options.host}:${request.socket.localPort}`) {
+      sendJson(response, 403, { error: "Invalid origin." });
+      return;
+    }
+    try {
+      sendJson(response, 200, {
+        cleared: options.inspector.clearRounds(),
+        sessionId: options.inspector.sessionId,
+      });
+    } catch (error: unknown) {
+      sendJson(response, 409, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  if (method !== "GET" && method !== "HEAD") {
+    response.setHeader("Allow", "GET, HEAD, POST");
+    sendJson(response, 405, { error: "Method not allowed." });
+    return;
+  }
 
   if (path === "/api/status") {
     sendJson(response, 200, {

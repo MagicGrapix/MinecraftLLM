@@ -3,8 +3,11 @@
     live: true,
     selectedId: null,
     selectedSnapshot: null,
-    tab: "run",
+    tab: "request",
     knownIds: new Set(),
+    clearing: false,
+    sessionId: null,
+    rounds: [],
     unseenCount: 0,
     search: "",
     pollError: null,
@@ -15,6 +18,7 @@
     liveBtn: document.getElementById("liveBtn"),
     pauseBtn: document.getElementById("pauseBtn"),
     latestBtn: document.getElementById("latestBtn"),
+    clearBtn: document.getElementById("clearBtn"),
     newBadge: document.getElementById("newBadge"),
     searchInput: document.getElementById("searchInput"),
     roundList: document.getElementById("roundList"),
@@ -28,6 +32,9 @@
   els.pauseBtn.addEventListener("click", () => setLive(false));
   els.latestBtn.addEventListener("click", () => {
     void jumpToLatest();
+  });
+  els.clearBtn.addEventListener("click", () => {
+    void clearView();
   });
   els.searchInput.addEventListener("input", () => {
     state.search = els.searchInput.value.trim().toLowerCase();
@@ -82,6 +89,17 @@
   async function refreshStatus() {
     try {
       const status = await fetchJson("/api/status");
+      if (state.sessionId !== status.sessionId) {
+        state.sessionId = status.sessionId;
+        state.knownIds.clear();
+        state.rounds = [];
+        state.selectedId = null;
+        state.selectedSnapshot = null;
+        state.unseenCount = 0;
+        updateBadge();
+        updateClearControls();
+        renderDetailShell();
+      }
       const agent = status.agent
         ? ` mode=${status.agent.mode}${status.agent.run ? ` run=${status.agent.run.id}` : ""}`
         : "";
@@ -107,6 +125,8 @@
     } catch {
       return;
     }
+    state.rounds = rounds;
+    updateClearControls();
 
     const previousKnown = state.knownIds;
     const nextKnown = new Set(rounds.map((round) => round.id));
@@ -123,12 +143,12 @@
           await selectRound(latest.id, false);
         }
       } else {
-        state.unseenCount += added;
+        state.unseenCount += rounds.filter((round) => !previousKnown.has(round.id)).length;
         updateBadge();
       }
     }
 
-    const filtered = rounds.filter((round) => matchesSearch(round));
+    const filtered = rounds.filter(matchesSearch);
     els.roundList.innerHTML = "";
     if (!filtered.length) {
       const empty = document.createElement("p");
@@ -153,6 +173,36 @@
       }
     }
     els.roundList.scrollTop = scrollTop;
+  }
+
+  async function clearView() {
+    state.clearing = true;
+    updateClearControls();
+    try {
+      const response = await fetch("/api/rounds/clear", { method: "POST" });
+      if (!response.ok) {
+        const body = await response.json();
+        throw new Error(body.error ?? `HTTP ${response.status}`);
+      }
+      state.rounds = [];
+      state.knownIds.clear();
+      state.selectedId = null;
+      state.selectedSnapshot = null;
+      state.unseenCount = 0;
+      updateBadge();
+      renderDetailShell();
+      await refreshList(false);
+    } catch (error) {
+      els.statusLine.textContent =
+        `Clear impossible: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      state.clearing = false;
+      updateClearControls();
+    }
+  }
+
+  function updateClearControls() {
+    els.clearBtn.disabled = state.clearing || state.rounds.length === 0;
   }
 
   function matchesSearch(round) {
@@ -204,7 +254,7 @@
       els.detailTitle.textContent = "Aucun round sélectionné";
       els.copyBtn.disabled = true;
       els.detailBody.innerHTML =
-        '<p class="empty">Sélectionnez un round pour inspecter le contexte exact.</p>';
+        '<p class="empty">Sélectionnez un round pour voir la requête LLM exacte.</p>';
       return;
     }
     els.detailTitle.textContent =
@@ -218,29 +268,14 @@
     if (!round) return;
     const scrollTop = els.detailBody.scrollTop;
     switch (state.tab) {
-      case "run":
-        els.detailBody.innerHTML = renderRun(round);
-        break;
-      case "messages":
-        els.detailBody.innerHTML = renderMessages(round);
-        break;
-      case "tools":
-        els.detailBody.innerHTML = renderTools(round);
-        break;
-      case "raw":
-        els.detailBody.innerHTML = renderJson(round.requestBody ?? round.request ?? null);
+      case "request":
+        els.detailBody.innerHTML = renderRequest(round);
         break;
       case "response":
         els.detailBody.innerHTML = renderResponse(round);
         break;
-      case "memory":
-        els.detailBody.innerHTML = renderMemory(round);
-        break;
-      case "executions":
-        els.detailBody.innerHTML = renderExecutions(round);
-        break;
-      case "metadata":
-        els.detailBody.innerHTML = renderMetadata(round);
+      case "debug":
+        els.detailBody.innerHTML = renderDebug(round);
         break;
       default:
         els.detailBody.innerHTML = "";
@@ -248,80 +283,12 @@
     els.detailBody.scrollTop = scrollTop;
   }
 
-  function renderRun(round) {
-    const snapshot = round.contextSnapshot ?? {};
-    return renderJson({
-      phase: round.phase,
-      status: round.status,
-      attempt: round.attempt,
-      objective: snapshot.objective ?? null,
-      workingMemory: snapshot.workingMemory ?? null,
-      memoryBefore: round.memoryBefore ?? null,
-      memoryAfter: round.memoryAfter ?? null,
-      currentTask: snapshot.currentTask ?? null,
-      lastTask: snapshot.lastTask ?? null,
-      lastResult: snapshot.lastResult ?? null,
-      remainingPlan: snapshot.remainingPlan ?? null,
-      decision: round.decision ?? null,
-      validationError: round.validationError ?? null,
-    });
-  }
-
-  function renderMemory(round) {
-    if (
-      round.memoryBefore === undefined &&
-      round.memoryAfter === undefined &&
-      !round.contextSnapshot
-    ) {
-      return '<p class="empty">Aucune mémoire enregistrée pour ce round.</p>';
+  function renderRequest(round) {
+    if (!round.requestBody) {
+      return '<p class="empty">Aucune requête LLM enregistrée pour ce round.</p>';
     }
-    return renderJson({
-      before: round.memoryBefore ?? round.contextSnapshot?.workingMemory ?? "",
-      after: round.memoryAfter ?? null,
-      validationError: round.validationError ?? null,
-    });
-  }
-
-  function renderMessages(round) {
-    const messages = round.request?.messages;
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return '<p class="empty">Aucun message dans la requête.</p>';
-    }
-    return messages
-      .map((message) => {
-        const role =
-          message && typeof message === "object" && "role" in message
-            ? String(message.role)
-            : "unknown";
-        return (
-          `<article class="message ${escapeHtml(role)}">` +
-          `<div class="role">${escapeHtml(role)}</div>` +
-          `<pre>${escapeHtml(formatValue(message))}</pre>` +
-          `</article>`
-        );
-      })
-      .join("");
-  }
-
-  function renderTools(round) {
-    const tools = round.request?.tools;
-    if (!Array.isArray(tools) || tools.length === 0) {
-      return '<p class="empty">Aucun schéma d’outil envoyé.</p>';
-    }
-    return tools
-      .map((tool) => {
-        const name =
-          tool && typeof tool === "object" && tool.function
-            ? tool.function.name
-            : tool?.name ?? "tool";
-        return (
-          `<article class="block">` +
-          `<div class="role">${escapeHtml(String(name))}</div>` +
-          renderFoldableJson(tool) +
-          `</article>`
-        );
-      })
-      .join("");
+    return '<p class="empty">Corps de la requête envoyée au modèle. Les éventuels secrets sont masqués.</p>' +
+      renderJson(round.requestBody);
   }
 
   function renderResponse(round) {
@@ -348,9 +315,7 @@
   }
 
   function renderExecutions(round) {
-    if (!round.toolExecutions?.length) {
-      return '<p class="empty">Aucune exécution d’outil pour ce round.</p>';
-    }
+    if (!round.toolExecutions?.length) return "";
     return round.toolExecutions
       .map((execution) => {
         const okClass =
@@ -372,8 +337,8 @@
       .join("");
   }
 
-  function renderMetadata(round) {
-    return renderJson({
+  function renderDebug(round) {
+    const metadata = {
       id: round.id,
       timestamp: round.timestamp,
       generationId: round.generationId,
@@ -383,15 +348,28 @@
       attempt: round.attempt,
       wakeType: round.wakeType,
       permission: round.permission,
-      decision: round.decision,
-      validationError: round.validationError,
-      memoryBefore: round.memoryBefore,
-      memoryAfter: round.memoryAfter,
       status: round.status,
       metrics: round.metrics,
       usage: round.response?.usage,
       error: round.error,
-    });
+    };
+    const parts = [
+      '<p class="empty">Données locales de l’inspecteur : elles ne sont pas envoyées séparément au LLM. La source exacte est dans « LLM request ».</p>',
+      `<article class="block"><div class="role">Metadata</div>${renderFoldableJson(metadata)}</article>`,
+    ];
+    if (round.decision !== undefined) {
+      parts.push(`<article class="block"><div class="role">Validated decision</div>${renderFoldableJson(round.decision)}</article>`);
+    }
+    if (round.validationError !== undefined) {
+      parts.push(`<article class="block"><div class="role status-error">Validation error</div><pre>${escapeHtml(round.validationError)}</pre></article>`);
+    }
+    if (round.memoryBefore !== undefined || round.memoryAfter !== undefined) {
+      parts.push(`<article class="block"><div class="role">Working memory</div>${renderFoldableJson({ before: round.memoryBefore ?? null, after: round.memoryAfter ?? null })}</article>`);
+    }
+    if (round.toolExecutions?.length) {
+      parts.push(`<article class="block"><div class="role">Tool executions</div>${renderExecutions(round)}</article>`);
+    }
+    return parts.join("");
   }
 
   function renderJson(value) {
@@ -414,34 +392,28 @@
   async function copyCurrent() {
     if (!state.selectedSnapshot) return;
     const payload =
-      state.tab === "run"
-        ? {
-            context: state.selectedSnapshot.contextSnapshot,
-            decision: state.selectedSnapshot.decision,
-            memoryBefore: state.selectedSnapshot.memoryBefore,
-            memoryAfter: state.selectedSnapshot.memoryAfter,
-          }
-        : state.tab === "messages"
-        ? state.selectedSnapshot.request?.messages
-        : state.tab === "tools"
-          ? state.selectedSnapshot.request?.tools
-          : state.tab === "raw"
-            ? state.selectedSnapshot.requestBody ??
-              state.selectedSnapshot.request
-            : state.tab === "response"
-              ? {
-                  response: state.selectedSnapshot.response,
-                  rawResponse: state.selectedSnapshot.rawResponse,
-                  error: state.selectedSnapshot.error,
-                }
-              : state.tab === "memory"
-                ? {
-                    before: state.selectedSnapshot.memoryBefore,
-                    after: state.selectedSnapshot.memoryAfter,
-                  }
-              : state.tab === "executions"
-                ? state.selectedSnapshot.toolExecutions
-                : state.selectedSnapshot;
+      state.tab === "request"
+        ? state.selectedSnapshot.requestBody ?? null
+        : state.tab === "response"
+          ? {
+              response: state.selectedSnapshot.response,
+              rawResponse: state.selectedSnapshot.rawResponse,
+              error: state.selectedSnapshot.error,
+            }
+          : {
+              metadata: {
+                id: state.selectedSnapshot.id,
+                generationId: state.selectedSnapshot.generationId,
+                phase: state.selectedSnapshot.phase,
+                status: state.selectedSnapshot.status,
+                metrics: state.selectedSnapshot.metrics,
+              },
+              decision: state.selectedSnapshot.decision,
+              validationError: state.selectedSnapshot.validationError,
+              memoryBefore: state.selectedSnapshot.memoryBefore,
+              memoryAfter: state.selectedSnapshot.memoryAfter,
+              toolExecutions: state.selectedSnapshot.toolExecutions,
+            };
     await navigator.clipboard.writeText(formatValue(payload));
     els.copyBtn.textContent = "Copied";
     setTimeout(() => {

@@ -242,6 +242,15 @@ export class AgentInspector {
     return this.finalized.map(toSummary);
   }
 
+  clearRounds(): number {
+    if (this.drafts.size > 0) {
+      throw new Error("Cannot clear inspector rounds while an LLM request is in progress.");
+    }
+    const cleared = this.finalized.length;
+    this.finalized.length = 0;
+    return cleared;
+  }
+
   getRound(id: string): InspectorRound | null {
     const found = this.finalized.find((round) => round.id === id);
     return found ? freezeDeep(structuredClone(found)) : null;

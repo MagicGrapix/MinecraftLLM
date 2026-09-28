@@ -38,6 +38,26 @@ test("question run answers, updates memory, then returns to idle", async () => {
   );
 });
 
+test("delegated action skips intent routing and returns a private report", async () => {
+  const { agent, llm, replies, workingMemory } = createHarness({ noMemory: true });
+  workingMemory.replace("stale context from an earlier delegation");
+  enqueueDecision(llm, "finish_run", { status: "success", message: "Step verified." });
+
+  const report = await agent.runDelegatedStep("Collect one log.", {
+    generationId: 42,
+    delegation: 2,
+  });
+
+  assert.equal(report.status, "success");
+  assert.equal(report.message, "Step verified.");
+  assert.deepEqual(report.outcomes, []);
+  assert.equal(workingMemory.read(), "");
+  assert.deepEqual(replies, []);
+  assert.deepEqual(llm.requests.map((request) => request.trace?.phase), ["actioner_planning"]);
+  assert.equal(llm.requests[0]?.trace?.generationId, 42);
+  assert.equal(llm.requests[0]?.trace?.reflection, 2001);
+});
+
 test("set_plan does not execute and continue_plan runs exactly one task", async () => {
   const { agent, llm, executor, replies } = createHarness();
   enqueueIntent(llm, "action_request");
@@ -246,6 +266,7 @@ function createHarness(
   options: {
     maxResponseRetries?: number;
     maxConsecutivePlansWithoutAction?: number;
+    noMemory?: boolean;
   } = {},
 ): {
   agent: SequentialAgent;
@@ -292,7 +313,7 @@ function createHarness(
     toolBridge: stubBridge() as unknown as AgentToolBridge,
     runner,
     workingMemory,
-    memoryUpdater,
+    ...(options.noMemory ? {} : { memoryUpdater }),
     maxToolRounds: 2,
     maxResponseRetries: options.maxResponseRetries ?? 8,
     maxConsecutivePlansWithoutAction:

@@ -27,7 +27,7 @@ export interface LLMTool {
 /** Local metadata never sent on the wire to the LLM provider. */
 export interface LLMRequestTrace {
   readonly generationId: number;
-  readonly phase: "intent" | "question" | "planning" | "review" | "memory";
+  readonly phase: "intent" | "question" | "planning" | "review" | "memory" | "coordinator" | "planner" | "actioner_planning" | "actioner_review";
   readonly reflection: number;
   readonly round: number;
   readonly attempt: number;

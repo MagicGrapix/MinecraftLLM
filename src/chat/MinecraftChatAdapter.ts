@@ -2,7 +2,7 @@ import type { Bot } from "mineflayer";
 import { sleep } from "../shared/helper";
 
 export interface ChatControlledAgent {
-  submitUserMessage(username: string, text: string, readonlyOnly?: boolean): void;
+  submitUserMessage(username: string, text: string): void;
   requestStop(username: string): Promise<void>;
   requestResume(username: string): void;
 }
@@ -10,7 +10,6 @@ export interface ChatControlledAgent {
 export interface MinecraftChatAdapterOptions {
   readonly bot: Bot;
   readonly agent: ChatControlledAgent;
-  readonly ownerUsername: string;
   readonly maxChunkLength?: number;
   readonly minMessageIntervalMs?: number;
 }
@@ -37,9 +36,6 @@ export class MinecraftChatAdapter {
     if (this.attached) return;
     this.attached = true;
     this.options.bot.on("chat", this.handleChat);
-    console.warn(
-      `Chat control owner is "${this.options.ownerUsername}". Offline usernames are not strong authentication.`,
-    );
   }
 
   detach(): void {
@@ -72,30 +68,16 @@ export class MinecraftChatAdapter {
   ): void => {
     if (!this.attached || username === this.options.bot.username) return;
     const command = normalizeCommand(message);
-    const isOwner = username === this.options.ownerUsername;
-
     if (command === "stop" || command === "bot stop") {
-      if (!isOwner) {
-        void this.send("Commande réservée au propriétaire.");
-        return;
-      }
       void this.options.agent.requestStop(username);
       return;
     }
     if (command === "resume" || command === "bot resume") {
-      if (!isOwner) {
-        void this.send("Commande réservée au propriétaire.");
-        return;
-      }
       this.options.agent.requestResume(username);
       return;
     }
 
-    this.options.agent.submitUserMessage(
-      username,
-      message.trim(),
-      !isOwner,
-    );
+    this.options.agent.submitUserMessage(username, message.trim());
   };
 }
 

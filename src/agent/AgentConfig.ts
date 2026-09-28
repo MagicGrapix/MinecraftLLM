@@ -12,7 +12,6 @@ const EnvironmentSchema = z.object({
   LLM_REQUEST_TIMEOUT_MS: integerEnvironment(120_000, 1),
   LLM_MAX_TOOL_ROUNDS: integerEnvironment(8, 1, 32),
   LLM_CONTEXT_BUDGET_CHARS: integerEnvironment(30_000, 4_000),
-  BOT_OWNER_USERNAME: z.string().min(1).default("GrapixMagique"),
   BOT_MODE: z.enum(["agent", "demo"]).default("agent"),
   LANDMARKS_FILE: z.string().min(1).default("./data/landmarks.json"),
   PROMPTS_DIR: z.string().min(1).default("./prompts"),
@@ -21,6 +20,7 @@ const EnvironmentSchema = z.object({
   AGENT_INSPECTOR_PORT: integerEnvironment(3_001, 1, 65_535),
   AGENT_INSPECTOR_MAX_ROUNDS: integerEnvironment(30, 1, 1_000),
   AGENT_MEMORY_MAX_CHARS: integerEnvironment(500, 1, 100_000),
+  AGENT_HISTORY_MAX_MESSAGES: integerEnvironment(20, 4, 100),
   AGENT_RESPONSE_MAX_RETRIES: integerEnvironment(8, 0, 32),
 });
 
@@ -34,7 +34,6 @@ export interface AgentConfig {
   readonly llmRequestTimeoutMs: number;
   readonly llmMaxToolRounds: number;
   readonly llmContextBudgetChars: number;
-  readonly botOwnerUsername: string;
   readonly botMode: "agent" | "demo";
   readonly landmarksFile: string;
   readonly promptsDirectory: string;
@@ -43,6 +42,7 @@ export interface AgentConfig {
   readonly inspectorPort: number;
   readonly inspectorMaxRounds: number;
   readonly memoryMaxChars: number;
+  readonly historyMaxMessages: number;
   readonly responseMaxRetries: number;
 }
 
@@ -60,7 +60,6 @@ export function loadAgentConfig(
     llmRequestTimeoutMs: parsed.LLM_REQUEST_TIMEOUT_MS,
     llmMaxToolRounds: parsed.LLM_MAX_TOOL_ROUNDS,
     llmContextBudgetChars: parsed.LLM_CONTEXT_BUDGET_CHARS,
-    botOwnerUsername: parsed.BOT_OWNER_USERNAME,
     botMode: parsed.BOT_MODE,
     landmarksFile: parsed.LANDMARKS_FILE,
     promptsDirectory: parsed.PROMPTS_DIR,
@@ -69,6 +68,7 @@ export function loadAgentConfig(
     inspectorPort: parsed.AGENT_INSPECTOR_PORT,
     inspectorMaxRounds: parsed.AGENT_INSPECTOR_MAX_ROUNDS,
     memoryMaxChars: parsed.AGENT_MEMORY_MAX_CHARS,
+    historyMaxMessages: parsed.AGENT_HISTORY_MAX_MESSAGES,
     responseMaxRetries: parsed.AGENT_RESPONSE_MAX_RETRIES,
   };
 }

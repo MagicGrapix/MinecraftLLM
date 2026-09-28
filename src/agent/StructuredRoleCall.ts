@@ -3,6 +3,7 @@ import type { AgentInspector } from "../debug/AgentInspector";
 import type { LLMClient, LLMMessage, LLMRequestTrace } from "../llm/LLMClient";
 import { LLMError } from "../llm/LLMError";
 import { parseJsonObjectText } from "../shared/helper";
+import { withValidationFeedback } from "./MessageHistory";
 
 export interface StructuredRoleOptions {
   readonly llm: LLMClient;
@@ -11,12 +12,13 @@ export interface StructuredRoleOptions {
   readonly reasoningEffort?: "none" | "low" | "medium" | "high" | "max";
   readonly maxTokens: number;
   readonly maxRetries: number;
+  readonly onRetry?: (phase: string, attempt: number, issue: string) => Promise<void>;
 }
 
 export async function callStructuredRole<T>(input: {
   readonly options: StructuredRoleOptions;
   readonly schema: z.ZodType<T>;
-  readonly phase: "coordinator" | "planner";
+  readonly phase: "planner" | "summary";
   readonly generationId: number;
   readonly reflection: number;
   readonly messages: readonly LLMMessage[];
@@ -39,16 +41,7 @@ export async function callStructuredRole<T>(input: {
     input.options.inspector?.beginRound(trace);
     try {
       const response = await input.options.llm.complete({
-        messages: correction
-          ? [
-              input.messages[0]!,
-              {
-                role: "system",
-                content: `Internal validation feedback (not a player message): the previous model response was invalid: ${correction}. Answer the same final player request again with one complete JSON object matching the required format. Do not respond to this feedback as a user request.`,
-              },
-              ...input.messages.slice(1),
-            ]
-          : input.messages,
+        messages: withValidationFeedback(input.messages, correction),
         responseFormat: "json_object",
         temperature: input.options.temperature,
         reasoningEffort: input.options.reasoningEffort,
@@ -84,6 +77,7 @@ export async function callStructuredRole<T>(input: {
       if (attempt === input.options.maxRetries) {
         throw new Error(`${input.phase} failed after ${attempt + 1} attempts: ${correction}`);
       }
+      await input.options.onRetry?.(input.phase, attempt + 1, correction);
     }
   }
   throw new Error(`${input.phase} exhausted retries.`);

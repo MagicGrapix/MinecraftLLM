@@ -7,6 +7,7 @@ import { WorkingMemory } from "../agent/WorkingMemory";
 import { WorkflowAgent } from "../agent/WorkflowAgent";
 import { WorkflowSummaryFile } from "../agent/WorkflowState";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
+import { TOOL_REPLAY_MODE } from "../config";
 import { AgentInspector } from "../debug/AgentInspector";
 import {
   startAgentInspectorServer,
@@ -92,6 +93,7 @@ export async function createAgentRuntime(
     landmarks,
     capabilities,
     systemPrompt: prompts.actioner,
+    conversationSummaryPrompt: prompts.conversationSummary,
   });
 
   let chat: MinecraftChatAdapter | null = null;
@@ -106,6 +108,9 @@ export async function createAgentRuntime(
     temperature: config.llmTemperature,
     reasoningEffort: config.llmReasoningEffort,
     maxTokens: config.llmMaxTokens,
+    historyMaxMessages: config.historyMaxMessages,
+    historyMaxChars: config.llmContextBudgetChars,
+    toolReplayMode: TOOL_REPLAY_MODE,
     ...(inspector ? { inspector } : {}),
     respond: async (message) => { console.warn("Action agent:", message); },
   });
@@ -113,6 +118,7 @@ export async function createAgentRuntime(
   const agent = new WorkflowAgent({
     llm,
     actionAgent,
+    queries,
     world,
     landmarks,
     prompts,
@@ -122,14 +128,17 @@ export async function createAgentRuntime(
     maxTokens: config.llmMaxTokens,
     maxRetries: config.responseMaxRetries,
     historyMaxChars: config.llmContextBudgetChars,
+    historyMaxMessages: config.historyMaxMessages,
+    toolReplayMode: TOOL_REPLAY_MODE,
+    summaryMaxChars: config.memoryMaxChars,
     summaryFile,
     respond: async (message) => { await chat?.send(message); },
   });
   console.info("Agent workflow summary file.", { path: summaryFile.path });
+  console.info("Agent tool replay mode.", { mode: TOOL_REPLAY_MODE });
   chat = new MinecraftChatAdapter({
     bot: runtime.bot,
     agent,
-    ownerUsername: config.botOwnerUsername,
   });
 
   if (inspector) {

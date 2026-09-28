@@ -78,13 +78,12 @@ test("low classifier confidence becomes unclear on the five-point scale", async 
   assert.deepEqual(intent, { kind: "unclear", confidence: 2 });
 });
 
-test("chat adapter reserves controls and mutations for the owner", async () => {
+test("chat adapter passes messages and controls from any player", async () => {
   const emitter = new EventEmitter();
   const sent: string[] = [];
   const received: Array<{
     username: string;
     text: string;
-    readonlyOnly: boolean;
   }> = [];
   let stops = 0;
   let resumes = 0;
@@ -102,15 +101,13 @@ test("chat adapter reserves controls and mutations for the owner", async () => {
     submitUserMessage: (
       username: string,
       text: string,
-      readonlyOnly: boolean,
     ) => {
-      received.push({ username, text, readonlyOnly });
+      received.push({ username, text });
     },
   } as unknown as SequentialAgent;
   const adapter = new MinecraftChatAdapter({
     bot,
     agent,
-    ownerUsername: "owner",
     minMessageIntervalMs: 0,
   });
   adapter.attach();
@@ -123,17 +120,16 @@ test("chat adapter reserves controls and mutations for the owner", async () => {
   emitter.emit("chat", "owner", "attends");
   await Promise.resolve();
 
-  assert.equal(stops, 1);
+  assert.equal(stops, 2);
   assert.equal(resumes, 1);
   assert.deepEqual(received, [
     {
       username: "visitor",
       text: "où est le coffre ?",
-      readonlyOnly: true,
     },
-    { username: "owner", text: "attends", readonlyOnly: false },
+    { username: "owner", text: "attends" },
   ]);
-  assert.deepEqual(sent, ["Commande réservée au propriétaire."]);
+  assert.deepEqual(sent, []);
   adapter.detach();
 });
 
@@ -152,7 +148,6 @@ test("all outgoing chat messages share the same rate limit", async () => {
   const adapter = new MinecraftChatAdapter({
     bot,
     agent: {} as SequentialAgent,
-    ownerUsername: "owner",
     maxChunkLength: 5,
     minMessageIntervalMs: 30,
   });

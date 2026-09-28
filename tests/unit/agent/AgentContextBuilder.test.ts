@@ -9,11 +9,12 @@ import type { WorldQueries } from "../../../src/world/WorldQueries";
 test("context includes objective, memory, inventory, last result, and remaining plan", () => {
   const builder = new AgentContextBuilder({
     world,
-    landmarks: { pinned: () => [{ name: "table" }] } as unknown as LandmarkMemory,
+    landmarks: { pinned: () => [{ name: "table", kind: "crafting_table", dimension: "overworld", position: { x: 3, y: -60, z: 1 }, status: "stale" }] } as unknown as LandmarkMemory,
     capabilities: {
       list: () => [{ name: "dig", description: "Dig a block." }],
     } as unknown as CapabilityRegistry,
-    systemPrompt: PromptTemplate.fromString("sys", "CTX={{current_context}}"),
+    systemPrompt: PromptTemplate.fromString("sys", "CTX={{current_context}}\nWORLD={{world_context}}"),
+    conversationSummaryPrompt: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: empty."),
   });
 
   const built = builder.build({
@@ -36,7 +37,7 @@ test("context includes objective, memory, inventory, last result, and remaining 
 
   const system = built.messages[0];
   assert.ok(system && system.role === "system");
-  const context = JSON.parse(system.content.replace(/^CTX=/, "")) as {
+  const context = JSON.parse(system.content.replace(/^CTX=/, "").split("\nWORLD=")[0]!) as {
     objective: string;
     workingMemory: string;
     remainingPlan: unknown[];
@@ -48,7 +49,12 @@ test("context includes objective, memory, inventory, last result, and remaining 
   assert.equal(context.remainingPlan.length, 1);
   assert.equal(context.lastResult.ok, true);
   assert.equal(context.capabilities[0]?.name, "dig");
-  assert.equal(built.messages[1]?.role, "user");
+  assert.equal(built.messages[1]?.role, "assistant");
+  assert.equal(built.messages[2]?.role, "user");
+  assert.match(system.content, /Inventory: empty/);
+  assert.match(system.content, /"table": crafting_table at \(3, -60, 1\) in overworld; stale/);
+  assert.equal("inventory" in context, false);
+  assert.deepEqual(built.snapshot.inventory, { items: [], selectedItem: null });
 });
 
 const world: WorldQueries = {

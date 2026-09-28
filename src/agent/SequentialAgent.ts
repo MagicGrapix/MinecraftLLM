@@ -29,6 +29,7 @@ import type {
 } from "./AgentToolBridge";
 import { MemoryUpdater } from "./MemoryUpdater";
 import { ModelResponseError } from "./ModelResponseError";
+import { MessageHistory, PINNED_MESSAGE_COUNT, withValidationFeedback, type ToolReplayMode } from "./MessageHistory";
 import type { WorkingMemory } from "./WorkingMemory";
 
 export type SequentialAgentMode =
@@ -41,7 +42,6 @@ export interface AgentRun {
   readonly id: number;
   readonly objective: string;
   kind: "unknown" | "question" | "action";
-  readonly readonlyOnly: boolean;
   state: Exclude<SequentialAgentMode, "idle">;
   remainingTasks: readonly TaskSpec[];
   currentTask: Task | null;
@@ -81,6 +81,9 @@ interface SequentialAgentOptions {
   readonly temperature: number;
   readonly reasoningEffort?: "none" | "low" | "medium" | "high" | "max";
   readonly maxTokens: number;
+  readonly historyMaxMessages?: number;
+  readonly historyMaxChars?: number;
+  readonly toolReplayMode?: ToolReplayMode;
   readonly inspector?: AgentInspector;
   readonly respond: (message: string, username?: string) => Promise<void>;
 }
@@ -117,8 +120,12 @@ export class SequentialAgent {
     readonly outcomes: SequentialTaskOutcome[];
   } | null = null;
   private delegatedTrace: DelegatedTraceContext | null = null;
+  private readonly transcript: MessageHistory;
+  private pendingDecision: { message: Extract<LLMMessage, { role: "assistant" }>; trace: LLMRequestTrace } | null = null;
 
-  constructor(private readonly options: SequentialAgentOptions) {}
+  constructor(private readonly options: SequentialAgentOptions) {
+    this.transcript = new MessageHistory(options.historyMaxMessages ?? 20, options.historyMaxChars ?? 30_000, options.toolReplayMode);
+  }
 
   runDelegatedStep(
     objective: string,
@@ -131,7 +138,6 @@ export class SequentialAgent {
       id: ++this.nextRunId,
       objective: objective.trim(),
       kind: "action",
-      readonlyOnly: false,
       state: "thinking",
       remainingTasks: [],
       currentTask: null,
@@ -141,6 +147,8 @@ export class SequentialAgent {
       consecutivePlansWithoutAction: 0,
     };
     this.options.workingMemory.clear();
+    this.transcript.clear();
+    this.pendingDecision = null;
     this.delegatedTrace = traceContext ?? null;
     this.activeRun = run;
     this.mode = "thinking";
@@ -167,7 +175,6 @@ export class SequentialAgent {
   submitUserMessage(
     username: string,
     text: string,
-    readonlyOnly = false,
   ): void {
     if (this.shutdownRequested || this.mode !== "idle") return;
     const objective = text.trim();
@@ -177,7 +184,6 @@ export class SequentialAgent {
       id: ++this.nextRunId,
       objective,
       kind: "unknown",
-      readonlyOnly,
       state: "thinking",
       remainingTasks: [],
       currentTask: null,
@@ -194,10 +200,9 @@ export class SequentialAgent {
     console.info("Sequential agent run started.", {
       runId: run.id,
       username,
-      readonlyOnly,
       objective,
     });
-    this.processing = this.processRun(run, readonlyOnly).finally(() => {
+    this.processing = this.processRun(run).finally(() => {
       if (this.processing) this.processing = null;
     });
   }
@@ -268,16 +273,13 @@ export class SequentialAgent {
         ? this.processActionRun(run)
         : run.kind === "question"
           ? this.processQuestionRun(run)
-          : this.processRun(run, run.readonlyOnly);
+          : this.processRun(run);
     this.processing = resumed.finally(() => {
       if (this.processing) this.processing = null;
     });
   }
 
-  private async processRun(
-    run: AgentRun,
-    readonlyOnly: boolean,
-  ): Promise<void> {
+  private async processRun(run: AgentRun): Promise<void> {
     const abort = new AbortController();
     this.activeAbort = abort;
     const intentTrace = this.trace(run, "intent", 0, 0, "intent", null);
@@ -296,14 +298,6 @@ export class SequentialAgent {
       if (intent.kind === "unclear") {
         await this.options.respond(
           "Can you clarify whether you want an explanation or an action?",
-          this.activeUsername,
-        );
-        this.finishRun();
-        return;
-      }
-      if (intent.kind === "action_request" && readonlyOnly) {
-        await this.options.respond(
-          "Only the configured owner may request an action.",
           this.activeUsername,
         );
         this.finishRun();
@@ -396,11 +390,13 @@ export class SequentialAgent {
           this.options.runner.setPlan(decision.tasks);
           run.remainingTasks = this.options.runner.remaining();
           run.consecutivePlansWithoutAction += 1;
+          this.recordDecisionResult({ ok: true, value: { remainingPlan: run.remainingTasks } });
           continue;
         }
         if (decision.type === "finish_run") {
           this.options.runner.clear();
           run.remainingTasks = [];
+          this.recordDecisionResult({ ok: true, value: { status: decision.status, message: decision.message } });
           if (this.delegated) {
             this.resolveDelegated(decision.status, decision.message);
           } else {
@@ -424,6 +420,7 @@ export class SequentialAgent {
           throw new Error("The next sequential task disappeared.");
         }
         this.applyOutcome(run, outcome);
+        this.recordDecisionResult({ task: outcome.task, result: outcome.result });
         run.consecutivePlansWithoutAction = 0;
         this.pendingOutcomeMemory = { runId: run.id, reflection, result };
         if (this.stopRequested) {
@@ -448,7 +445,7 @@ export class SequentialAgent {
     reflection: number,
     signal: AbortSignal,
   ): Promise<ReflectionResult> {
-    const built = this.options.contextBuilder.build({
+    const buildContext = () => this.options.contextBuilder.build({
       runId: run.id,
       phase,
       permission,
@@ -461,7 +458,11 @@ export class SequentialAgent {
       currentMessage: phase === "question" ? run.objective : undefined,
       instruction: reflectionInstruction(phase),
     });
-    const messages = [...built.messages];
+    let built = buildContext();
+    const history = this.delegated ? this.transcript : new MessageHistory(this.options.historyMaxMessages ?? 20, this.options.historyMaxChars ?? 30_000, this.options.toolReplayMode);
+    if (history.snapshot().messages.length === 0) {
+      for (const message of built.messages.slice(PINNED_MESSAGE_COUNT)) history.append(message);
+    }
     const toolResults: AgentToolResult[] = [];
 
     for (
@@ -471,13 +472,14 @@ export class SequentialAgent {
     ) {
       signal.throwIfAborted();
       this.assertNoPhysicalAction();
+      if (round > 0) built = buildContext();
       const completion = await this.completeValidatedRound({
         run,
         phase,
         permission,
         reflection,
         round,
-        messages,
+        messages: [...built.messages.slice(0, PINNED_MESSAGE_COUNT), ...history.snapshot().messages],
         context: built.snapshot,
         signal,
       });
@@ -490,6 +492,7 @@ export class SequentialAgent {
         };
       }
       if (completion.kind === "decision") {
+        this.pendingDecision = { message: completion.response.message, trace: completion.trace };
         return {
           response: completion.response,
           context: built.snapshot,
@@ -498,34 +501,37 @@ export class SequentialAgent {
         };
       }
 
-      messages.push(completion.response.message);
-      for (const call of completion.calls) {
-        const trace = completion.trace;
-        this.options.inspector?.recordToolStarted(trace, {
-          toolCallId: call.id,
-          name: call.name,
-          arguments: call.arguments,
-        });
-        const result = await this.options.toolBridge.executeRead(call);
-        signal.throwIfAborted();
-        toolResults.push(result);
-        this.options.inspector?.recordToolCompleted(trace, {
-          toolCallId: call.id,
-          name: call.name,
-          arguments: call.arguments,
-          result: result.content,
-          ok: result.ok,
-        });
-        messages.push({
-          role: "tool",
-          toolCallId: result.toolCallId,
-          content: result.content,
-        });
+      try {
+        const results: Extract<LLMMessage, { role: "tool" }>[] = [];
+        for (const call of completion.calls) {
+          const trace = completion.trace;
+          this.options.inspector?.recordToolStarted(trace, {
+            toolCallId: call.id,
+            name: call.name,
+            arguments: call.arguments,
+          });
+          const result = await this.options.toolBridge.executeRead(call);
+          signal.throwIfAborted();
+          toolResults.push(result);
+          this.options.inspector?.recordToolCompleted(trace, {
+            toolCallId: call.id,
+            name: call.name,
+            arguments: call.arguments,
+            result: result.content,
+            ok: result.ok,
+          });
+          results.push({
+            role: "tool",
+            toolCallId: result.toolCallId,
+            content: result.content,
+          });
+        }
+        history.appendExchange(completion.response.message, results);
+        this.options.inspector?.finalizeRound(completion.trace, "completed");
+      } catch (error: unknown) {
+        this.options.inspector?.finalizeRound(completion.trace, signal.aborted ? "aborted" : "error");
+        throw error;
       }
-      this.options.inspector?.finalizeRound(
-        completion.trace,
-        "completed",
-      );
     }
     throw new ModelResponseError(
       `Reflection exceeded ${this.options.maxToolRounds} query rounds.`,
@@ -549,6 +555,7 @@ export class SequentialAgent {
       }
     | {
         readonly kind: "decision";
+        readonly trace: LLMRequestTrace;
         readonly decision: AgentDecision;
         readonly response: LLMResponse;
       }
@@ -582,17 +589,7 @@ export class SequentialAgent {
       this.options.inspector?.beginRound(trace);
       try {
         const response = await this.options.llm.complete({
-          messages: [
-            ...input.messages,
-            ...(correction
-              ? [
-                  {
-                    role: "user" as const,
-                    content: `Correct the previous invalid response: ${correction}`,
-                  },
-                ]
-              : []),
-          ],
+          messages: withValidationFeedback(input.messages, correction),
           tools: this.options.toolBridge.catalog.build(input.permission),
           responseFormat:
             input.permission === "readonly" ? "json_object" : undefined,
@@ -655,9 +652,9 @@ export class SequentialAgent {
           this.options.inspector?.annotate(trace, {
             decision: validated.decision,
           });
-          this.options.inspector?.finalizeRound(trace, "completed");
           return {
             kind: "decision",
+            trace,
             decision: validated.decision,
             response,
           };
@@ -747,14 +744,6 @@ export class SequentialAgent {
   ): void {
     if (this.delegated) {
       this.delegated.outcomes.push(outcome);
-      const recent = this.delegated.outcomes.slice(-6).map(({ task, result }) => ({
-        capability: task.capability,
-        input: task.input,
-        result,
-      }));
-      this.options.workingMemory.replace(
-        JSON.stringify(recent).slice(-this.options.workingMemory.maxLength),
-      );
     }
     run.currentTask = null;
     run.lastTask = outcome.task;
@@ -766,6 +755,7 @@ export class SequentialAgent {
     run: AgentRun,
     error: unknown,
   ): Promise<void> {
+    this.recordDecisionResult({ ok: false, error: errorMessage(error) });
     if (this.stopRequested || this.shutdownRequested) {
       this.setMode(run, "stopped");
       return;
@@ -789,6 +779,8 @@ export class SequentialAgent {
   }
 
   private finishRun(): void {
+    this.transcript.clear();
+    this.pendingDecision = null;
     this.options.runner.clear();
     this.pendingOutcomeMemory = null;
     this.activeRun = null;
@@ -796,6 +788,20 @@ export class SequentialAgent {
     this.activeUsername = undefined;
     this.mode = "idle";
     this.stopRequested = false;
+  }
+
+  private recordDecisionResult(result: unknown): void {
+    const pending = this.pendingDecision;
+    if (!pending) return;
+    this.pendingDecision = null;
+    const call = pending.message.toolCalls![0]!;
+    const content = JSON.stringify(result);
+    if (this.delegated) {
+      this.transcript.appendExchange(pending.message, [{ role: "tool", toolCallId: call.id, content }]);
+    }
+    this.options.inspector?.recordToolStarted(pending.trace, { toolCallId: call.id, name: call.name, arguments: call.arguments });
+    this.options.inspector?.recordToolCompleted(pending.trace, { toolCallId: call.id, name: call.name, arguments: call.arguments, result: content, ok: !(typeof result === "object" && result !== null && "ok" in result && result.ok === false) });
+    this.options.inspector?.finalizeRound(pending.trace, "completed");
   }
 
   private resolveDelegated(

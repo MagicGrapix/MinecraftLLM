@@ -4,57 +4,18 @@ import { z } from "zod";
 import type { DelegatedActionReport } from "./SequentialAgent";
 
 export const PlanStepSchema = z.object({
-  id: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/),
   title: z.string().trim().min(1).max(160),
   successCriteria: z.string().trim().min(1).max(400),
 }).strict();
 
 export const PlannerResultSchema = z.object({
   steps: z.array(PlanStepSchema).min(1).max(10),
-}).strict().superRefine((value, context) => {
-  const ids = new Set<string>();
-  value.steps.forEach((step, index) => {
-    if (ids.has(step.id)) {
-      context.addIssue({ code: "custom", path: ["steps", index, "id"], message: "Duplicate step id." });
-    }
-    ids.add(step.id);
-  });
-});
-
-const CoordinatorCommon = {
-  summary: z.string().trim().max(4_000),
-  completedStepIds: z.array(z.string()).max(10),
-};
-
-export const CoordinatorDecisionSchema = z.discriminatedUnion("next", [
-  z.object({
-    next: z.literal("reply"),
-    ...CoordinatorCommon,
-    outcome: z.enum(["answer", "success", "failure", "needs_user"]),
-    message: z.string().trim().min(1).max(2_000),
-  }).strict(),
-  z.object({
-    next: z.literal("plan"),
-    ...CoordinatorCommon,
-    instruction: z.string().trim().min(1).max(1_000),
-  }).strict(),
-  z.object({
-    next: z.literal("act"),
-    ...CoordinatorCommon,
-    instruction: z.string().trim().min(1).max(1_000),
-    stepId: z.string().optional(),
-    newStep: PlanStepSchema.optional(),
-  }).strict(),
-]).superRefine((value, context) => {
-  if (value.next === "act" && Boolean(value.stepId) === Boolean(value.newStep)) {
-    context.addIssue({ code: "custom", message: "Provide exactly one of stepId or newStep." });
-  }
-});
+}).strict();
 
 export type PlanStep = z.infer<typeof PlanStepSchema>;
-export type CoordinatorDecision = z.infer<typeof CoordinatorDecisionSchema>;
 
 export interface WorkflowStep extends PlanStep {
+  readonly step: number;
   status: "pending" | "active" | "done" | "blocked";
 }
 
@@ -66,9 +27,13 @@ export interface ConversationEntry {
 
 export class ConversationHistory {
   private readonly entries: ConversationEntry[] = [];
+  private evicted = 0;
+
+  constructor(private readonly maxEntries = 18) {}
 
   append(role: ConversationEntry["role"], text: string): void {
     this.entries.push({ role, text, at: Date.now() });
+    if (this.entries.length > this.maxEntries) { this.entries.shift(); this.evicted += 1; }
   }
 
   all(): readonly ConversationEntry[] {
@@ -82,7 +47,7 @@ export class ConversationHistory {
   ): { entries: readonly ConversationEntry[]; omitted: number } {
     const selected: ConversationEntry[] = [];
     let length = 0;
-    const available = this.entries.length - (excludeLatest ? 1 : 0);
+    const available = Math.max(0, this.entries.length - (excludeLatest ? 1 : 0));
     for (let index = available - 1; index >= 0 && selected.length < maxEntries; index -= 1) {
       const entry = this.entries[index]!;
       const size = JSON.stringify(entry).length;
@@ -90,35 +55,34 @@ export class ConversationHistory {
       selected.unshift(entry);
       length += size;
     }
-    return { entries: structuredClone(selected), omitted: available - selected.length };
+    return { entries: structuredClone(selected), omitted: this.evicted + available - selected.length };
   }
 }
 
 export class WorkflowState {
   objective = "";
   summary = "";
+  summaryVersion = 0;
+  planVersion = 0;
   steps: WorkflowStep[] = [];
-  lastReport: { stepId: string; report: DelegatedActionReport } | null = null;
+  lastReport: { step: number; planVersion: number; report: DelegatedActionReport } | null = null;
 
   start(objective: string): void {
     this.objective = objective;
     this.steps = [];
     this.lastReport = null;
+    this.planVersion += 1;
   }
 
   applyPlan(steps: readonly PlanStep[]): void {
-    const done = this.steps.filter((step) => step.status === "done");
-    const seen = new Set(done.map((step) => step.id));
-    this.steps = [
-      ...done,
-      ...steps.filter((step) => !seen.has(step.id)).map((step) => ({ ...step, status: "pending" as const })),
-    ];
+    this.planVersion += 1;
+    this.steps = steps.map((step, index) => ({ ...step, step: index + 1, status: "pending" }));
     this.lastReport = null;
   }
 
   checklist(): string {
     return this.steps.map((step) =>
-      `- [${step.status === "done" ? "x" : " "}] ${step.title} (${step.id}) — ${step.successCriteria}${step.status === "blocked" ? " [blocked]" : ""}`,
+      `- [${step.status === "done" ? "x" : " "}] ${step.step}. ${step.title} — ${step.successCriteria}${step.status === "blocked" ? " [blocked]" : ""}`,
     ).join("\n");
   }
 
@@ -126,6 +90,8 @@ export class WorkflowState {
     return {
       objective: this.objective,
       summary: this.summary,
+      summaryVersion: this.summaryVersion,
+      planVersion: this.planVersion,
       steps: structuredClone(this.steps),
       checklist: this.checklist(),
       lastReport: this.lastReport ? structuredClone(this.lastReport) : null,

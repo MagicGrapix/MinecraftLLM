@@ -109,6 +109,19 @@ test("old finalized snapshots stay unchanged when newer rounds arrive", () => {
   assert.equal(inspector.getRound(listed[0]!.id)?.response?.content, "r2");
 });
 
+test("nested planner and coordinator rounds list in start order", async () => {
+  const inspector = new AgentInspector(3, "session");
+  const coordinator = trace({ phase: "coordinator", reflection: 1 });
+  const planner = trace({ phase: "planner", reflection: 2 });
+  inspector.beginRound(coordinator);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  inspector.beginRound(planner);
+  inspector.finalizeRound(planner, "completed");
+  inspector.finalizeRound(coordinator, "completed");
+  assert.deepEqual(inspector.listRounds().map((round) => round.phase), ["coordinator", "planner"]);
+  assert.equal(inspector.status().latestRoundId, inspector.listRounds()[1]!.id);
+});
+
 test("invalid attempts stay visible and do not mutate a previous snapshot", () => {
   const inspector = new AgentInspector(5, "session");
   const first = trace({ attempt: 0 });

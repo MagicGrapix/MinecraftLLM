@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { loadAgentPrompts } from "../../../src/prompts/AgentPrompts";
+import { loadWorkflowPrompts } from "../../../src/prompts/WorkflowPrompts";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 
 test("prompt templates inject named values", () => {
@@ -27,18 +27,30 @@ test("prompt templates reject missing and undefined values", () => {
 });
 
 test("all runtime agent prompts load from Markdown and render", async () => {
-  const prompts = await loadAgentPrompts(resolve(process.cwd(), "prompts"));
+  const prompts = await loadWorkflowPrompts(resolve(process.cwd(), "prompts"));
 
-  const system = prompts.system.render({
+  const system = prompts.actioner.render({
     current_context: '{"mode":"idle"}',
+    world_context: "Inventory: empty.",
   });
-  assert.match(system, /Minecraft Agent/);
+  assert.match(system, /Minecraft Action Agent/);
   assert.match(system, /"mode":"idle"/);
-  assert.match(prompts.intentClassifier.render(), /1 to 5/);
+  const values = { task_context: "No plan yet.", task_summary_section: "", world_context: "Inventory: empty." };
+  const coordinator = prompts.coordinator.render(values);
+  assert.match(coordinator, /ONE native tool call/);
+  assert.match(coordinator, /## Task Context\s+No plan yet\.\s+## World Context/);
+  assert.doesNotMatch(coordinator, /## Instruction|## Task Summary|task\.objective|runtime_context/);
+  const planner = prompts.planner.render({ ...values, instruction: "Plan one log collection." });
+  assert.match(planner, /Do not assign IDs/);
+  assert.match(planner, /## Instruction\s+Plan one log collection\./);
+  assert.doesNotMatch(planner, /task\.objective|runtime_context/);
+  assert.match(system, /## World Context\s+Current snapshot/);
+  assert.doesNotMatch(system, /```/);
+  assert.match(prompts.conversationSummary.render(), /Previous conversation summary: empty/);
   assert.match(
-    prompts.memoryUpdate.render({
+    prompts.summary.render({
       max_chars: 500,
-      memory_input: { oldMemory: "Crafted planks." },
+      summary_input: { oldMemory: "Crafted planks." },
     }),
     /500/,
   );

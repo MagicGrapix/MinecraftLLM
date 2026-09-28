@@ -58,6 +58,47 @@ test("delegated action skips intent routing and returns a private report", async
   assert.equal(llm.requests[0]?.trace?.reflection, 2001);
 });
 
+test("actioner keeps a bounded transcript across actions and clears it between delegations", async () => {
+  const { agent, llm, executor } = createHarness({ noMemory: true });
+  enqueueDecision(llm, "set_plan", {
+    tasks: Array.from({ length: 12 }, (_, x) => ({ capability: "dig", input: { position: { x, y: 2, z: 3 } } })),
+  });
+  for (let i = 0; i < 12; i++) {
+    enqueueDecision(llm, "continue_plan", {});
+    executor.enqueue(success({ block: `observed_${i}` }));
+  }
+  enqueueDecision(llm, "finish_run", { status: "success", message: "All twelve tasks done." });
+  const report = await agent.runDelegatedStep("Distinct first delegation.");
+  assert.equal(report.outcomes.length, 12);
+  assert.equal(executor.started.length, 12);
+  const requests = llm.requests;
+  assert.match(requests[2]!.messages.at(-1)!.content!, /observed_0/);
+  assert.ok(requests[2]!.messages.some((m) => m.role === "assistant" && m.toolCalls?.[0]?.name === "set_plan"));
+  for (const request of requests) {
+    assert.ok(request.messages.length <= 20);
+    assert.equal(request.messages[0]!.role, "system");
+    assert.equal(request.messages[1]!.role, "assistant");
+    assert.match(request.messages[1]!.content!, /Previous conversation summary: empty/);
+    assert.equal(request.messages.filter((m) => m.content?.startsWith("Previous conversation summary:")).length, 1);
+    assert.match(request.messages[0]!.content!, /Distinct first delegation/);
+    let pending: string[] = [];
+    for (const message of request.messages.slice(1)) {
+      if (message.role === "tool") assert.equal(message.toolCallId, pending.shift());
+      else {
+        assert.equal(pending.length, 0);
+        if (message.role === "assistant") pending = message.toolCalls?.map((call) => call.id) ?? [];
+      }
+    }
+    assert.equal(pending.length, 0);
+  }
+  const beforeSecond = requests.length;
+  enqueueDecision(llm, "finish_run", { status: "needs_user", message: "Need a target." });
+  await agent.runDelegatedStep("Distinct second delegation.");
+  const fresh = llm.requests[beforeSecond]!;
+  assert.equal(fresh.messages.length, 3);
+  assert.doesNotMatch(JSON.stringify(fresh.messages), /Distinct first delegation|observed_11/);
+});
+
 test("set_plan does not execute and continue_plan runs exactly one task", async () => {
   const { agent, llm, executor, replies } = createHarness();
   enqueueIntent(llm, "action_request");
@@ -82,6 +123,26 @@ test("set_plan does not execute and continue_plan runs exactly one task", async 
   assert.equal(executor.started[0]?.capability, "dig");
   assert.equal(replies.at(-1), "The hole is ready.");
   assert.equal(llm.maxConcurrentRequests, 1);
+});
+
+test("actioner compact replay includes actual TaskResults and clears between delegations", async () => {
+  const { agent, llm, executor } = createHarness({ noMemory: true, toolReplayMode: "compact" });
+  enqueueDecision(llm, "set_plan", { tasks: [{ capability: "dig", input: { position: { x: 1, y: 2, z: 3 } } }] });
+  enqueueDecision(llm, "continue_plan", {});
+  executor.enqueue(failure("NO_PATH", "Target unreachable.", { retryable: true, facts: { distance: 8 } }));
+  enqueueDecision(llm, "finish_run", { status: "failure", message: "Cannot reach target." });
+  const report = await agent.runDelegatedStep("Try the observed log.");
+  assert.equal(report.status, "failure");
+  assert.equal(executor.started.length, 1);
+  const review = llm.requests.at(-1)!.messages;
+  assert.equal(review.at(-1)!.role, "tool");
+  assert.match(review.at(-1)!.content!, /NO_PATH/);
+  assert.match(review.at(-1)!.content!, /"distance":8/);
+  assert.ok(review.some((m) => m.role === "assistant" && m.content?.includes("tool: set_plan")));
+  assert.ok(review.some((m) => m.role === "assistant" && m.toolCalls?.[0]?.name === "continue_plan"));
+  enqueueDecision(llm, "finish_run", { status: "needs_user", message: "Waiting." });
+  await agent.runDelegatedStep("New delegation.");
+  assert.doesNotMatch(JSON.stringify(llm.requests.at(-1)!.messages), /NO_PATH|Try the observed log/);
 });
 
 test("ordinary messages are ignored while the agent is working", async () => {
@@ -267,6 +328,7 @@ function createHarness(
     maxResponseRetries?: number;
     maxConsecutivePlansWithoutAction?: number;
     noMemory?: boolean;
+    toolReplayMode?: "native" | "compact";
   } = {},
 ): {
   agent: SequentialAgent;
@@ -309,6 +371,7 @@ function createHarness(
         "system",
         "CTX {{current_context}}",
       ),
+      conversationSummaryPrompt: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: empty."),
     }),
     toolBridge: stubBridge() as unknown as AgentToolBridge,
     runner,
@@ -320,6 +383,7 @@ function createHarness(
       options.maxConsecutivePlansWithoutAction ?? 8,
     temperature: 0,
     maxTokens: 200,
+    toolReplayMode: options.toolReplayMode,
     respond: async (message) => {
       replies.push(message);
     },

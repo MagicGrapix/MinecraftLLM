@@ -1,30 +1,32 @@
+import { z } from "zod";
 import type { AgentInspector } from "../debug/AgentInspector";
 import type { LLMClient, LLMMessage } from "../llm/LLMClient";
 import type { LandmarkMemory } from "../memory/LandmarkMemory";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { WorkflowPrompts } from "../prompts/WorkflowPrompts";
 import type { WorldQueries } from "../world/WorldQueries";
-import type { DelegatedActionReport, SequentialAgent } from "./SequentialAgent";
+import type { SequentialAgent } from "./SequentialAgent";
+import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
+import { callCoordinator } from "./CoordinatorCall";
+import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
+import { MessageHistory, PINNED_MESSAGE_COUNT, type ToolReplayMode } from "./MessageHistory";
+import { formatWorldContext, type WorldContextSnapshot } from "./WorldContextFormatter";
 import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRoleCall";
 import {
   ConversationHistory,
-  CoordinatorDecisionSchema,
   PlannerResultSchema,
   WorkflowState,
   WorkflowSummaryFile,
-  type CoordinatorDecision,
-  type WorkflowStep,
 } from "./WorkflowState";
 
 export type WorkflowMode = "idle" | "thinking" | "planning" | "executing" | "stopped";
-
-const MAX_CONVERSATION_MESSAGES = 10;
 
 export interface WorkflowAgentOptions {
   readonly llm: LLMClient;
   readonly actionAgent: SequentialAgent;
   readonly world: WorldQueries;
   readonly landmarks: LandmarkMemory;
+  readonly queries: WorldQueryRegistry;
   readonly prompts: WorkflowPrompts;
   readonly inspector?: AgentInspector;
   readonly temperature: number;
@@ -32,16 +34,21 @@ export interface WorkflowAgentOptions {
   readonly maxTokens: number;
   readonly maxRetries: number;
   readonly historyMaxChars: number;
+  readonly historyMaxMessages?: number;
+  readonly toolReplayMode?: ToolReplayMode;
+  readonly summaryMaxChars?: number;
   readonly summaryFile: WorkflowSummaryFile;
   readonly respond: (message: string, username?: string) => Promise<void>;
 }
 
 export class WorkflowAgent {
-  readonly history = new ConversationHistory();
+  readonly history: ConversationHistory;
   readonly task = new WorkflowState();
+  private readonly transcript: MessageHistory;
+  private readonly tools: CoordinatorTools;
+  private plansWithoutAction = 0;
   private mode: WorkflowMode = "idle";
   private activeUsername: string | null = null;
-  private readonlyOnly = false;
   private generationId = 0;
   private reflection = 0;
   private delegation = 0;
@@ -50,11 +57,16 @@ export class WorkflowAgent {
   private abort: AbortController | null = null;
   private processing: Promise<void> | null = null;
 
-  constructor(private readonly options: WorkflowAgentOptions) {}
+  constructor(private readonly options: WorkflowAgentOptions) {
+    this.history = new ConversationHistory((options.historyMaxMessages ?? 20) - PINNED_MESSAGE_COUNT);
+    this.transcript = new MessageHistory(options.historyMaxMessages ?? 20, options.historyMaxChars, options.toolReplayMode);
+    this.tools = new CoordinatorTools(options.queries);
+  }
 
   state(): unknown {
     return {
       mode: this.mode,
+      toolReplayMode: this.transcript.toolReplayMode,
       run: this.mode === "idle" ? null : {
         id: this.generationId,
         objective: this.task.objective,
@@ -66,15 +78,16 @@ export class WorkflowAgent {
     };
   }
 
-  submitUserMessage(username: string, text: string, readonlyOnly = false): void {
+  submitUserMessage(username: string, text: string): void {
     if (this.shutdownRequested || this.mode !== "idle" || !text.trim()) return;
     this.generationId += 1;
     this.reflection = 0;
     this.delegation = 0;
+    this.plansWithoutAction = 0;
     this.activeUsername = username;
-    this.readonlyOnly = readonlyOnly;
     this.task.start(text.trim());
     this.history.append("user", text.trim());
+    this.transcript.append({ role: "user", content: text.trim() });
     this.stopRequested = false;
     this.mode = "thinking";
     this.startProcessing();
@@ -133,64 +146,33 @@ export class WorkflowAgent {
   }
 
   private async process(signal: AbortSignal): Promise<void> {
-    let handoffsWithoutAction = 0;
     try {
       await this.options.summaryFile.save(this.task);
-      for (let turn = 0; turn < 24 && !this.stopRequested && !this.shutdownRequested; turn += 1) {
+      for (let turn = 0; turn < 64 && !this.stopRequested && !this.shutdownRequested; turn += 1) {
         this.mode = "thinking";
-        const decision = await this.askCoordinator(signal);
-        signal.throwIfAborted();
-        this.applyCoordinatorState(decision);
-        await this.options.summaryFile.save(this.task);
-
-        if (decision.next === "reply") {
-          if (decision.outcome === "success" && this.task.steps.some((step) => step.status !== "done")) {
-            throw new Error("Coordinator declared success while checklist steps remain open.");
-          }
-          await this.reply(decision.message);
-          this.finish();
-          return;
-        }
-        if (this.readonlyOnly) {
-          await this.reply("Only the configured owner may request Minecraft actions.");
-          this.finish();
-          return;
-        }
-
-        if (decision.next === "plan") {
-          handoffsWithoutAction += 1;
-          if (handoffsWithoutAction > 4) throw new Error("Planning repeated without executing a step.");
-          this.mode = "planning";
-          const plan = await this.askPlanner(decision.instruction, signal);
+        const { call, parsed, message, trace } = await this.askCoordinator(signal);
+        this.options.inspector?.recordToolStarted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments });
+        let result: { ok: boolean; value?: unknown; error?: { message: string } };
+        let terminal = false;
+        try {
           signal.throwIfAborted();
-          this.task.applyPlan(plan.steps);
-          await this.options.summaryFile.save(this.task);
-          continue;
+          const executed = await this.executeTool(parsed, signal);
+          result = { ok: true, value: executed.value };
+          terminal = executed.terminal ?? false;
+        } catch (error: unknown) {
+          result = { ok: false, error: { message: error instanceof Error ? error.message : String(error) } };
         }
-
-        const step = this.selectStep(decision);
-        handoffsWithoutAction = 0;
-        this.task.lastReport = null;
-        step.status = "active";
+        const rawContent = JSON.stringify(result);
+        const content = rawContent.length <= this.options.historyMaxChars / 2
+          ? rawContent
+          : JSON.stringify({ ok: result.ok, resultOmitted: true, reason: "Result exceeds transcript budget. Use fresh focused queries and current task state." });
+        // Even aborted tools get a result: resume must never replay an orphan call.
+        this.transcript.appendExchange(message, [{ role: "tool", toolCallId: call.id, content }]);
+        this.options.inspector?.recordToolCompleted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments, result: rawContent, ok: result.ok });
+        this.options.inspector?.finalizeRound(trace, signal.aborted ? "aborted" : "completed");
         await this.options.summaryFile.save(this.task);
-        this.mode = "executing";
-        const instruction = JSON.stringify({
-          step,
-          instruction: decision.instruction,
-          userObjective: this.task.objective,
-          projectSummary: this.task.summary,
-        });
-        const report = await this.options.actionAgent.runDelegatedStep(instruction, {
-          generationId: this.generationId,
-          delegation: ++this.delegation,
-        });
-        this.task.lastReport = { stepId: step.id, report };
-        step.status = report.status === "success" ? "active" : "blocked";
-        await this.options.summaryFile.save(this.task);
-        if (this.stopRequested || report.status === "interrupted") {
-          this.mode = "stopped";
-          return;
-        }
+        if (signal.aborted || this.stopRequested) { this.mode = "stopped"; return; }
+        if (terminal) { this.finish(); return; }
       }
       if (!this.stopRequested && !this.shutdownRequested) {
         throw new Error("Workflow exceeded its handoff limit.");
@@ -202,28 +184,24 @@ export class WorkflowAgent {
       }
       console.error("Agent workflow failed:", error);
       const issue = error instanceof Error ? error.message : String(error);
-      this.task.summary = `${this.task.summary}\nWorkflow issue: ${issue}`.trim().slice(-4_000);
       await this.options.summaryFile.save(this.task).catch((saveError: unknown) => {
         console.error("Could not save workflow issue to summary file:", saveError);
       });
       await this.reply(`[Bot] Workflow issue: ${issue}`);
+      this.transcript.append({ role: "assistant", content: `[Bot] Workflow issue: ${issue}` });
       this.finish();
     }
   }
 
-  private async askCoordinator(signal: AbortSignal): Promise<CoordinatorDecision> {
+  private async askCoordinator(signal: AbortSignal) {
     const { context, messages } = this.roleInput(
       this.options.prompts.coordinator,
-      {
-        ...this.commonContext(),
-        readonlyOnly: this.readonlyOnly,
-        instruction: "Choose the next sequence and update the task summary/checklist verification.",
-      },
+      this.commonContext(),
+      this.transcript.snapshot(),
     );
-    return callStructuredRole({
+    return callCoordinator({
       options: this.roleOptions(),
-      schema: CoordinatorDecisionSchema,
-      phase: "coordinator",
+      tools: this.tools,
       generationId: this.generationId,
       reflection: ++this.reflection,
       messages,
@@ -232,10 +210,11 @@ export class WorkflowAgent {
     });
   }
 
-  private async askPlanner(instruction: string, signal: AbortSignal): Promise<{ steps: readonly WorkflowStep[] }> {
+  private async askPlanner(instruction: string, signal: AbortSignal) {
     const { context, messages } = this.roleInput(
       this.options.prompts.planner,
       { ...this.commonContext(), instruction },
+      this.chatTranscript(),
     );
     const result = await callStructuredRole({
       options: this.roleOptions(),
@@ -247,18 +226,13 @@ export class WorkflowAgent {
       context,
       signal,
     });
-    return { steps: result.steps.map((step) => ({ ...step, status: "pending" as const })) };
+    return result;
   }
 
   private commonContext() {
     const task = this.task.snapshot();
     return {
-      task: {
-        summary: task.summary,
-        steps: task.steps,
-        checklist: task.checklist,
-        lastReport: task.lastReport,
-      },
+      task,
       world: {
         self: this.options.world.getSelf(),
         inventory: this.options.world.getInventory(),
@@ -267,25 +241,27 @@ export class WorkflowAgent {
     };
   }
 
-  private roleInput(prompt: PromptTemplate, currentContext: Record<string, unknown>): {
+  private roleInput(prompt: PromptTemplate, currentContext: {
+    task: ReturnType<WorkflowState["snapshot"]>;
+    world: WorldContextSnapshot;
+    instruction?: string;
+  }, history: { messages: readonly LLMMessage[] }): {
     readonly context: Record<string, unknown>;
     readonly messages: readonly LLMMessage[];
   } {
-    // The latest history entry is the active request, sent only as the final message.
-    const previous = this.history.forPrompt(
-      this.options.historyMaxChars,
-      MAX_CONVERSATION_MESSAGES,
-      true,
-    );
     const context = {
-      source: "minecraft_runtime_context",
       ...currentContext,
-      historyOmitted: previous.omitted,
     };
+    const { task, world, instruction } = currentContext;
     const messages: LLMMessage[] = [
-      { role: "system", content: prompt.render({ runtime_context: JSON.stringify(context, null, 2) }) },
-      ...previous.entries.map((entry) => ({ role: entry.role, content: entry.text })),
-      { role: "user", content: this.task.objective },
+      { role: "system", content: prompt.render({
+        task_context: task.checklist || "No plan yet.",
+        task_summary_section: task.summary ? `## Task Summary\n\n${task.summary}` : "",
+        instruction: instruction ?? "",
+        world_context: formatWorldContext(world),
+      }) },
+      { role: "assistant", content: this.options.prompts.conversationSummary.render() },
+      ...history.messages,
     ];
     return { context, messages };
   }
@@ -298,36 +274,80 @@ export class WorkflowAgent {
       reasoningEffort: this.options.reasoningEffort,
       maxTokens: this.options.maxTokens,
       maxRetries: this.options.maxRetries,
+      onRetry: async (phase, attempt) => {
+        await this.options.respond(`[Bot] Invalid ${phase} response. Retrying (${attempt}/${this.options.maxRetries}).`, this.activeUsername ?? undefined);
+      },
     };
   }
 
-  private applyCoordinatorState(decision: CoordinatorDecision): void {
-    this.task.summary = decision.summary;
-    const report = this.task.lastReport;
-    for (const id of decision.completedStepIds) {
-      if (!report || report.stepId !== id || report.report.status !== "success") {
-        console.warn("Coordinator completion ignored without a matching successful report.", { id });
-        continue;
-      }
-      const step = this.task.steps.find((candidate) => candidate.id === id);
-      if (step) step.status = "done";
-    }
-    this.task.lastReport = null;
+  private chatTranscript() {
+    const history = this.history.forPrompt(this.options.historyMaxChars, (this.options.historyMaxMessages ?? 20) - PINNED_MESSAGE_COUNT, false);
+    return { messages: history.entries.map((entry) => ({ role: entry.role, content: entry.text })), omitted: history.omitted };
   }
 
-  private selectStep(decision: Extract<CoordinatorDecision, { next: "act" }>): WorkflowStep {
-    if (decision.newStep) {
-      if (this.task.steps.length >= 10) throw new Error("The task checklist is full; replan before adding steps.");
-      if (this.task.steps.some((step) => step.id === decision.newStep!.id)) {
-        throw new Error(`Step id ${decision.newStep.id} already exists.`);
+  private async executeTool(call: CoordinatorCall, signal: AbortSignal): Promise<{ value: unknown; terminal?: boolean }> {
+    switch (call.name) {
+      case "reply":
+        if (call.input.outcome === "success" && (!this.task.steps.length || this.task.steps.some((step) => step.status !== "done"))) {
+          throw new Error("Success requires a non-empty verified completed checklist. Use answer for a direct question.");
+        }
+        await this.reply(call.input.message);
+        return { value: { sent: true, outcome: call.input.outcome }, terminal: true };
+      case "query": {
+        const result = await this.options.queries.execute(call.query, call.input);
+        signal.throwIfAborted();
+        if (!result.ok) throw new Error(JSON.stringify(result.error));
+        return { value: result.value };
       }
-      const step: WorkflowStep = { ...decision.newStep, status: "pending" };
-      this.task.steps.push(step);
-      return step;
+      case "ask_planner": {
+        if (++this.plansWithoutAction > 4) throw new Error("Planning repeated without executing a step.");
+        this.mode = "planning";
+        const plan = await this.askPlanner(call.input.instruction, signal);
+        signal.throwIfAborted();
+        this.task.applyPlan(plan.steps);
+        return { value: { planVersion: this.task.planVersion, steps: this.task.steps, replacesPreviousPlan: true } };
+      }
+      case "run_step": {
+        const step = this.task.steps[call.input.step - 1];
+        if (!step || step.status === "done") throw new Error("Select an unfinished step index from the CURRENT plan, or ask the planner first.");
+        this.plansWithoutAction = 0;
+        this.task.lastReport = null;
+        step.status = "active";
+        this.mode = "executing";
+        const report = await this.options.actionAgent.runDelegatedStep(JSON.stringify({
+          step, instruction: call.input.instruction, userObjective: this.task.objective,
+          checklist: this.task.checklist(), planVersion: this.task.planVersion,
+          projectSummary: this.task.summary,
+        }), { generationId: this.generationId, delegation: ++this.delegation });
+        this.task.lastReport = { step: step.step, planVersion: this.task.planVersion, report };
+        step.status = report.status === "success" ? "active" : "blocked";
+        if (report.status === "interrupted") this.stopRequested = true;
+        return { value: this.task.lastReport };
+      }
+      case "complete_step": {
+        const step = this.task.steps[call.input.step - 1];
+        const latest = this.task.lastReport;
+        if (!step || !latest || latest.step !== step.step || latest.planVersion !== this.task.planVersion || latest.report.status !== "success") {
+          throw new Error("Completion requires a matching successful report for this step in the current plan.");
+        }
+        step.status = "done";
+        return { value: { step: step.step, status: step.status, planVersion: this.task.planVersion } };
+      }
+      case "refresh_summary": {
+        const maxChars = this.options.summaryMaxChars ?? 500;
+        const context = { ...this.commonContext(), maxChars, recentActivity: this.transcript.snapshot().messages };
+        const { summary } = await callStructuredRole({
+          options: this.roleOptions(), schema: z.object({ summary: z.string().trim().max(maxChars) }).strict(),
+          phase: "summary", generationId: this.generationId, reflection: ++this.reflection,
+          context, signal,
+          messages: [{ role: "system", content: this.options.prompts.summary.render({ max_chars: maxChars, summary_input: JSON.stringify(context, null, 2) }) }],
+        });
+        signal.throwIfAborted();
+        this.task.summary = summary;
+        this.task.summaryVersion += 1;
+        return { value: { updated: true, version: this.task.summaryVersion, characters: summary.length } };
+      }
     }
-    const step = this.task.steps.find((candidate) => candidate.id === decision.stepId);
-    if (!step || step.status === "done") throw new Error(`Invalid action step ${decision.stepId}.`);
-    return step;
   }
 
   private async reply(message: string): Promise<void> {
@@ -338,7 +358,6 @@ export class WorkflowAgent {
   private finish(): void {
     this.mode = "idle";
     this.activeUsername = null;
-    this.readonlyOnly = false;
     this.stopRequested = false;
   }
 }

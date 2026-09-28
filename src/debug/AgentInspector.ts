@@ -200,6 +200,7 @@ export class AgentInspector {
     const snapshot = freezeDeep(cloneRound(draft));
     this.drafts.delete(id);
     this.finalized.push(snapshot);
+    this.finalized.sort((a, b) => a.timestamp - b.timestamp);
     while (this.finalized.length > this.maxRounds) {
       this.finalized.shift();
     }

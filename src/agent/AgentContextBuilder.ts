@@ -2,9 +2,11 @@ import type { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import type { Task, TaskSpec } from "../execution/Task";
 import type { TaskResult } from "../execution/TaskResult";
 import type { LLMMessage } from "../llm/LLMClient";
-import type { LandmarkMemory } from "../memory/LandmarkMemory";
+import type { Landmark, LandmarkMemory } from "../memory/LandmarkMemory";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { WorldQueries } from "../world/WorldQueries";
+import type { InventoryState, SelfState } from "../world/types";
+import { formatWorldContext } from "./WorldContextFormatter";
 import type { AgentPermissionMode } from "./AgentToolBridge";
 
 export type AgentReflectionPhase = "question" | "planning" | "review";
@@ -29,9 +31,9 @@ export interface AgentContextSnapshot {
   readonly permission: AgentPermissionMode;
   readonly objective: string;
   readonly workingMemory: string;
-  readonly self: unknown;
-  readonly inventory: unknown;
-  readonly pinnedLandmarks: unknown;
+  readonly self: SelfState;
+  readonly inventory: InventoryState;
+  readonly pinnedLandmarks: readonly Landmark[];
   readonly currentTask: Task | null;
   readonly lastTask: Task | null;
   readonly lastResult: TaskResult | null;
@@ -52,6 +54,7 @@ export class AgentContextBuilder {
       landmarks: LandmarkMemory;
       capabilities: CapabilityRegistry;
       systemPrompt: PromptTemplate;
+      conversationSummaryPrompt: PromptTemplate;
     },
   ) {}
 
@@ -80,13 +83,16 @@ export class AgentContextBuilder {
         ? {}
         : { currentMessage: request.currentMessage }),
     };
+    const { self, inventory, pinnedLandmarks, ...actionContext } = snapshot;
     const messages: LLMMessage[] = [
       {
         role: "system",
         content: this.dependencies.systemPrompt.render({
-          current_context: JSON.stringify(snapshot),
+          current_context: JSON.stringify(actionContext, null, 2),
+          world_context: formatWorldContext({ self, inventory, landmarks: pinnedLandmarks }),
         }),
       },
+      { role: "assistant", content: this.dependencies.conversationSummaryPrompt.render() },
       { role: "user", content: request.instruction },
     ];
     console.debug("Sequential agent context assembled.", {

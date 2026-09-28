@@ -5,218 +5,393 @@ import { join } from "node:path";
 import test from "node:test";
 import type { DelegatedActionReport, SequentialAgent } from "../../../src/agent/SequentialAgent";
 import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
-import { ConversationHistory, WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
+import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
+import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { success } from "../../../src/execution/TaskResult";
 import { FakeLLMClient } from "../../../src/llm/FakeLLMClient";
+import type { LLMMessage } from "../../../src/llm/LLMClient";
 import type { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
+import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
 
-test("coordinator answers with conversation history and no intent classifier call", async () => {
-  const harness = await createHarness();
+test("coordinator native tools exclude capabilities and world state is injected only in system", async () => {
+  const h = await harness();
   try {
-    enqueue(harness.llm, {
-      next: "reply", summary: "The user asked about inventory.", completedStepIds: [],
-      outcome: "answer", message: "You have one oak log.",
-    });
-    harness.agent.submitUserMessage("owner", "What is in my inventory?");
-    await waitForIdle(harness.agent);
+    tool(h.llm, "reply", { outcome: "answer", message: "Empty." });
+    h.agent.submitUserMessage("owner", "Inventory?");
+    await idle(h.agent);
+    assert.deepEqual(h.replies, ["Empty."]);
+    const request = h.llm.requests[0]!;
+    assert.deepEqual(request.messages.map((m) => m.role), ["system", "assistant", "user"]);
+    assert.equal(request.messages[2]?.content, "Inventory?");
+    assert.match(request.messages[1]!.content!, /Previous conversation summary: empty/);
+    assert.match(request.messages[0]!.content!, /## World Context\nPosition:/);
+    assert.equal(section(request.messages, "Task Context"), "No plan yet.");
+    assert.equal(section(request.messages, "Task Summary"), undefined);
+    assert.equal(section(request.messages, "Instruction"), undefined);
+    assert.doesNotMatch(request.messages[0]!.content!, /Inventory\?|objective|summaryVersion|planVersion|lastReport|capabilities/);
+    assert.equal(request.responseFormat, undefined);
+    const names = request.tools!.map((t) => t.name);
+    for (const name of ["reply", "ask_planner", "run_step", "complete_step", "refresh_summary", "get_inventory", "get_voxel_view"]) assert.ok(names.includes(name));
+    for (const name of ["dig", "goto", "set_plan", "add_step", "get_capability_schemas"]) assert.ok(!names.includes(name));
+    assert.equal(h.agent.task.summary, "");
+  } finally { await h.close(); }
+});
 
-    assert.deepEqual(harness.replies, ["You have one oak log."]);
-    assert.equal(harness.llm.requests.length, 1);
-    assert.equal(harness.llm.requests[0]?.trace?.phase, "coordinator");
-    const messages = harness.llm.requests[0]!.messages;
-    assert.deepEqual(messages.map((message) => message.role), ["system", "user"]);
-    assert.equal(messages[1]?.content, "What is in my inventory?");
-    const context = systemContext(messages[0]?.content);
-    assert.equal(context.source, "minecraft_runtime_context");
-    assert.equal(context.historyOmitted, 0);
-    assert.equal("objective" in context.task, false);
-    assert.equal("capabilities" in context, false);
-    assert.equal(harness.llm.requests[0]?.tools, undefined);
-    assert.equal(harness.agent.history.all().length, 2);
-    assert.match(await readFile(harness.summary.path, "utf8"), /The user asked about inventory/);
-  } finally {
-    await harness.close();
+test("queries are replayed with matching assistant/tool roles", async () => {
+  const h = await harness();
+  try {
+    const id = tool(h.llm, "get_inventory", {});
+    tool(h.llm, "reply", { outcome: "answer", message: "Empty." });
+    h.agent.submitUserMessage("owner", "Inventory?");
+    await idle(h.agent);
+    const messages = h.llm.requests[1]!.messages;
+    assert.deepEqual(messages.map((m) => m.role), ["system", "assistant", "user", "assistant", "tool"]);
+    const result = messages[4]!;
+    assert.equal(result.role === "tool" && result.toolCallId, id);
+    assert.deepEqual(JSON.parse(result.content!).value.items, []);
+    assert.equal(h.actionInstructions.length, 0);
+    assert.equal(h.inspector.listRounds().length, 2);
+  } finally { await h.close(); }
+});
+
+test("compact coordinator replay keeps the latest result native, older replies plain, and inspector calls raw", async () => {
+  const h = await harness(0, "compact");
+  try {
+    const id = tool(h.llm, "get_inventory", {});
+    tool(h.llm, "reply", { outcome: "answer", message: "Your inventory is empty." });
+    h.agent.submitUserMessage("owner", "Inventory?");
+    await idle(h.agent);
+    const next = h.llm.requests[1]!.messages;
+    assert.deepEqual(next.map((m) => m.role), ["system", "assistant", "user", "assistant", "tool"]);
+    assert.equal(next.at(-1)!.role, "tool");
+    assert.deepEqual(JSON.parse(next.at(-1)!.content!).value.items, []);
+    const executions = h.inspector.listRounds().flatMap((r) => h.inspector.getRound(r.id)!.toolExecutions);
+    const raw = executions.find((execution) => execution.toolCallId === id)!;
+    assert.equal(raw.arguments, "{}");
+    assert.deepEqual(JSON.parse(raw.result!).value.items, []);
+    tool(h.llm, "reply", { outcome: "answer", message: "Yes." });
+    h.agent.submitUserMessage("owner", "Remember that?");
+    await idle(h.agent);
+    const latest = h.llm.requests[2]!.messages;
+    assert.ok(latest.some((m) => m.role === "assistant" && m.content === "Your inventory is empty."));
+    assert.ok(latest.some((m) => m.role === "assistant" && m.content?.includes("tool: get_inventory")));
+    assert.ok(latest.every((m) => m.role !== "tool" && !(m.role === "assistant" && m.toolCalls?.length)));
+    assert.equal((h.agent.state() as { toolReplayMode: string }).toolReplayMode, "compact");
+  } finally { await h.close(); }
+});
+
+test("each coordinator call gets a fresh compact world snapshot while debug keeps the raw inventory", async () => {
+  const h = await harness();
+  try {
+    let count = 1;
+    h.world.getInventory = () => ({ items: [{ name: "oak_log", displayName: "Oak Log", type: 134, metadata: 0, count, slot: 36 }], selectedItem: null });
+    h.llm.enqueue(() => {
+      count = 2;
+      return { message: { role: "assistant", content: null, toolCalls: [{ id: "read-inventory", name: "get_inventory", arguments: "{}" }] }, finishReason: "tool_calls" };
+    });
+    tool(h.llm, "reply", { outcome: "answer", message: "Two logs." });
+    h.agent.submitUserMessage("owner", "Check inventory.");
+    await idle(h.agent);
+    assert.match(h.llm.requests[0]!.messages[0]!.content!, /Inventory: oak_log x1/);
+    const latest = h.llm.requests[1]!;
+    assert.match(latest.messages[0]!.content!, /Inventory: oak_log x2/);
+    assert.doesNotMatch(latest.messages[0]!.content!, /oak_log x1|displayName|metadata|slot/);
+    const raw = latest.trace!.contextSnapshot as { world: { inventory: { items: { slot: number; count: number }[] } } };
+    assert.equal(raw.world.inventory.items[0]!.slot, 36);
+    assert.equal(raw.world.inventory.items[0]!.count, 2);
+  } finally { await h.close(); }
+});
+
+test("planner creates indices, actioner gets context, completion and summary are separate", async () => {
+  const h = await harness();
+  try {
+    plan(h.llm);
+    tool(h.llm, "run_step", { step: 1, instruction: "Collect one more log." });
+    tool(h.llm, "complete_step", { step: 1 });
+    tool(h.llm, "refresh_summary", {});
+    json(h.llm, { summary: "Collected one additional oak log." });
+    tool(h.llm, "reply", { outcome: "success", message: "Done." });
+    h.actions.push(actionSuccess());
+    h.agent.submitUserMessage("owner", "Collect another log.");
+    await idle(h.agent);
+    assert.deepEqual(h.llm.requests.map((r) => r.trace?.phase), ["coordinator", "planner", "coordinator", "coordinator", "coordinator", "summary", "coordinator"]);
+    assert.equal(h.llm.requests[1]!.tools, undefined);
+    assert.equal(h.llm.requests[1]!.messages.at(-1)?.content, "Collect another log.");
+    assert.equal(section(h.llm.requests[1]!.messages, "Instruction"), "Plan a small wood task.");
+    assert.equal(section(h.llm.requests[1]!.messages, "Task Context"), "No plan yet.");
+    assert.equal(section(h.llm.requests[2]!.messages, "Task Context"), "- [ ] 1. Collect a log — Inventory increases by one log relative to the initial state.");
+    assert.equal(section(h.llm.requests[4]!.messages, "Task Context"), "- [x] 1. Collect a log — Inventory increases by one log relative to the initial state.");
+    assert.doesNotMatch(h.llm.requests[3]!.messages[0]!.content!, /One log collected|dig-1|planVersion|Collect another log/);
+    const instruction = JSON.parse(h.actionInstructions[0]!);
+    assert.equal(instruction.step.step, 1);
+    assert.equal(instruction.userObjective, "Collect another log.");
+    assert.match(instruction.checklist, /1\. Collect a log/);
+    assert.equal(instruction.world, undefined); // The action agent receives a fresh World Context instead.
+    assert.equal(h.agent.task.steps[0]?.status, "done");
+    const contents = await readFile(h.summary.path, "utf8");
+    assert.match(contents, /- \[x\] 1\. Collect a log/);
+    assert.match(contents, /Collected one additional oak log/);
+    assert.deepEqual(h.replies, ["Done."]);
+    assert.equal(h.llm.maxConcurrentRequests, 1);
+  } finally { await h.close(); }
+});
+
+test("summary is iterative and isolated: only latest text in system, acknowledgements in history", async () => {
+  const h = await harness();
+  try {
+    h.agent.task.summary = "Old important fact.";
+    tool(h.llm, "refresh_summary", {});
+    json(h.llm, { summary: "Old important fact. New fact." });
+    tool(h.llm, "refresh_summary", {});
+    json(h.llm, { summary: "Latest durable facts." });
+    tool(h.llm, "reply", { outcome: "answer", message: "Ready." });
+    h.agent.submitUserMessage("owner", "Remember this.");
+    await idle(h.agent);
+    assert.equal(h.llm.requests[1]!.trace?.phase, "summary");
+    assert.match(h.llm.requests[1]!.messages[0]!.content!, /Old important fact/);
+    const last = h.llm.requests.at(-1)!;
+    assert.equal(section(last.messages, "Task Summary"), "Latest durable facts.");
+    assert.equal(section(last.messages, "Task Context"), "No plan yet.");
+    assert.doesNotMatch(last.messages[0]!.content!, /Old important fact|New fact|summaryVersion/);
+    const history = JSON.stringify(last.messages.slice(1));
+    assert.doesNotMatch(history, /Old important fact|New fact|Latest durable facts/);
+    assert.match(history, /updated/);
+    assert.equal(h.agent.task.summaryVersion, 2);
+    assert.equal(h.inspector.listRounds().filter((r) => r.phase === "summary").length, 2);
+  } finally { await h.close(); }
+});
+
+test("oversized summary is retried, never silently truncated", async () => {
+  const h = await harness(1);
+  try {
+    tool(h.llm, "refresh_summary", {});
+    json(h.llm, { summary: "x".repeat(501) });
+    json(h.llm, { summary: "Short factual memory." });
+    tool(h.llm, "reply", { outcome: "answer", message: "Ready." });
+    h.agent.submitUserMessage("owner", "Remember.");
+    await idle(h.agent);
+    assert.equal(h.agent.task.summary, "Short factual memory.");
+    assert.equal(h.llm.requests[2]!.messages.length, 1);
+    assert.match(h.llm.requests[2]!.messages[0]!.content!, /Internal validation feedback/);
+    assert.match(h.replies[0]!, /^\[Bot\] Invalid summary/);
+  } finally { await h.close(); }
+});
+
+test("clearing the factual summary removes its section from the next system prompt", async () => {
+  const h = await harness();
+  try {
+    h.agent.task.summary = "Previous fact.";
+    tool(h.llm, "refresh_summary", {});
+    json(h.llm, { summary: "" });
+    tool(h.llm, "reply", { outcome: "answer", message: "Ready." });
+    h.agent.submitUserMessage("owner", "Forget that fact.");
+    await idle(h.agent);
+    assert.equal(section(h.llm.requests[0]!.messages, "Task Summary"), "Previous fact.");
+    assert.equal(section(h.llm.requests.at(-1)!.messages, "Task Summary"), undefined);
+    assert.equal(section(h.llm.requests.at(-1)!.messages, "Task Context"), "No plan yet.");
+  } finally { await h.close(); }
+});
+
+test("old JSON protocol and parallel calls are rejected without executing tools", async () => {
+  const h = await harness(2);
+  try {
+    json(h.llm, { next: "reply", message: "Invalid old protocol" });
+    h.llm.enqueue({ finishReason: "tool_calls", message: { role: "assistant", content: null, toolCalls: [
+      { id: "a", name: "reply", arguments: '{"message":"No","outcome":"answer"}' },
+      { id: "b", name: "refresh_summary", arguments: "{}" },
+    ] } });
+    tool(h.llm, "reply", { message: "Hello!", outcome: "answer" });
+    h.agent.submitUserMessage("owner", "Hello?");
+    await idle(h.agent);
+    const retry = h.llm.requests[2]!.messages;
+    assert.deepEqual(retry.map((m) => m.role), ["system", "assistant", "user"]);
+    assert.match(retry[0]!.content!, /exactly one native tool call/);
+    assert.equal(retry.at(-1)?.content, "Hello?");
+    assert.equal(h.replies.filter((r) => !r.startsWith("[Bot]")).join(), "Hello!");
+  } finally { await h.close(); }
+});
+
+test("failed reports and stale reports after replanning cannot check off a step", async () => {
+  for (const replan of [false, true]) {
+    const h = await harness();
+    try {
+      plan(h.llm);
+      tool(h.llm, "run_step", { step: 1, instruction: "Do it." });
+      if (replan) plan(h.llm, "New step");
+      tool(h.llm, "complete_step", { step: 1 });
+      tool(h.llm, "reply", { outcome: "failure", message: "Cannot confirm." });
+      h.actions.push(replan ? actionSuccess() : { status: "failure", message: "NO_PATH", outcomes: [] });
+      h.agent.submitUserMessage("owner", "Collect a log.");
+      await idle(h.agent);
+      assert.notEqual(h.agent.task.steps[0]?.status, "done");
+      const result = h.llm.requests.at(-1)!.messages.at(-1)!;
+      assert.match(result.content!, /matching successful report/);
+      assert.equal(JSON.parse(result.content!).ok, false);
+      const currentPlan = section(h.llm.requests.at(-1)!.messages, "Task Context")!;
+      if (replan) {
+        assert.match(currentPlan, /1\. New step/);
+        assert.doesNotMatch(currentPlan, /Collect a log|\[blocked\]/);
+      } else {
+        assert.match(currentPlan, /1\. Collect a log.*\[blocked\]/);
+      }
+    } finally { await h.close(); }
   }
 });
 
-test("coordinator replays at most ten previous chat messages with their roles", async () => {
-  const harness = await createHarness();
+test("execution needs a planner checklist and success needs verified completed steps", async () => {
+  const h = await harness();
   try {
-    for (let index = 1; index <= 7; index += 1) {
-      enqueue(harness.llm, {
-        next: "reply", summary: `Answered question ${index}.`, completedStepIds: [],
-        outcome: "answer", message: `Answer ${index}.`,
-      });
-      harness.agent.submitUserMessage("owner", `Question ${index}?`);
-      await waitForIdle(harness.agent);
-    }
-
-    const messages = harness.llm.requests[6]!.messages;
-    assert.equal(messages.length, 12);
-    assert.equal(messages[0]?.role, "system");
-    assert.deepEqual(messages.slice(1, -1).map((message) => message.role), [
-      "user", "assistant", "user", "assistant", "user", "assistant",
-      "user", "assistant", "user", "assistant",
-    ]);
-    assert.equal(messages[1]?.content, "Question 2?");
-    assert.equal(messages[10]?.content, "Answer 6.");
-    const context = systemContext(messages[0]?.content);
-    assert.equal(context.historyOmitted, 2);
-    assert.equal(messages[11]?.content, "Question 7?");
-    assert.equal(messages.slice(1, -1).some((message) => message.content === "Question 7?"), false);
-  } finally {
-    await harness.close();
-  }
+    tool(h.llm, "run_step", { step: 1, instruction: "Invented step" });
+    plan(h.llm);
+    tool(h.llm, "reply", { outcome: "success", message: "Not actually done" });
+    tool(h.llm, "reply", { outcome: "needs_user", message: "Need help." });
+    h.agent.submitUserMessage("owner", "Do work.");
+    await idle(h.agent);
+    assert.equal(h.actionInstructions.length, 0);
+    assert.deepEqual(h.replies, ["Need help."]);
+    assert.match(h.llm.requests.at(-1)!.messages.at(-1)!.content!, /verified completed checklist/);
+  } finally { await h.close(); }
 });
 
-test("conversation replay respects the character budget before the active request", () => {
-  const history = new ConversationHistory();
-  history.append("user", "Old question");
-  history.append("assistant", "Recent answer");
-  history.append("user", "Current request");
-  const budget = JSON.stringify(history.all()[1]).length;
-  const selected = history.forPrompt(budget, 10, true);
-  assert.deepEqual(selected.entries.map((entry) => entry.text), ["Recent answer"]);
-  assert.equal(selected.omitted, 1);
-});
-
-test("planner is single-shot and the coordinator checks the action report before marking a step", async () => {
-  const harness = await createHarness();
+test("any player can ask for a plan and receive the coordinator's full tool catalog", async () => {
+  const h = await harness();
   try {
-    enqueue(harness.llm, {
-      next: "plan", summary: "Need wood.", completedStepIds: [],
-      instruction: "Plan how to collect one oak log.",
-    });
-    enqueue(harness.llm, {
-      steps: [{ id: "collect_log", title: "Collect a log", successCriteria: "Inventory contains an oak log." }],
-    });
-    enqueue(harness.llm, {
-      next: "act", summary: "The plan is ready.", completedStepIds: [],
-      stepId: "collect_log", instruction: "Collect one oak log.",
-    });
-    enqueue(harness.llm, {
-      next: "reply", summary: "One oak log was collected.",
-      completedStepIds: ["collect_log"], outcome: "success", message: "I collected a log.",
-    });
-    harness.actions.push({
-      status: "success", message: "Inventory now contains an oak log.",
-      outcomes: [{
-        task: { id: "dig-1", createdAt: 0, capability: "dig", input: { position: { x: 3, y: 4, z: 5 } } },
-        result: success({ block: "oak_log" }),
-      }],
-    });
-
-    harness.agent.submitUserMessage("owner", "Collect a log.");
-    await waitForIdle(harness.agent);
-
-    assert.deepEqual(harness.llm.requests.map((request) => request.trace?.phase), [
-      "coordinator", "planner", "coordinator", "coordinator",
-    ]);
-    assert.equal(harness.llm.requests[1]?.messages.at(-1)?.content, "Collect a log.");
-    assert.match(String(harness.llm.requests[3]?.messages[0]?.content), /dig-1/);
-    assert.equal(harness.llm.requests[1]?.tools, undefined);
-    assert.equal(harness.actionInstructions.length, 1);
-    assert.equal(harness.agent.task.steps[0]?.status, "done");
-    assert.match(await readFile(harness.summary.path, "utf8"), /- \[x\] Collect a log/);
-    assert.deepEqual(harness.replies, ["I collected a log."]);
-  } finally {
-    await harness.close();
-  }
+    tool(h.llm, "ask_planner", { instruction: "Do work" });
+    json(h.llm, { steps: [{ title: "Dig", successCriteria: "A block is gone." }] });
+    tool(h.llm, "reply", { outcome: "needs_user", message: "Plan ready." });
+    h.agent.submitUserMessage("guest", "Dig");
+    await idle(h.agent);
+    const names = h.llm.requests[0]!.tools!.map((t) => t.name);
+    assert.ok(names.includes("ask_planner") && names.includes("run_step"));
+    assert.equal(h.agent.task.steps.length, 1);
+    assert.equal(h.actionInstructions.length, 0);
+  } finally { await h.close(); }
 });
 
-test("structured retry is internal feedback and preserves the player's final request", async () => {
-  const harness = await createHarness(1);
+test("coordinator stays within 20 messages with atomic exchanges and a pinned current plan", async () => {
+  const h = await harness();
   try {
-    enqueue(harness.llm, {
-      next: "reply", summary: "", completedStepIds: [], message: "Hello!",
-    });
-    enqueue(harness.llm, {
-      next: "reply", summary: "", completedStepIds: [], outcome: "answer", message: "Hello!",
-    });
-    harness.agent.submitUserMessage("owner", "Hello, how are you?");
-    await waitForIdle(harness.agent);
-
-    const first = harness.llm.requests[0]!.messages;
-    const retry = harness.llm.requests[1]!.messages;
-    assert.deepEqual(first.map((message) => message.role), ["system", "user"]);
-    assert.deepEqual(retry.map((message) => message.role), ["system", "system", "user"]);
-    assert.match(String(retry[1]?.content), /Internal validation feedback.*outcome: Required/);
-    assert.equal(retry.at(-1)?.content, "Hello, how are you?");
-    assert.deepEqual(harness.replies, ["Hello!"]);
-  } finally {
-    await harness.close();
-  }
+    plan(h.llm);
+    for (let i = 0; i < 15; i++) tool(h.llm, "get_self", {});
+    tool(h.llm, "reply", { outcome: "answer", message: "Checked." });
+    h.agent.submitUserMessage("owner", "Keep this objective.");
+    await idle(h.agent);
+    for (const request of h.llm.requests) { assert.ok(request.messages.length <= 20); assertProtocol(request.messages); }
+    const last = h.llm.requests.at(-1)!.messages;
+    assert.match(section(last, "Task Context")!, /1\. Collect a log/);
+    assert.doesNotMatch(last[0]!.content!, /Keep this objective|historyOmitted|source|planVersion/);
+    assert.equal(last.some((m) => m.role === "user"), false);
+  } finally { await h.close(); }
 });
 
-test("a failed action cannot be checked off by the coordinator", async () => {
-  const harness = await createHarness();
+test("only validated plans enter Task Context and a new player request resets it", async () => {
+  const h = await harness(1);
   try {
-    enqueue(harness.llm, {
-      next: "act", summary: "Trying a simple step.", completedStepIds: [],
-      newStep: { id: "move", title: "Move east", successCriteria: "Bot is east of spawn." },
-      instruction: "Move east.",
-    });
-    enqueue(harness.llm, {
-      next: "reply", summary: "Movement failed.", completedStepIds: ["move"],
-      outcome: "failure", message: "I could not find a path.",
-    });
-    harness.actions.push({ status: "failure", message: "NO_PATH", outcomes: [] });
-
-    harness.agent.submitUserMessage("owner", "Move east.");
-    await waitForIdle(harness.agent);
-
-    assert.equal(harness.agent.task.steps[0]?.status, "blocked");
-    assert.match(await readFile(harness.summary.path, "utf8"), /- \[ \] Move east/);
-  } finally {
-    await harness.close();
-  }
+    tool(h.llm, "ask_planner", { instruction: "Create a wood checklist." });
+    json(h.llm, { steps: [] });
+    json(h.llm, { steps: [{ title: "Collect wood", successCriteria: "One additional log in inventory." }] });
+    tool(h.llm, "reply", { outcome: "needs_user", message: "Plan ready." });
+    h.agent.submitUserMessage("owner", "Collect some wood.");
+    await idle(h.agent);
+    assert.equal(section(h.llm.requests[1]!.messages, "Task Context"), "No plan yet.");
+    assert.equal(section(h.llm.requests[2]!.messages, "Task Context"), "No plan yet.");
+    assert.match(section(h.llm.requests[3]!.messages, "Task Context")!, /1\. Collect wood/);
+    tool(h.llm, "reply", { outcome: "answer", message: "Hello." });
+    h.agent.submitUserMessage("owner", "Hello again.");
+    await idle(h.agent);
+    assert.equal(section(h.llm.requests.at(-1)!.messages, "Task Context"), "No plan yet.");
+    assert.doesNotMatch(h.llm.requests.at(-1)!.messages[0]!.content!, /Collect wood|Hello again/);
+  } finally { await h.close(); }
 });
 
-test("stop aborts the current thought and resume starts a fresh coordinator call", async () => {
-  const harness = await createHarness();
+test("planner gets real user/assistant chat, not the coordinator's tool transcript", async () => {
+  const h = await harness();
   try {
-    harness.llm.enqueueDeferred();
-    harness.agent.submitUserMessage("owner", "Where is the tree?");
-    for (let index = 0; index < 100 && harness.llm.requests.length === 0; index += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.equal(harness.llm.requests.length, 1);
-    await harness.agent.requestStop("owner");
-    assert.equal((harness.agent.state() as { mode: string }).mode, "stopped");
-
-    enqueue(harness.llm, {
-      next: "reply", summary: "A tree has not been located yet.", completedStepIds: [],
-      outcome: "answer", message: "I do not know where the tree is yet.",
-    });
-    harness.agent.requestResume("owner");
-    await waitForIdle(harness.agent);
-
-    assert.equal(harness.llm.requests.length, 2);
-    assert.equal(harness.agent.history.all().filter((entry) => entry.role === "user").length, 1);
-    assert.equal(harness.replies.at(-1), "I do not know where the tree is yet.");
-  } finally {
-    await harness.close();
-  }
+    tool(h.llm, "reply", { outcome: "answer", message: "I will remember blue." });
+    h.agent.submitUserMessage("owner", "The code is blue.");
+    await idle(h.agent);
+    plan(h.llm);
+    tool(h.llm, "reply", { outcome: "needs_user", message: "Plan ready." });
+    h.agent.submitUserMessage("owner", "Use that code for the task.");
+    await idle(h.agent);
+    const planner = h.llm.requests.find((r) => r.trace?.phase === "planner")!;
+    assert.match(planner.messages[1]!.content!, /Previous conversation summary: empty/);
+    assert.deepEqual(planner.messages.slice(2).map((m) => m.content), ["The code is blue.", "I will remember blue.", "Use that code for the task."]);
+    assertProtocol(h.llm.requests[1]!.messages);
+  } finally { await h.close(); }
 });
 
-async function createHarness(maxRetries = 0) {
+test("stop during planning aborts and resume sees the interrupted exchange", async () => {
+  const h = await harness();
+  try {
+    tool(h.llm, "ask_planner", { instruction: "Plan work" });
+    h.llm.enqueueDeferred();
+    h.agent.submitUserMessage("owner", "Collect wood.");
+    await until(() => h.llm.requests.length === 2);
+    h.agent.submitUserMessage("owner", "Ignored while busy");
+    await h.agent.requestStop("owner");
+    assert.equal((h.agent.state() as { mode: string }).mode, "stopped");
+    tool(h.llm, "reply", { outcome: "answer", message: "Resumed." });
+    h.agent.requestResume("owner");
+    await idle(h.agent);
+    const messages = h.llm.requests[2]!.messages;
+    assertProtocol(messages);
+    assert.equal(JSON.parse(messages.at(-1)!.content!).ok, false);
+    assert.doesNotMatch(JSON.stringify(messages), /Ignored while busy/);
+  } finally { await h.close(); }
+});
+
+let callId = 0;
+function tool(llm: FakeLLMClient, name: string, args: unknown): string {
+  const id = `call-${++callId}`;
+  llm.enqueue({ message: { role: "assistant", content: null, toolCalls: [{ id, name, arguments: JSON.stringify(args) }] }, finishReason: "tool_calls" });
+  return id;
+}
+function json(llm: FakeLLMClient, value: unknown): void { llm.enqueue({ message: { role: "assistant", content: JSON.stringify(value) }, finishReason: "stop" }); }
+function plan(llm: FakeLLMClient, title = "Collect a log"): void {
+  tool(llm, "ask_planner", { instruction: "Plan a small wood task." });
+  json(llm, { steps: [{ title, successCriteria: "Inventory increases by one log relative to the initial state." }] });
+}
+function actionSuccess(): DelegatedActionReport {
+  return { status: "success", message: "One log collected.", outcomes: [{ task: { id: "dig-1", createdAt: 0, capability: "dig", input: {} }, result: success({ block: "oak_log" }) }] };
+}
+function section(messages: readonly LLMMessage[], heading: string): string | undefined {
+  const text = messages[0]!.content!;
+  return text.split(`## ${heading}\n`)[1]?.split(/\n## /)[0]?.trim();
+}
+function assertProtocol(messages: readonly LLMMessage[]): void {
+  assert.equal(messages[0]?.role, "system");
+  assert.equal(messages[1]?.role, "assistant");
+  assert.match(messages[1]!.content!, /Previous conversation summary: empty/);
+  assert.equal(messages.filter((m) => m.content?.startsWith("Previous conversation summary:")).length, 1);
+  let pending: string[] = [];
+  for (const message of messages.slice(1)) {
+    if (message.role === "tool") assert.equal(message.toolCallId, pending.shift());
+    else { assert.equal(pending.length, 0); if (message.role === "assistant") pending = message.toolCalls?.map((c) => c.id) ?? []; }
+  }
+  assert.equal(pending.length, 0);
+}
+async function until(check: () => boolean): Promise<void> {
+  for (let i = 0; i < 200; i++) { if (check()) return; await new Promise((r) => setTimeout(r, 5)); }
+  throw new Error("Workflow did not reach expected state.");
+}
+async function idle(agent: WorkflowAgent): Promise<void> { await until(() => (agent.state() as { mode: string }).mode === "idle"); }
+async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "native") {
   const root = await mkdtemp(join(tmpdir(), "minecraft-workflow-test-"));
   const llm = new FakeLLMClient();
-  const replies: string[] = [];
-  const actions: DelegatedActionReport[] = [];
-  const actionInstructions: string[] = [];
+  const inspector = new AgentInspector(100);
+  const replies: string[] = [], actions: DelegatedActionReport[] = [], actionInstructions: string[] = [];
   const actionAgent = {
     state: () => ({ mode: "idle" }),
     runDelegatedStep: async (instruction: string) => {
       actionInstructions.push(instruction);
       const report = actions.shift();
-      if (!report) throw new Error("No scripted action report.");
+      if (!report) throw new Error("No scripted report.");
       return report;
     },
-    requestStop: async () => undefined,
-    shutdown: async () => undefined,
+    requestStop: async () => undefined, shutdown: async () => undefined,
   } as unknown as SequentialAgent;
   const world = {
     getSelf: () => ({ position: { x: 0, y: 0, z: 0 }, facing: "north", health: 20, food: 20, foodSaturation: 5, oxygenLevel: 20, onGround: true }),
@@ -224,45 +399,20 @@ async function createHarness(maxRetries = 0) {
   } as unknown as WorldQueries;
   const summary = new WorkflowSummaryFile("test", root);
   const agent = new WorkflowAgent({
-    llm, actionAgent, world,
+    llm, actionAgent, world, inspector, queries: createDefaultWorldQueryRegistry(world),
     landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
     prompts: {
-      coordinator: PromptTemplate.fromString("coordinator", "Coordinator\n{{runtime_context}}"),
-      planner: PromptTemplate.fromString("planner", "Planner\n{{runtime_context}}"),
+      coordinator: PromptTemplate.fromString("coordinator", "Coordinator\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## World Context\n{{world_context}}"),
+      planner: PromptTemplate.fromString("planner", "Planner\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## Instruction\n{{instruction}}\n## World Context\n{{world_context}}"),
       actioner: PromptTemplate.fromString("actioner", "Actioner {{current_context}}"),
+      summary: PromptTemplate.fromString("summary", "Summary limit {{max_chars}}\n{{summary_input}}"),
+      conversationSummary: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: empty. No earlier conversation has been compacted yet."),
     },
-    temperature: 0,
-    maxTokens: 1024,
-    maxRetries,
-    historyMaxChars: 10_000,
-    summaryFile: summary,
-    respond: async (message) => { replies.push(message); },
+    temperature: 0, maxTokens: 4096, maxRetries, historyMaxChars: 30_000,
+    toolReplayMode,
+    summaryFile: summary, respond: async (message) => { replies.push(message); },
   });
-  return {
-    agent, llm, replies, actions, actionInstructions, summary,
+  return { agent, llm, inspector, replies, actions, actionInstructions, summary, world,
     close: async () => { await agent.shutdown(); await rm(root, { recursive: true, force: true }); },
   };
-}
-
-function systemContext(content: unknown): any {
-  const text = String(content);
-  const start = text.indexOf("\n{");
-  assert.notEqual(start, -1);
-  return JSON.parse(text.slice(start + 1));
-}
-
-function enqueue(llm: FakeLLMClient, value: unknown): void {
-  llm.enqueue({ message: { role: "assistant", content: JSON.stringify(value) }, finishReason: "stop" });
-}
-
-async function waitForIdle(agent: WorkflowAgent): Promise<void> {
-  await waitForMode(agent, "idle");
-}
-
-async function waitForMode(agent: WorkflowAgent, mode: string): Promise<void> {
-  for (let index = 0; index < 100; index += 1) {
-    if ((agent.state() as { mode: string }).mode === mode) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`Workflow did not reach ${mode}.`);
 }

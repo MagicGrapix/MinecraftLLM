@@ -15,6 +15,7 @@ import { SkillRegistry } from "../../../src/skills/SkillRegistry";
 const emptyWorld: WorldQueries = {
   getSelf: () => ({
     position: { x: 0, y: 0, z: 0 },
+    facing: "north",
     health: 20,
     food: 20,
     foodSaturation: 5,
@@ -50,8 +51,12 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   assert.deepEqual(gather.requiredQueries, [
     "get_inventory",
     "find_nearest_blocks",
+    "get_nearby_entities",
   ]);
   assert.match(gather.instructions, /Success condition/);
+  assert.match(gather.instructions, /droppedItem/);
+  assert.match(gather.instructions, /continue_plan/);
+  assert.doesNotMatch(gather.instructions, /enqueue_tasks/);
 });
 
 test("craft and hunger skills load as text-only instructions", async () => {

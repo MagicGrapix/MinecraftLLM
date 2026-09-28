@@ -7,7 +7,8 @@ import type {
   InventoryState,
   SelfState,
 } from "../types";
-import { querySuccess } from "./QueryResult";
+import { buildVoxelView, type VoxelView } from "../VoxelView";
+import { queryFailure, querySuccess } from "./QueryResult";
 import type { WorldQuery } from "./WorldQuery";
 import { WorldQueryRegistry } from "./WorldQueryRegistry";
 
@@ -31,13 +32,30 @@ const nearbyEntitiesInputSchema = z
     type: z.string().trim().min(1).optional(),
   })
   .strict();
+const voxelViewInputSchema = z
+  .object({
+    center: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("self") }).strict(),
+      z.object({
+        kind: z.literal("position"),
+        position: BlockPositionSchema,
+      }).strict(),
+    ]),
+    focus: z.object({
+      dx: z.number().int().min(-2).max(2),
+      dy: z.number().int().min(-1).max(2),
+      dz: z.number().int().min(-2).max(2),
+    }).strict().optional(),
+  })
+  .strict();
+const maxVoxelViewCenterDistance = 64;
 
 const getSelfQuery: WorldQuery<
   z.infer<typeof emptyInputSchema>,
   SelfState
 > = {
   name: "get_self",
-  description: "Return the bot's current position and survival state.",
+  description: "Return the bot's current position, cardinal facing, and survival state.",
   inputSchema: emptyInputSchema,
   execute: async (_input, world) => querySuccess(world.getSelf()),
 };
@@ -86,7 +104,7 @@ const getNearbyEntitiesQuery: WorldQuery<
   EntityInfo[]
 > = {
   name: "get_nearby_entities",
-  description: "List nearby entities, optionally filtered by type.",
+  description: "List nearby entities, including the item stack carried by visible dropped-item entities when known; optionally filter by type.",
   inputSchema: nearbyEntitiesInputSchema,
   execute: async (input, world) =>
     querySuccess(
@@ -99,12 +117,39 @@ const getNearbyEntitiesQuery: WorldQuery<
     ),
 };
 
+const getVoxelViewQuery: WorldQuery<
+  z.infer<typeof voxelViewInputSchema>,
+  VoxelView
+> = {
+  name: "get_voxel_view",
+  description: "Read a 5x5x4 north-up block grid around the bot or an observed integer position. Offsets are dx west/east, dy down/up, dz north/south; optional focus resolves one cell to world coordinates.",
+  inputSchema: voxelViewInputSchema,
+  execute: async (input, world) => {
+    const self = world.getSelf();
+    if (input.center.kind === "position") {
+      const { x, y, z } = input.center.position;
+      const dx = x - self.position.x;
+      const dy = y - self.position.y;
+      const dz = z - self.position.z;
+      if (dx * dx + dy * dy + dz * dz > maxVoxelViewCenterDistance ** 2) {
+        return queryFailure(
+          "INVALID_ARGUMENT",
+          `Voxel view center must be within ${maxVoxelViewCenterDistance} blocks of the bot.`,
+          { position: input.center.position },
+        );
+      }
+    }
+    return querySuccess(buildVoxelView(world, input, self));
+  },
+};
+
 export const defaultWorldQueries = [
   getSelfQuery,
   getInventoryQuery,
   getBlockQuery,
   findNearestBlocksQuery,
   getNearbyEntitiesQuery,
+  getVoxelViewQuery,
 ] as const;
 
 export function createDefaultWorldQueryRegistry(
@@ -116,5 +161,6 @@ export function createDefaultWorldQueryRegistry(
   registry.register(getBlockQuery);
   registry.register(findNearestBlocksQuery);
   registry.register(getNearbyEntitiesQuery);
+  registry.register(getVoxelViewQuery);
   return registry;
 }

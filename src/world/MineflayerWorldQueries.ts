@@ -1,5 +1,6 @@
 import type { Block } from "prismarine-block";
 import type { Item } from "prismarine-item";
+import type { Entity } from "prismarine-entity";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
 import { fromVec3, toVec3 } from "../runtime/PositionAdapter";
 import { normalizeMinecraftName } from "../shared/helper";
@@ -23,6 +24,7 @@ export class MineflayerWorldQueries implements WorldQueries {
 
     return {
       position: fromVec3(bot.entity.position),
+      facing: cardinalFacing(bot.entity.yaw),
       health: bot.health,
       food: bot.food,
       foodSaturation: bot.foodSaturation,
@@ -79,14 +81,24 @@ export class MineflayerWorldQueries implements WorldQueries {
 
     return Object.values(bot.entities)
       .filter((entity) => entity.id !== bot.entity.id)
-      .map<EntityInfo>((entity) => ({
-        id: entity.id,
-        name: entity.name ?? null,
-        type: entity.type,
-        username: entity.username ?? null,
-        position: fromVec3(entity.position),
-        distance: entity.position.distanceTo(bot.entity.position),
-      }))
+      .map<EntityInfo>((entity) => {
+        const droppedItem = getDroppedItem(entity);
+        return {
+          id: entity.id,
+          name: entity.name ?? null,
+          type: entity.type,
+          username: entity.username ?? null,
+          position: fromVec3(entity.position),
+          distance: entity.position.distanceTo(bot.entity.position),
+          droppedItem: droppedItem
+            ? {
+                name: droppedItem.name,
+                displayName: droppedItem.displayName,
+                count: droppedItem.count,
+              }
+            : null,
+        };
+      })
       .filter(
         (entity) =>
           entity.distance <= maxDistance &&
@@ -95,6 +107,28 @@ export class MineflayerWorldQueries implements WorldQueries {
             entity.name === options.type),
       )
       .sort((left, right) => left.distance - right.distance);
+  }
+}
+
+export function cardinalFacing(yaw: number): SelfState["facing"] {
+  // Mineflayer's view vector is (-sin(yaw), -cos(yaw)) on the X/Z plane.
+  const x = -Math.sin(yaw);
+  const z = -Math.cos(yaw);
+  return Math.abs(x) > Math.abs(z)
+    ? x > 0 ? "east" : "west"
+    : z > 0 ? "south" : "north";
+}
+
+function getDroppedItem(entity: Entity): Item | null {
+  if (entity.name !== "item" && entity.name !== "Item" && entity.name !== "item_stack") {
+    return null;
+  }
+
+  try {
+    // The entity may arrive before its item-stack metadata is available.
+    return entity.getDroppedItem();
+  } catch {
+    return null;
   }
 }
 

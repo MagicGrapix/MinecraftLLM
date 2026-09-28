@@ -16,6 +16,7 @@ import { success, type TaskResult } from "../../../src/execution/TaskResult";
 const emptyWorld: WorldQueries = {
   getSelf: () => ({
     position: { x: 0, y: 0, z: 0 },
+    facing: "north",
     health: 20,
     food: 20,
     foodSaturation: 5,

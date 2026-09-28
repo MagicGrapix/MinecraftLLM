@@ -54,6 +54,7 @@ test("context includes objective, memory, inventory, last result, and remaining 
 const world: WorldQueries = {
   getSelf: () => ({
     position: { x: 0, y: -60, z: 0 },
+    facing: "north",
     health: 20,
     food: 20,
     foodSaturation: 5,

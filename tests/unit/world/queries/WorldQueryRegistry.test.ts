@@ -16,6 +16,7 @@ import { WorldQueryRegistry } from "../../../../src/world/queries/WorldQueryRegi
 const world: WorldQueries = {
   getSelf: () => ({
     position: { x: 1, y: 64, z: 2 },
+    facing: "north",
     health: 20,
     food: 18,
     foodSaturation: 5,
@@ -35,7 +36,7 @@ test("default registry executes a valid query and exposes summaries", async () =
 
   assert.equal(result.ok, true);
   if (result.ok) assert.equal((result.value as SelfState).health, 20);
-  assert.equal(registry.list().length, 5);
+  assert.equal(registry.list().length, 6);
   assert.equal(registry.has("find_nearest_blocks"), true);
 });
 

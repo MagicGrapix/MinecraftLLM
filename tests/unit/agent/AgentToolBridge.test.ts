@@ -18,6 +18,7 @@ import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defa
 const world: WorldQueries = {
   getSelf: () => ({
     position: { x: 0, y: 64, z: 0 },
+    facing: "north",
     health: 20,
     food: 20,
     foodSaturation: 5,
@@ -40,6 +41,14 @@ test("bridge allows queries and validated decisions without queue revisions", as
       arguments: "{}",
     });
     assert.equal(self.ok, true);
+
+    const voxelView = await bridge.executeRead({
+      id: "voxel-view",
+      name: "get_voxel_view",
+      arguments: JSON.stringify({ center: { kind: "self" } }),
+    });
+    assert.equal(voxelView.ok, true);
+    assert.match(voxelView.content, /"layers"/);
 
     const decision = bridge.validateResponseCalls(
       [
@@ -101,6 +110,7 @@ test("readonly catalog hides terminal decisions", async () => {
     const bridge = await createBridge(root);
     const readonlyTools = bridge.catalog.build("readonly").map((tool) => tool.name);
     const actionTools = bridge.catalog.build("action").map((tool) => tool.name);
+    assert.equal(readonlyTools.includes("get_voxel_view"), true);
     assert.equal(readonlyTools.includes("set_plan"), false);
     assert.equal(actionTools.includes("set_plan"), true);
     assert.equal(actionTools.includes("continue_plan"), true);

@@ -2,6 +2,7 @@ import type { Position } from "../shared/types";
 
 export interface SelfState {
   position: Position;
+  facing: "north" | "south" | "east" | "west";
   health: number;
   food: number;
   foodSaturation: number;
@@ -38,6 +39,11 @@ export interface EntityInfo {
   username: string | null;
   position: Position;
   distance: number;
+  droppedItem: {
+    name: string;
+    displayName: string;
+    count: number;
+  } | null;
 }
 
 export interface FindBlocksOptions {

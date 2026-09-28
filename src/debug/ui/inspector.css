@@ -191,6 +191,12 @@ button:disabled {
   color: var(--muted);
 }
 
+.section-heading {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .message,
 .block {
   background: var(--panel);

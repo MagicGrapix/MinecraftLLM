@@ -75,17 +75,22 @@ export class ConversationHistory {
     return structuredClone(this.entries);
   }
 
-  forPrompt(maxChars: number): { entries: readonly ConversationEntry[]; omitted: number } {
+  forPrompt(
+    maxChars: number,
+    maxEntries: number,
+    excludeLatest: boolean,
+  ): { entries: readonly ConversationEntry[]; omitted: number } {
     const selected: ConversationEntry[] = [];
     let length = 0;
-    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
+    const available = this.entries.length - (excludeLatest ? 1 : 0);
+    for (let index = available - 1; index >= 0 && selected.length < maxEntries; index -= 1) {
       const entry = this.entries[index]!;
       const size = JSON.stringify(entry).length;
-      if (selected.length > 0 && length + size > maxChars) break;
+      if (length + size > maxChars) break;
       selected.unshift(entry);
       length += size;
     }
-    return { entries: structuredClone(selected), omitted: this.entries.length - selected.length };
+    return { entries: structuredClone(selected), omitted: available - selected.length };
   }
 }
 
@@ -117,7 +122,7 @@ export class WorkflowState {
     ).join("\n");
   }
 
-  snapshot(): unknown {
+  snapshot() {
     return {
       objective: this.objective,
       summary: this.summary,

@@ -1,7 +1,7 @@
-import type { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import type { AgentInspector } from "../debug/AgentInspector";
-import type { LLMClient } from "../llm/LLMClient";
+import type { LLMClient, LLMMessage } from "../llm/LLMClient";
 import type { LandmarkMemory } from "../memory/LandmarkMemory";
+import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { WorkflowPrompts } from "../prompts/WorkflowPrompts";
 import type { WorldQueries } from "../world/WorldQueries";
 import type { DelegatedActionReport, SequentialAgent } from "./SequentialAgent";
@@ -18,11 +18,12 @@ import {
 
 export type WorkflowMode = "idle" | "thinking" | "planning" | "executing" | "stopped";
 
+const MAX_CONVERSATION_MESSAGES = 10;
+
 export interface WorkflowAgentOptions {
   readonly llm: LLMClient;
   readonly actionAgent: SequentialAgent;
   readonly world: WorldQueries;
-  readonly capabilities: CapabilityRegistry;
   readonly landmarks: LandmarkMemory;
   readonly prompts: WorkflowPrompts;
   readonly inspector?: AgentInspector;
@@ -211,15 +212,14 @@ export class WorkflowAgent {
   }
 
   private async askCoordinator(signal: AbortSignal): Promise<CoordinatorDecision> {
-    const context = this.commonContext();
-    const messages = [
-      { role: "system" as const, content: this.options.prompts.coordinator.render() },
-      { role: "user" as const, content: JSON.stringify({
-        ...context,
+    const { context, messages } = this.roleInput(
+      this.options.prompts.coordinator,
+      {
+        ...this.commonContext(),
         readonlyOnly: this.readonlyOnly,
         instruction: "Choose the next sequence and update the task summary/checklist verification.",
-      }) },
-    ];
+      },
+    );
     return callStructuredRole({
       options: this.roleOptions(),
       schema: CoordinatorDecisionSchema,
@@ -233,17 +233,17 @@ export class WorkflowAgent {
   }
 
   private async askPlanner(instruction: string, signal: AbortSignal): Promise<{ steps: readonly WorkflowStep[] }> {
-    const context = { ...this.commonContext(), instruction };
+    const { context, messages } = this.roleInput(
+      this.options.prompts.planner,
+      { ...this.commonContext(), instruction },
+    );
     const result = await callStructuredRole({
       options: this.roleOptions(),
       schema: PlannerResultSchema,
       phase: "planner",
       generationId: this.generationId,
       reflection: ++this.reflection,
-      messages: [
-        { role: "system", content: this.options.prompts.planner.render() },
-        { role: "user", content: JSON.stringify(context) },
-      ],
+      messages,
       context,
       signal,
     });
@@ -251,16 +251,43 @@ export class WorkflowAgent {
   }
 
   private commonContext() {
+    const task = this.task.snapshot();
     return {
-      task: this.task.snapshot(),
-      conversation: this.history.forPrompt(this.options.historyMaxChars),
+      task: {
+        summary: task.summary,
+        steps: task.steps,
+        checklist: task.checklist,
+        lastReport: task.lastReport,
+      },
       world: {
         self: this.options.world.getSelf(),
         inventory: this.options.world.getInventory(),
         landmarks: this.options.landmarks.pinned(),
       },
-      capabilities: this.options.capabilities.list(),
     };
+  }
+
+  private roleInput(prompt: PromptTemplate, currentContext: Record<string, unknown>): {
+    readonly context: Record<string, unknown>;
+    readonly messages: readonly LLMMessage[];
+  } {
+    // The latest history entry is the active request, sent only as the final message.
+    const previous = this.history.forPrompt(
+      this.options.historyMaxChars,
+      MAX_CONVERSATION_MESSAGES,
+      true,
+    );
+    const context = {
+      source: "minecraft_runtime_context",
+      ...currentContext,
+      historyOmitted: previous.omitted,
+    };
+    const messages: LLMMessage[] = [
+      { role: "system", content: prompt.render({ runtime_context: JSON.stringify(context, null, 2) }) },
+      ...previous.entries.map((entry) => ({ role: entry.role, content: entry.text })),
+      { role: "user", content: this.task.objective },
+    ];
+    return { context, messages };
   }
 
   private roleOptions(): StructuredRoleOptions {

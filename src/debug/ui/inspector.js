@@ -284,31 +284,111 @@
   }
 
   function renderRequest(round) {
-    if (!round.requestBody) {
+    const body = round.requestBody;
+    if (!body) {
       return '<p class="empty">Aucune requête LLM enregistrée pour ce round.</p>';
     }
-    return '<p class="empty">Corps de la requête envoyée au modèle. Les éventuels secrets sont masqués.</p>' +
-      renderJson(round.requestBody);
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const tools = Array.isArray(body.tools) ? body.tools : [];
+    const settings = { ...body };
+    delete settings.messages;
+    delete settings.tools;
+
+    const parts = [
+      '<p class="empty">Vue lisible de la requête. Le JSON contenu dans certains messages est déplié uniquement pour l’affichage ; la requête brute exacte reste disponible en bas.</p>',
+      `<article class="block"><div class="role">Request settings</div>${renderFoldableJson(settings)}</article>`,
+      `<h3 class="section-heading">Messages (${messages.length})</h3>`,
+    ];
+    if (messages.length === 0) {
+      parts.push('<p class="empty">Aucun message envoyé.</p>');
+    } else {
+      parts.push(...messages.map(renderRequestMessage));
+    }
+    if (tools.length > 0) {
+      parts.push(`<h3 class="section-heading">Callable tool schemas (${tools.length})</h3>`);
+      parts.push(...tools.map((tool) =>
+        `<article class="block"><div class="role">${escapeHtml(tool?.function?.name ?? tool?.name ?? "tool")}</div>${renderFoldableJson(tool)}</article>`));
+    }
+    parts.push(
+      `<details class="block fold"><summary>Raw request (exact payload, secrets masked)</summary>` +
+      `<pre>${escapeHtml(formatValue(body))}</pre></details>`,
+    );
+    return parts.join("");
+  }
+
+  function renderRequestMessage(message, index) {
+    const role = typeof message?.role === "string" ? message.role : "unknown";
+    const extras = { ...message };
+    delete extras.role;
+    delete extras.content;
+    const content = message?.content;
+    const parsed = typeof content === "string" ? parseJsonContent(content) : null;
+    return (
+      `<article class="message ${escapeHtml(role)}">` +
+      `<div class="role">${escapeHtml(role)} · message ${index + 1}${parsed ? " · JSON content expanded" : ""}</div>` +
+      renderContent(content) +
+      (Object.keys(extras).length
+        ? `<details class="fold"><summary>Other message fields</summary>${renderFoldableJson(extras)}</details>`
+        : "") +
+      `</article>`
+    );
+  }
+
+  function parseJsonContent(content) {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed !== null && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderContent(content) {
+    const parsed = typeof content === "string" ? parseJsonContent(content) : null;
+    return `<pre>${escapeHtml(parsed ? JSON.stringify(parsed, null, 2) : formatValue(content ?? null))}</pre>`;
   }
 
   function renderResponse(round) {
     if (!round.response && !round.rawResponse && !round.error) {
       return '<p class="empty">Pas de réponse enregistrée.</p>';
     }
-    const parts = [];
+    const parts = [
+      '<p class="empty">Vue lisible de la réponse. Le JSON contenu dans le texte ou les arguments d’outils est déplié uniquement pour l’affichage.</p>',
+    ];
     if (round.error) {
       parts.push(
         `<article class="block"><div class="role status-error">error</div><pre>${escapeHtml(round.error)}</pre></article>`,
       );
     }
     if (round.response) {
+      const response = round.response;
+      const info = {
+        finishReason: response.finishReason,
+        ...(response.usage ? { usage: response.usage } : {}),
+      };
       parts.push(
-        `<article class="block"><div class="role">normalized</div>${renderFoldableJson(round.response)}</article>`,
+        `<article class="block"><div class="role">Result</div>${renderFoldableJson(info)}</article>`,
       );
+      parts.push(
+        `<article class="message assistant"><div class="role">Assistant content${typeof response.content === "string" && parseJsonContent(response.content) ? " · JSON content expanded" : ""}</div>${renderContent(response.content)}</article>`,
+      );
+      if (response.reasoning !== undefined) {
+        parts.push(
+          `<article class="block"><div class="role">Reasoning returned by provider</div>${renderContent(response.reasoning)}</article>`,
+        );
+      }
+      if (Array.isArray(response.toolCalls) && response.toolCalls.length > 0) {
+        parts.push(`<h3 class="section-heading">Tool calls (${response.toolCalls.length})</h3>`);
+        parts.push(...response.toolCalls.map((call) =>
+          `<article class="message tool"><div class="role">${escapeHtml(call?.name ?? "tool")} · ${escapeHtml(call?.id ?? "")}</div>${renderContent(call?.arguments)}</article>`));
+      }
     }
     if (round.rawResponse !== undefined) {
       parts.push(
-        `<article class="block"><div class="role">raw</div>${renderFoldableJson(round.rawResponse)}</article>`,
+        `<details class="block fold"><summary>Raw provider response (secrets masked)</summary>` +
+        `<pre>${escapeHtml(formatValue(round.rawResponse))}</pre></details>`,
       );
     }
     return parts.join("");

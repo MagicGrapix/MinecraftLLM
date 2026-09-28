@@ -114,7 +114,6 @@ export async function createAgentRuntime(
     llm,
     actionAgent,
     world,
-    capabilities,
     landmarks,
     prompts,
     ...(inspector ? { inspector } : {}),

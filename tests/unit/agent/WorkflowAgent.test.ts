@@ -3,10 +3,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { CapabilityRegistry } from "../../../src/capabilities/CapabilityRegistry";
 import type { DelegatedActionReport, SequentialAgent } from "../../../src/agent/SequentialAgent";
 import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
-import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
+import { ConversationHistory, WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
 import { success } from "../../../src/execution/TaskResult";
 import { FakeLLMClient } from "../../../src/llm/FakeLLMClient";
 import type { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
@@ -26,12 +25,61 @@ test("coordinator answers with conversation history and no intent classifier cal
     assert.deepEqual(harness.replies, ["You have one oak log."]);
     assert.equal(harness.llm.requests.length, 1);
     assert.equal(harness.llm.requests[0]?.trace?.phase, "coordinator");
-    assert.match(String(harness.llm.requests[0]?.messages[1]?.content), /What is in my inventory/);
+    const messages = harness.llm.requests[0]!.messages;
+    assert.deepEqual(messages.map((message) => message.role), ["system", "user"]);
+    assert.equal(messages[1]?.content, "What is in my inventory?");
+    const context = systemContext(messages[0]?.content);
+    assert.equal(context.source, "minecraft_runtime_context");
+    assert.equal(context.historyOmitted, 0);
+    assert.equal("objective" in context.task, false);
+    assert.equal("capabilities" in context, false);
+    assert.equal(harness.llm.requests[0]?.tools, undefined);
     assert.equal(harness.agent.history.all().length, 2);
     assert.match(await readFile(harness.summary.path, "utf8"), /The user asked about inventory/);
   } finally {
     await harness.close();
   }
+});
+
+test("coordinator replays at most ten previous chat messages with their roles", async () => {
+  const harness = await createHarness();
+  try {
+    for (let index = 1; index <= 7; index += 1) {
+      enqueue(harness.llm, {
+        next: "reply", summary: `Answered question ${index}.`, completedStepIds: [],
+        outcome: "answer", message: `Answer ${index}.`,
+      });
+      harness.agent.submitUserMessage("owner", `Question ${index}?`);
+      await waitForIdle(harness.agent);
+    }
+
+    const messages = harness.llm.requests[6]!.messages;
+    assert.equal(messages.length, 12);
+    assert.equal(messages[0]?.role, "system");
+    assert.deepEqual(messages.slice(1, -1).map((message) => message.role), [
+      "user", "assistant", "user", "assistant", "user", "assistant",
+      "user", "assistant", "user", "assistant",
+    ]);
+    assert.equal(messages[1]?.content, "Question 2?");
+    assert.equal(messages[10]?.content, "Answer 6.");
+    const context = systemContext(messages[0]?.content);
+    assert.equal(context.historyOmitted, 2);
+    assert.equal(messages[11]?.content, "Question 7?");
+    assert.equal(messages.slice(1, -1).some((message) => message.content === "Question 7?"), false);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("conversation replay respects the character budget before the active request", () => {
+  const history = new ConversationHistory();
+  history.append("user", "Old question");
+  history.append("assistant", "Recent answer");
+  history.append("user", "Current request");
+  const budget = JSON.stringify(history.all()[1]).length;
+  const selected = history.forPrompt(budget, 10, true);
+  assert.deepEqual(selected.entries.map((entry) => entry.text), ["Recent answer"]);
+  assert.equal(selected.omitted, 1);
 });
 
 test("planner is single-shot and the coordinator checks the action report before marking a step", async () => {
@@ -66,12 +114,37 @@ test("planner is single-shot and the coordinator checks the action report before
     assert.deepEqual(harness.llm.requests.map((request) => request.trace?.phase), [
       "coordinator", "planner", "coordinator", "coordinator",
     ]);
-    assert.match(String(harness.llm.requests[1]?.messages[1]?.content), /Collect a log/);
-    assert.match(String(harness.llm.requests[3]?.messages[1]?.content), /dig-1/);
+    assert.equal(harness.llm.requests[1]?.messages.at(-1)?.content, "Collect a log.");
+    assert.match(String(harness.llm.requests[3]?.messages[0]?.content), /dig-1/);
+    assert.equal(harness.llm.requests[1]?.tools, undefined);
     assert.equal(harness.actionInstructions.length, 1);
     assert.equal(harness.agent.task.steps[0]?.status, "done");
     assert.match(await readFile(harness.summary.path, "utf8"), /- \[x\] Collect a log/);
     assert.deepEqual(harness.replies, ["I collected a log."]);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("structured retry is internal feedback and preserves the player's final request", async () => {
+  const harness = await createHarness(1);
+  try {
+    enqueue(harness.llm, {
+      next: "reply", summary: "", completedStepIds: [], message: "Hello!",
+    });
+    enqueue(harness.llm, {
+      next: "reply", summary: "", completedStepIds: [], outcome: "answer", message: "Hello!",
+    });
+    harness.agent.submitUserMessage("owner", "Hello, how are you?");
+    await waitForIdle(harness.agent);
+
+    const first = harness.llm.requests[0]!.messages;
+    const retry = harness.llm.requests[1]!.messages;
+    assert.deepEqual(first.map((message) => message.role), ["system", "user"]);
+    assert.deepEqual(retry.map((message) => message.role), ["system", "system", "user"]);
+    assert.match(String(retry[1]?.content), /Internal validation feedback.*outcome: Required/);
+    assert.equal(retry.at(-1)?.content, "Hello, how are you?");
+    assert.deepEqual(harness.replies, ["Hello!"]);
   } finally {
     await harness.close();
   }
@@ -128,7 +201,7 @@ test("stop aborts the current thought and resume starts a fresh coordinator call
   }
 });
 
-async function createHarness() {
+async function createHarness(maxRetries = 0) {
   const root = await mkdtemp(join(tmpdir(), "minecraft-workflow-test-"));
   const llm = new FakeLLMClient();
   const replies: string[] = [];
@@ -152,16 +225,15 @@ async function createHarness() {
   const summary = new WorkflowSummaryFile("test", root);
   const agent = new WorkflowAgent({
     llm, actionAgent, world,
-    capabilities: { list: () => [] } as unknown as CapabilityRegistry,
     landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
     prompts: {
-      coordinator: PromptTemplate.fromString("coordinator", "Coordinator"),
-      planner: PromptTemplate.fromString("planner", "Planner"),
+      coordinator: PromptTemplate.fromString("coordinator", "Coordinator\n{{runtime_context}}"),
+      planner: PromptTemplate.fromString("planner", "Planner\n{{runtime_context}}"),
       actioner: PromptTemplate.fromString("actioner", "Actioner {{current_context}}"),
     },
     temperature: 0,
     maxTokens: 1024,
-    maxRetries: 0,
+    maxRetries,
     historyMaxChars: 10_000,
     summaryFile: summary,
     respond: async (message) => { replies.push(message); },
@@ -170,6 +242,13 @@ async function createHarness() {
     agent, llm, replies, actions, actionInstructions, summary,
     close: async () => { await agent.shutdown(); await rm(root, { recursive: true, force: true }); },
   };
+}
+
+function systemContext(content: unknown): any {
+  const text = String(content);
+  const start = text.indexOf("\n{");
+  assert.notEqual(start, -1);
+  return JSON.parse(text.slice(start + 1));
 }
 
 function enqueue(llm: FakeLLMClient, value: unknown): void {

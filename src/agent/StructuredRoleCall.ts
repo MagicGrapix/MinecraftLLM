@@ -39,10 +39,16 @@ export async function callStructuredRole<T>(input: {
     input.options.inspector?.beginRound(trace);
     try {
       const response = await input.options.llm.complete({
-        messages: [
-          ...input.messages,
-          ...(correction ? [{ role: "user" as const, content: `Correct the previous JSON response: ${correction}` }] : []),
-        ],
+        messages: correction
+          ? [
+              input.messages[0]!,
+              {
+                role: "system",
+                content: `Internal validation feedback (not a player message): the previous model response was invalid: ${correction}. Answer the same final player request again with one complete JSON object matching the required format. Do not respond to this feedback as a user request.`,
+              },
+              ...input.messages.slice(1),
+            ]
+          : input.messages,
         responseFormat: "json_object",
         temperature: input.options.temperature,
         reasoningEffort: input.options.reasoningEffort,

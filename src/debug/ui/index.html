@@ -16,15 +16,16 @@
         <button id="liveBtn" type="button" class="active">Live</button>
         <button id="pauseBtn" type="button">Pause</button>
         <button id="latestBtn" type="button">Voir le plus récent</button>
-        <button id="clearBtn" type="button" title="Effacer les rounds de cette session de debug (les fichiers JSONL sont conservés)" disabled>Clear</button>
-        <span id="newBadge" class="badge hidden">0 nouveaux rounds</span>
+        <button id="clearBtn" type="button" title="Effacer les calls de cette session de debug (les fichiers JSONL sont conservés)" disabled>Clear</button>
+        <span id="newBadge" class="badge hidden">0 nouveaux calls</span>
       </div>
     </header>
 
     <main class="layout">
       <aside class="sidebar">
         <div class="sidebar-head">
-          <h2>Runs et phases</h2>
+          <h2>Requests et calls</h2>
+          <p class="sidebar-help">Calls dans l’ordre de démarrage. Un call = un appel LLM. Cliquez pour figer la sélection.</p>
           <input
             id="searchInput"
             type="search"
@@ -37,7 +38,11 @@
 
       <section class="detail">
         <div class="detail-head">
-          <h2 id="detailTitle">Aucun round sélectionné</h2>
+          <div class="detail-heading">
+            <h2 id="detailTitle">Aucun call sélectionné</h2>
+            <p id="detailMeta"></p>
+            <p id="detailOutcome"></p>
+          </div>
           <button id="copyBtn" type="button" disabled>Copy</button>
         </div>
         <nav class="tabs" id="tabs">
@@ -46,7 +51,7 @@
           <button type="button" data-tab="debug">Debug (local)</button>
         </nav>
         <div id="detailBody" class="detail-body">
-          <p class="empty">Sélectionnez un round pour voir la requête LLM exacte.</p>
+          <p class="empty">Sélectionnez un call pour voir la requête LLM exacte.</p>
         </div>
       </section>
     </main>

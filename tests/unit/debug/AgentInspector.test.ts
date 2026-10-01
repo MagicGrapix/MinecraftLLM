@@ -109,17 +109,39 @@ test("old finalized snapshots stay unchanged when newer rounds arrive", () => {
   assert.equal(inspector.getRound(listed[0]!.id)?.response?.content, "r2");
 });
 
-test("nested planner and coordinator rounds list in start order", async () => {
+test("nested planner and coordinator calls are numbered in start order even when finished backwards", () => {
   const inspector = new AgentInspector(3, "session");
   const coordinator = trace({ phase: "coordinator", reflection: 1 });
   const planner = trace({ phase: "planner", reflection: 2 });
   inspector.beginRound(coordinator);
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  inspector.beginRound(coordinator); // An idempotent begin must not consume a call number.
   inspector.beginRound(planner);
   inspector.finalizeRound(planner, "completed");
   inspector.finalizeRound(coordinator, "completed");
   assert.deepEqual(inspector.listRounds().map((round) => round.phase), ["coordinator", "planner"]);
+  assert.deepEqual(inspector.listRounds().map((round) => round.callIndex), [1, 2]);
+  assert.deepEqual(inspector.listRounds().map((round) => round.sequence), [1, 2]);
   assert.equal(inspector.status().latestRoundId, inspector.listRounds()[1]!.id);
+});
+
+test("call numbers count retries, survive eviction and Clear, and reset for a new request", () => {
+  const inspector = new AgentInspector(1, "session");
+  for (const attempt of [0, 1]) {
+    const current = trace({ attempt });
+    inspector.beginRound(current);
+    inspector.finalizeRound(current, attempt ? "completed" : "invalid_response");
+  }
+  assert.equal(inspector.listRounds()[0]?.callIndex, 2);
+  inspector.clearRounds();
+  const third = trace({ reflection: 1 });
+  inspector.beginRound(third);
+  assert.equal(inspector.status().inProgress[0]?.callIndex, 3);
+  inspector.finalizeRound(third, "completed");
+  const nextRequest = trace({ generationId: 2 });
+  inspector.beginRound(nextRequest);
+  inspector.finalizeRound(nextRequest, "completed");
+  assert.equal(inspector.listRounds()[0]?.callIndex, 1);
+  assert.equal(inspector.listRounds()[0]?.sequence, 4);
 });
 
 test("invalid attempts stay visible and do not mutate a previous snapshot", () => {

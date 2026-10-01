@@ -23,6 +23,8 @@
     searchInput: document.getElementById("searchInput"),
     roundList: document.getElementById("roundList"),
     detailTitle: document.getElementById("detailTitle"),
+    detailMeta: document.getElementById("detailMeta"),
+    detailOutcome: document.getElementById("detailOutcome"),
     detailBody: document.getElementById("detailBody"),
     copyBtn: document.getElementById("copyBtn"),
     tabs: document.getElementById("tabs"),
@@ -101,10 +103,10 @@
         renderDetailShell();
       }
       const agent = status.agent
-        ? ` mode=${status.agent.mode}${status.agent.run ? ` run=${status.agent.run.id}` : ""}`
+        ? ` mode=${status.agent.mode}${status.agent.run ? ` request=${status.agent.run.id}` : ""}`
         : "";
       els.statusLine.textContent =
-        `session ${status.sessionId} · ${status.finalizedCount}/${status.maxRounds} rounds` +
+        `session ${status.sessionId} · ${status.finalizedCount}/${status.maxRounds} calls` +
         (status.inProgressCount
           ? ` · ${status.inProgressCount} in progress`
           : "") +
@@ -153,19 +155,25 @@
     if (!filtered.length) {
       const empty = document.createElement("p");
       empty.className = "empty";
-      empty.textContent = "Aucun round pour l’instant.";
+      empty.textContent = "Aucun call pour l’instant.";
       els.roundList.appendChild(empty);
     } else {
-      for (const round of [...filtered].reverse()) {
+      // Newest request first; calls within a request follow their start order.
+      const ordered = [...filtered].sort((a, b) =>
+        b.generationId - a.generationId || (a.callIndex ?? 0) - (b.callIndex ?? 0),
+      );
+      for (const round of ordered) {
         const button = document.createElement("button");
         button.type = "button";
         button.dataset.id = round.id;
         button.className =
-          "round-item" + (round.id === state.selectedId ? " selected" : "");
+          "round-item" + (round.failed ? " failed" : "") + (round.id === state.selectedId ? " selected" : "");
         button.innerHTML =
-          `<div><strong>${escapeHtml(formatRoundLabel(round))}</strong></div>` +
-          `<div class="meta">${escapeHtml(round.phase)} · ${escapeHtml(round.status)}${round.attempt ? ` · retry ${round.attempt}` : ""}</div>` +
-          `<div class="preview">${escapeHtml(round.preview)}</div>`;
+          `<div class="request-title">${escapeHtml(round.requestTitle ?? `Request ${round.generationId}`)}</div>` +
+          `<div class="meta">${escapeHtml(formatRoundLabel(round))}</div>` +
+          (round.stepLabel ? `<div class="step-label">${escapeHtml(round.stepLabel)}</div>` : "") +
+          `<div class="activity">${escapeHtml(round.activity ?? round.preview)}</div>` +
+          `<div class="outcome${round.failed ? " status-error" : ""}">${escapeHtml(round.outcome ?? round.status)}</div>`;
         button.addEventListener("click", () => {
           void selectRound(round.id, true);
         });
@@ -217,6 +225,12 @@
       round.permission,
       round.status,
       round.preview,
+      round.requestTitle,
+      round.agentLabel,
+      round.stepLabel,
+      round.activity,
+      round.outcome,
+      String(round.callIndex ?? ""),
     ]
       .join(" ")
       .toLowerCase();
@@ -251,14 +265,19 @@
   function renderDetailShell() {
     const round = state.selectedSnapshot;
     if (!round) {
-      els.detailTitle.textContent = "Aucun round sélectionné";
+      els.detailTitle.textContent = "Aucun call sélectionné";
+      els.detailMeta.textContent = "";
+      els.detailOutcome.textContent = "";
+      els.detailOutcome.classList.remove("status-error");
       els.copyBtn.disabled = true;
       els.detailBody.innerHTML =
-        '<p class="empty">Sélectionnez un round pour voir la requête LLM exacte.</p>';
+        '<p class="empty">Sélectionnez un call pour voir la requête LLM exacte.</p>';
       return;
     }
-    els.detailTitle.textContent =
-      `${formatRoundLabel(round)} · ${round.status}`;
+    els.detailTitle.textContent = round.requestTitle ?? `Request ${round.generationId}`;
+    els.detailMeta.textContent = `${formatRoundLabel(round)} · ${round.status}${round.stepLabel ? ` · ${round.stepLabel}` : ""}`;
+    els.detailOutcome.textContent = `${round.activity ?? ""}${round.outcome ? ` — ${round.outcome}` : ""}`;
+    els.detailOutcome.classList.toggle("status-error", Boolean(round.failed));
     els.copyBtn.disabled = false;
     renderDetailBody();
   }
@@ -286,7 +305,7 @@
   function renderRequest(round) {
     const body = round.requestBody;
     if (!body) {
-      return '<p class="empty">Aucune requête LLM enregistrée pour ce round.</p>';
+      return '<p class="empty">Aucune requête LLM enregistrée pour ce call.</p>';
     }
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const tools = Array.isArray(body.tools) ? body.tools : [];
@@ -425,6 +444,8 @@
       phase: round.phase,
       reflection: round.reflection,
       round: round.round,
+      callIndex: round.callIndex,
+      sequence: round.sequence,
       attempt: round.attempt,
       wakeType: round.wakeType,
       permission: round.permission,
@@ -509,8 +530,8 @@
     els.newBadge.classList.remove("hidden");
     els.newBadge.textContent =
       state.unseenCount === 1
-        ? "1 nouveau round"
-        : `${state.unseenCount} nouveaux rounds`;
+        ? "1 nouveau call"
+        : `${state.unseenCount} nouveaux calls`;
   }
 
   async function fetchRounds() {
@@ -529,7 +550,7 @@
   function formatRoundLabel(round) {
     const attempt =
       round.attempt > 0 ? ` · retry ${round.attempt}` : "";
-    return `Run ${round.generationId} · ${round.phase}${attempt}`;
+    return `Request ${round.generationId} · Call ${round.callIndex ?? "?"} · ${round.agentLabel ?? round.phase}${attempt}`;
   }
 
   function formatValue(value) {

@@ -1,4 +1,5 @@
 import type { LLMRequestTrace, LLMResponse } from "../llm/LLMClient";
+import { describeInspectorRound } from "./InspectorPresentation";
 import type {
   InspectorRound,
   InspectorRoundStatus,
@@ -29,6 +30,9 @@ export interface InspectorRoundAnnotation {
 export class AgentInspector {
   private readonly drafts = new Map<string, MutableRound>();
   private readonly finalized: InspectorRound[] = [];
+  private nextSequence = 0;
+  private latestGenerationId: number | null = null;
+  private readonly callCounts = new Map<number, number>();
   readonly sessionId: string;
 
   constructor(
@@ -47,9 +51,14 @@ export class AgentInspector {
     if (existing && existing.status === "in_progress") {
       return id;
     }
+    const callIndex = (this.callCounts.get(input.generationId) ?? 0) + 1;
+    this.callCounts.set(input.generationId, callIndex);
+    this.latestGenerationId = input.generationId;
     const draft: MutableRound = {
       id,
       timestamp: Date.now(),
+      sequence: ++this.nextSequence,
+      callIndex,
       generationId: input.generationId,
       phase: input.phase,
       reflection: input.reflection,
@@ -200,10 +209,11 @@ export class AgentInspector {
     const snapshot = freezeDeep(cloneRound(draft));
     this.drafts.delete(id);
     this.finalized.push(snapshot);
-    this.finalized.sort((a, b) => a.timestamp - b.timestamp);
+    this.finalized.sort((a, b) => a.sequence - b.sequence);
     while (this.finalized.length > this.maxRounds) {
       this.finalized.shift();
     }
+    this.pruneCallCounts();
     return snapshot;
   }
 
@@ -249,6 +259,7 @@ export class AgentInspector {
     }
     const cleared = this.finalized.length;
     this.finalized.length = 0;
+    this.pruneCallCounts();
     return cleared;
   }
 
@@ -263,6 +274,7 @@ export class AgentInspector {
       .map((draft) => ({
         id: draft.id,
         generationId: draft.generationId,
+        callIndex: draft.callIndex,
         phase: draft.phase,
         reflection: draft.reflection,
         round: draft.round,
@@ -296,6 +308,17 @@ export class AgentInspector {
       input.round,
       input.attempt,
     ].join(":");
+  }
+
+  private pruneCallCounts(): void {
+    const retained = new Set([
+      this.latestGenerationId,
+      ...this.finalized.map((round) => round.generationId),
+      ...[...this.drafts.values()].map((round) => round.generationId),
+    ]);
+    for (const generationId of this.callCounts.keys()) {
+      if (!retained.has(generationId)) this.callCounts.delete(generationId);
+    }
   }
 
   private ensureDraft(trace: LLMRequestTrace): MutableRound {
@@ -338,6 +361,8 @@ interface MutableToolExecution {
 interface MutableRound {
   id: string;
   timestamp: number;
+  sequence: number;
+  callIndex: number;
   generationId: number;
   phase: InspectorRound["phase"];
   reflection: number;
@@ -364,6 +389,8 @@ function cloneRound(draft: MutableRound): InspectorRound {
   return {
     id: draft.id,
     timestamp: draft.timestamp,
+    sequence: draft.sequence,
+    callIndex: draft.callIndex,
     generationId: draft.generationId,
     phase: draft.phase,
     reflection: draft.reflection,
@@ -404,6 +431,7 @@ function cloneRound(draft: MutableRound): InspectorRound {
       : { rawResponse: structuredClone(draft.rawResponse) }),
     toolExecutions: structuredClone(draft.toolExecutions),
     ...(draft.error === undefined ? {} : { error: draft.error }),
+    ...describeInspectorRound(draft),
   };
 }
 
@@ -423,17 +451,11 @@ function toTrace(draft: MutableRound): LLMRequestTrace {
 }
 
 function toSummary(round: InspectorRound): InspectorRoundSummary {
-  const preview =
-    round.response?.content?.trim() ||
-    round.error ||
-    (round.response?.toolCalls.length
-      ? `${round.response.toolCalls.length} tool call(s)`
-      : round.request
-        ? `${round.request.messages.length} message(s)`
-        : round.status);
   return {
     id: round.id,
     timestamp: round.timestamp,
+    sequence: round.sequence,
+    callIndex: round.callIndex,
     generationId: round.generationId,
     phase: round.phase,
     reflection: round.reflection,
@@ -442,7 +464,13 @@ function toSummary(round: InspectorRound): InspectorRoundSummary {
     wakeType: round.wakeType,
     permission: round.permission,
     status: round.status,
-    preview: preview.slice(0, 120),
+    preview: `${round.activity} — ${round.outcome}`.slice(0, 160),
+    requestTitle: round.requestTitle,
+    agentLabel: round.agentLabel,
+    ...(round.stepLabel ? { stepLabel: round.stepLabel } : {}),
+    activity: round.activity,
+    outcome: round.outcome,
+    failed: round.failed,
     ...(round.metrics
       ? {
           messageCount: round.metrics.messageCount,

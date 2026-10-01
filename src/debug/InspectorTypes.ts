@@ -16,9 +16,21 @@ export interface InspectorToolExecution {
   readonly ok?: boolean;
 }
 
-export interface InspectorRound {
+export interface InspectorPresentation {
+  readonly requestTitle: string;
+  readonly agentLabel: string;
+  readonly stepLabel?: string;
+  readonly activity: string;
+  readonly outcome: string;
+  readonly failed: boolean;
+}
+
+export interface InspectorRound extends InspectorPresentation {
   readonly id: string;
   readonly timestamp: number;
+  /** Start order, independent of completion order and wall-clock precision. */
+  readonly sequence: number;
+  readonly callIndex: number;
   readonly generationId: number;
   readonly phase: "intent" | "question" | "planning" | "review" | "memory" | "summary" | "coordinator" | "planner" | "actioner_planning" | "actioner_review";
   readonly reflection: number;
@@ -65,9 +77,11 @@ export interface InspectorRound {
   readonly error?: string;
 }
 
-export interface InspectorRoundSummary {
+export interface InspectorRoundSummary extends InspectorPresentation {
   readonly id: string;
   readonly timestamp: number;
+  readonly sequence: number;
+  readonly callIndex: number;
   readonly generationId: number;
   readonly phase: InspectorRound["phase"];
   readonly reflection: number;
@@ -96,6 +110,7 @@ export interface InspectorStatus {
   readonly inProgress: readonly {
     readonly id: string;
     readonly generationId: number;
+    readonly callIndex: number;
     readonly phase: InspectorRound["phase"];
     readonly reflection: number;
     readonly round: number;

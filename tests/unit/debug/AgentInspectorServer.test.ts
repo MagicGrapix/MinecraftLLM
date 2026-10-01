@@ -43,6 +43,8 @@ test("inspector HTTP routes serve compact list, detail, UI, and status", async (
     const list = await fetchJson(`${server.url}/api/rounds`);
     assert.equal(list.rounds.length, 1);
     assert.equal(list.rounds[0].id, snapshot.id);
+    assert.equal(list.rounds[0].callIndex, 1);
+    assert.equal(list.rounds[0].requestTitle, "build a table");
     assert.equal("requestBody" in list.rounds[0], false);
 
     const detail = await fetchJson(
@@ -50,6 +52,8 @@ test("inspector HTTP routes serve compact list, detail, UI, and status", async (
     );
     assert.equal(detail.request.messages[0].content, "build a table");
     assert.equal(detail.response.usage.totalTokens, 4);
+    assert.equal(detail.callIndex, list.rounds[0].callIndex);
+    assert.equal(detail.requestTitle, list.rounds[0].requestTitle);
 
     const missing = await fetch(`${server.url}/api/rounds/missing`);
     assert.equal(missing.status, 404);

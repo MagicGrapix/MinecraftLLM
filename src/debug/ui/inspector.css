@@ -96,7 +96,7 @@ button:disabled {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) 1fr;
+  grid-template-columns: minmax(280px, 380px) 1fr;
   min-height: 0;
   flex: 1;
 }
@@ -158,6 +158,54 @@ button:disabled {
 .round-item.selected {
   border-color: var(--accent);
   background: #243146;
+}
+
+.round-item.failed {
+  border-color: var(--danger);
+  background: #302127;
+}
+
+.round-item.failed.selected {
+  border-left: 4px solid var(--accent);
+}
+
+.round-item.failed:hover {
+  border-color: var(--danger);
+}
+
+.round-item .request-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.round-item .step-label,
+.round-item .outcome,
+.sidebar-help,
+.detail-heading p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.round-item .activity {
+  font-family: Consolas, "Courier New", monospace;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.round-item .outcome.status-error,
+.detail-heading p.status-error {
+  color: var(--danger);
+}
+
+.detail-heading {
+  min-width: 0;
+}
+
+.detail-heading h2 {
+  overflow-wrap: anywhere;
 }
 
 .round-item .meta {

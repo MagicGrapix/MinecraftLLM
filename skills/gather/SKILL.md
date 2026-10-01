@@ -33,9 +33,13 @@ from currently known chunks, such as logs or stone.
 Work in short horizons. For each known block target:
 
 1. Use `get_capability_schemas` for any TaskSpec you will create.
-2. Use `set_plan` to prepare a short sequence, usually `goto` near the block,
+2. Use `set_plan` to prepare a short sequence, usually `goto` with `goal: "interact"` at the observed block position,
    optional `equip` if an appropriate tool is in inventory, then `dig` at the
    block's observed position.
+   This goal finds a reachable visible face; do not invent feet coordinates or
+   navigate underground to the supporting dirt. `goto` may clear obstacles and
+   build using dirt/cobblestone already in inventory. It protects the target block.
+   Use `canDig: false` / `canPlace: false` when terrain must remain unchanged.
 3. Call `continue_plan` to execute the next task. After each TaskResult, inspect
    the new state and decide whether to continue, replace the plan, or finish.
 4. After digging, check `get_inventory`. A successful `dig` only proves the block
@@ -54,7 +58,7 @@ Never invent coordinates. Every position must come from a World Query.
 ## Error handling
 
 - `TARGET_NOT_FOUND` or `WORLD_CHANGED`: call `find_nearest_blocks` again because the observation is stale.
-- `NO_PATH`: inspect the path diagnostics and choose a reachable target or
+- `NO_PATH`: inspect the path diagnostics and movement policy, including available scaffolding, and choose a reachable target or
   report the obstruction instead of repeating the same task.
 - `OUT_OF_REACH`: add or correct a `goto` task.
 - `MISSING_ITEM` from `equip`: continue without a tool if the resource remains gatherable; otherwise

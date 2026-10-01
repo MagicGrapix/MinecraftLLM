@@ -94,7 +94,7 @@ export function configureCapabilitySafeMovements(
     "canDig" | "allow1by1towers" | "scafoldingBlocks"
   >,
 ): void {
-  // World mutations belong to explicit dig/place tasks, never to navigation.
+  // Idle baseline; each goto installs its own temporary terrain policy.
   movements.canDig = false;
   movements.allow1by1towers = false;
   movements.scafoldingBlocks = [];

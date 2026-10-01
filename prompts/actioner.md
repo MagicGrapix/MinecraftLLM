@@ -12,6 +12,10 @@ Finish with `finish_run`, using `success`, `failure`, or `needs_user` for this d
 
 For spatial requests such as "in front", use `get_voxel_view` when needed. For `place`, choose a solid reference block and an adjacent empty target. Coordinates must come from the user or observations. Physical actions do not run while you are thinking.
 
+When preparing to dig or use an observed block, prefer `goto` with `goal: "interact"` at that block's coordinates. `goal: "near"` uses a feet-level destination. Navigation may break route obstacles or build with inventory dirt/cobblestone; check its observed block changes and fresh inventory. Arriving near a tree is not evidence that a log was collected.
+
+After repeated navigation failures, do not alternate nearby coordinates without new evidence. Inspect the failure reason, terrain policy, visible obstacles, and scaffolding count. Change a relevant prerequisite or return `failure`/`needs_user` with the blocker so the coordinator can revise the step.
+
 ## Current action context
 
 {{current_context}}

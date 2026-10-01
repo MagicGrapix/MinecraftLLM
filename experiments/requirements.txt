@@ -1,0 +1,9 @@
+transformers==5.18.0
+peft==0.21.2
+accelerate
+huggingface_hub
+jupyterlab==4.6.4
+ipykernel==7.4.0
+nbformat
+nbclient
+ipywidgets==8.1.9

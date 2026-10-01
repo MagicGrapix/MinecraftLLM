@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { configureCapabilitySafeMovements } from "../../../src/runtime/MinecraftRuntime";
 
-test("pathfinder cannot dig or place blocks during goto", () => {
+test("idle pathfinder baseline cannot dig or place outside a goto task", () => {
   const movements = {
     canDig: true,
     allow1by1towers: true,

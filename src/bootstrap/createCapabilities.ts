@@ -23,7 +23,7 @@ export function createCapabilityRegistry(
   register(
     registry,
     new GotoCapability(),
-    "Move near an explicit position. Requires a path and does not alter blocks.",
+    "Navigate near a feet-level position or use goal=interact to approach a visible block face within reach. Can dig route obstacles and scaffold with inventory dirt/cobblestone; never digs the target or collects its drop.",
   );
   register(
     registry,

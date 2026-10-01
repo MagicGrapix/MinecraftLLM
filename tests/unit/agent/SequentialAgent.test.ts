@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { AgentContextBuilder } from "../../../src/agent/AgentContextBuilder";
 import { MemoryUpdater } from "../../../src/agent/MemoryUpdater";
 import { SequentialAgent } from "../../../src/agent/SequentialAgent";
@@ -19,6 +20,20 @@ import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 import type { CapabilityRegistry } from "../../../src/capabilities/CapabilityRegistry";
 import type { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
+
+test("inspector marks continue_plan as failed when its physical TaskResult failed", async () => {
+  const inspector = new AgentInspector();
+  const { agent, llm, executor } = createHarness({ noMemory: true, inspector });
+  enqueueDecision(llm, "set_plan", { tasks: [{ capability: "goto", input: { position: { x: 3, y: -60, z: 0 } } }] });
+  enqueueDecision(llm, "continue_plan", {});
+  executor.enqueue(failure("NO_PATH", "Blocked route."));
+  enqueueDecision(llm, "finish_run", { status: "failure", message: "No accessible route." });
+  const report = await agent.runDelegatedStep("Approach a log.");
+  assert.equal(report.status, "failure");
+  const rounds = inspector.listRounds().map((round) => inspector.getRound(round.id)!);
+  const execution = rounds.flatMap((round) => round.toolExecutions).find((row) => row.name === "continue_plan");
+  assert.equal(execution?.ok, false);
+});
 
 test("question run answers, updates memory, then returns to idle", async () => {
   const { agent, llm, replies } = createHarness();
@@ -329,6 +344,7 @@ function createHarness(
     maxConsecutivePlansWithoutAction?: number;
     noMemory?: boolean;
     toolReplayMode?: "native" | "compact";
+    inspector?: AgentInspector;
   } = {},
 ): {
   agent: SequentialAgent;
@@ -384,6 +400,7 @@ function createHarness(
     temperature: 0,
     maxTokens: 200,
     toolReplayMode: options.toolReplayMode,
+    inspector: options.inspector,
     respond: async (message) => {
       replies.push(message);
     },

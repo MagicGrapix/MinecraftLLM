@@ -800,7 +800,10 @@ export class SequentialAgent {
       this.transcript.appendExchange(pending.message, [{ role: "tool", toolCallId: call.id, content }]);
     }
     this.options.inspector?.recordToolStarted(pending.trace, { toolCallId: call.id, name: call.name, arguments: call.arguments });
-    this.options.inspector?.recordToolCompleted(pending.trace, { toolCallId: call.id, name: call.name, arguments: call.arguments, result: content, ok: !(typeof result === "object" && result !== null && "ok" in result && result.ok === false) });
+    const taskResult = typeof result === "object" && result !== null && "result" in result
+      ? result.result : result;
+    const ok = !(typeof taskResult === "object" && taskResult !== null && "ok" in taskResult && taskResult.ok === false);
+    this.options.inspector?.recordToolCompleted(pending.trace, { toolCallId: call.id, name: call.name, arguments: call.arguments, result: content, ok });
     this.options.inspector?.finalizeRound(pending.trace, "completed");
   }
 

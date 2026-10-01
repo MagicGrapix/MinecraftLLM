@@ -1,5 +1,6 @@
 import { stringify } from "yaml";
 import type { LLMMessage } from "../llm/LLMClient";
+import { promptNumbers } from "./PromptNumberFormatter";
 
 /** Presentation only: execution and debug traces keep the original calls/results. */
 export function compactToolExchange(
@@ -9,7 +10,7 @@ export function compactToolExchange(
   const calls = message.toolCalls!;
   const records = calls.map((call, index) => ({
     tool: call.name,
-    arguments: parseData(call.arguments),
+    arguments: promptNumbers(parseData(call.arguments)),
     result: parseData(results[index]!.content),
   }));
   const only = records.length === 1 ? records[0] : undefined;

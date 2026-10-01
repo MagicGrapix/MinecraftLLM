@@ -37,6 +37,31 @@ test("history rejects malformed exchanges and retry feedback is internal", () =>
   assert.match(messages[0]!.content!, /Invalid field/);
 });
 
+test("native and compact tool results round presentation but keep schemas and original calls exact", () => {
+  for (const mode of ["native", "compact"] as const) {
+    const history = new MessageHistory(20, 30_000, mode);
+    const args = { position: { x: 10.53869625851037, y: -60, z: 4 } };
+    const raw = { ok: true, value: { ...args, health: 14.833333969116211, count: 1 } };
+    const response = { role: "assistant" as const, content: null, toolCalls: [{ id: "a", name: "get_self", arguments: JSON.stringify(args) }] };
+    const result = { role: "tool" as const, toolCallId: "a", content: JSON.stringify(raw) };
+    const before = structuredClone({ response, result });
+    history.appendExchange(response, [result]);
+    const native = JSON.parse(history.snapshot().messages.at(-1)!.content!);
+    assert.equal(native.value.position.x, 10.54);
+    assert.equal(native.value.health, 14.83);
+    assert.equal(native.value.count, 1);
+    const schema = { ok: true, value: { inputSchema: { minimum: 0.0001, multipleOf: 0.0001 } } };
+    history.appendExchange({ role: "assistant", content: null, toolCalls: [{ id: "s", name: "get_capability_schemas", arguments: '{"names":["goto"]}' }] }, [{ role: "tool", toolCallId: "s", content: JSON.stringify(schema) }]);
+    assert.deepEqual(JSON.parse(history.snapshot().messages.at(-1)!.content!), schema);
+    if (mode === "compact") {
+      const older = parse(history.snapshot().messages[0]!.content!.split("\n").slice(1).join("\n"));
+      assert.equal(older.arguments.position.x, 10.54);
+      assert.equal(older.result.value.position.x, 10.54);
+    }
+    assert.deepEqual({ response, result }, before);
+  }
+});
+
 test("compact replay keeps the latest exchange native and preserves older arguments and results", () => {
   const history = new MessageHistory(20, 30_000, "compact");
   const args = { position: { x: -2.5, y: -60, z: 3 }, expected: "oak_log" };

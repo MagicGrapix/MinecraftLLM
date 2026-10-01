@@ -7,6 +7,7 @@ import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { WorldQueries } from "../world/WorldQueries";
 import type { InventoryState, SelfState } from "../world/types";
 import { formatWorldContext } from "./WorldContextFormatter";
+import { promptNumbers } from "./PromptNumberFormatter";
 import type { AgentPermissionMode } from "./AgentToolBridge";
 
 export type AgentReflectionPhase = "question" | "planning" | "review";
@@ -88,7 +89,7 @@ export class AgentContextBuilder {
       {
         role: "system",
         content: this.dependencies.systemPrompt.render({
-          current_context: JSON.stringify(actionContext, null, 2),
+          current_context: JSON.stringify(promptNumbers(actionContext), null, 2),
           world_context: formatWorldContext({ self, inventory, landmarks: pinnedLandmarks }),
         }),
       },

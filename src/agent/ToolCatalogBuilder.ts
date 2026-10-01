@@ -30,7 +30,7 @@ export const fixedToolSchemas = {
     .object({ tasks: z.array(TaskEnvelopeSchema).min(1) })
     .strict(),
   continue_plan: EmptySchema,
-  finish_run: z
+  finish_step: z
     .object({
       status: z.enum(["success", "failure", "needs_user"]),
       message: z.string().trim().min(1).max(1_000),
@@ -49,8 +49,8 @@ const fixedDescriptions: Record<keyof typeof fixedToolSchemas, string> = {
     "Create or replace remaining TaskSpecs. This saves a plan but never starts an action.",
   continue_plan:
     "Authorize exactly the next existing TaskSpec after reviewing current state.",
-  finish_run:
-    "Finish explicitly, clear remaining tasks, and report success, failure, or a need for user input.",
+  finish_step:
+    "Finish the delegated step, clear its remaining tasks, and return a report to the coordinator. This does not complete the checklist or the overall user request.",
 };
 
 const readToolNames = new Set([
@@ -63,7 +63,7 @@ const readToolNames = new Set([
 export const decisionToolNames = new Set([
   "set_plan",
   "continue_plan",
-  "finish_run",
+  "finish_step",
 ]);
 
 export class ToolCatalogBuilder {

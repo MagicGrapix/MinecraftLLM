@@ -34,6 +34,8 @@ test("all runtime agent prompts load from Markdown and render", async () => {
     world_context: "Inventory: empty.",
   });
   assert.match(system, /Minecraft Action Agent/);
+  assert.match(system, /finish_step/);
+  assert.doesNotMatch(system, /finish_run/);
   assert.match(system, /"mode":"idle"/);
   const values = { task_context: "No plan yet.", task_summary_section: "", world_context: "Inventory: empty." };
   const coordinator = prompts.coordinator.render(values);
@@ -41,7 +43,8 @@ test("all runtime agent prompts load from Markdown and render", async () => {
   assert.match(coordinator, /## Task Context\s+No plan yet\.\s+## World Context/);
   assert.doesNotMatch(coordinator, /## Instruction|## Task Summary|task\.objective|runtime_context/);
   const planner = prompts.planner.render({ ...values, instruction: "Plan one log collection." });
-  assert.match(planner, /Do not assign IDs/);
+  assert.match(planner, /Reply with exactly one JSON object/);
+  assert.match(planner, /"steps":\[\{"title":/);
   assert.match(planner, /## Instruction\s+Plan one log collection\./);
   assert.doesNotMatch(planner, /task\.objective|runtime_context/);
   assert.match(system, /## World Context\s+Current snapshot/);

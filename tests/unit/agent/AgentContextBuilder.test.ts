@@ -30,7 +30,7 @@ test("context includes objective, memory, inventory, last result, and remaining 
       input: { item: "oak_planks" },
       createdAt: 1,
     },
-    lastResult: { ok: true, value: { item: "oak_planks", count: 4 } },
+    lastResult: { ok: true, value: { item: "oak_planks", count: 4, distance: 10.53869625851037 } },
     remainingPlan: [{ capability: "place", input: { item: "crafting_table" } }],
     instruction: "Review the latest TaskResult.",
   });
@@ -41,17 +41,19 @@ test("context includes objective, memory, inventory, last result, and remaining 
     objective: string;
     workingMemory: string;
     remainingPlan: unknown[];
-    lastResult: { ok: boolean };
+    lastResult: { ok: boolean; value: { distance: number } };
     capabilities: { name: string }[];
   };
   assert.equal(context.objective, "craft a table");
   assert.equal(context.workingMemory, "Crafted planks.");
   assert.equal(context.remainingPlan.length, 1);
   assert.equal(context.lastResult.ok, true);
+  assert.equal(context.lastResult.value.distance, 10.54);
+  assert.deepEqual(built.snapshot.lastResult, { ok: true, value: { item: "oak_planks", count: 4, distance: 10.53869625851037 } });
   assert.equal(context.capabilities[0]?.name, "dig");
   assert.equal(built.messages[1]?.role, "assistant");
   assert.equal(built.messages[2]?.role, "user");
-  assert.match(system.content, /Inventory: empty/);
+  assert.match(system.content, /Bot inventory: empty/);
   assert.match(system.content, /"table": crafting_table at \(3, -60, 1\) in overworld; stale/);
   assert.equal("inventory" in context, false);
   assert.deepEqual(built.snapshot.inventory, { items: [], selectedItem: null });

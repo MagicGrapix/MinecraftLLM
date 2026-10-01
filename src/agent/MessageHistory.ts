@@ -1,5 +1,6 @@
 import type { LLMMessage } from "../llm/LLMClient";
 import { compactToolExchange } from "./ToolReplayFormatter";
+import { promptNumbers } from "./PromptNumberFormatter";
 
 export const PINNED_MESSAGE_COUNT = 2;
 export type ToolReplayMode = "native" | "compact";
@@ -29,7 +30,16 @@ export class MessageHistory {
       results.some((result, index) => result.toolCallId !== ids[index])) {
       throw new Error("Tool exchange must contain exactly one matching result per call, in order.");
     }
-    this.add([message, ...results]);
+    const presentedResults = results.map((result, index) => {
+      // Schemas are exact execution contracts, not world-state presentation.
+      if (message.toolCalls![index]!.name === "get_capability_schemas") return result;
+      try {
+        return { ...result, content: JSON.stringify(promptNumbers(JSON.parse(result.content))) };
+      } catch {
+        return result;
+      }
+    });
+    this.add([message, ...presentedResults]);
   }
 
   snapshot(): { messages: LLMMessage[]; omitted: number } {

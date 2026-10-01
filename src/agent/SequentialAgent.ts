@@ -393,7 +393,7 @@ export class SequentialAgent {
           this.recordDecisionResult({ ok: true, value: { remainingPlan: run.remainingTasks } });
           continue;
         }
-        if (decision.type === "finish_run") {
+        if (decision.type === "finish_step") {
           this.options.runner.clear();
           run.remainingTasks = [];
           this.recordDecisionResult({ ok: true, value: { status: decision.status, message: decision.message } });

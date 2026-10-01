@@ -79,9 +79,9 @@ export class AgentToolBridge {
       }
       case "continue_plan":
         return { type: "continue_plan" };
-      case "finish_run":
+      case "finish_step":
         return {
-          type: "finish_run",
+          type: "finish_step",
           status: input.status as "success" | "failure" | "needs_user",
           message: input.message as string,
         };

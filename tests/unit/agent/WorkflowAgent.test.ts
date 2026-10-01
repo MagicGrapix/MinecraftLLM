@@ -26,7 +26,7 @@ test("coordinator native tools exclude capabilities and world state is injected 
     assert.deepEqual(request.messages.map((m) => m.role), ["system", "assistant", "user"]);
     assert.equal(request.messages[2]?.content, "Inventory?");
     assert.match(request.messages[1]!.content!, /Previous conversation summary: empty/);
-    assert.match(request.messages[0]!.content!, /## World Context\nPosition:/);
+    assert.match(request.messages[0]!.content!, /## World Context\nBot position:/);
     assert.equal(section(request.messages, "Task Context"), "No plan yet.");
     assert.equal(section(request.messages, "Task Summary"), undefined);
     assert.equal(section(request.messages, "Instruction"), undefined);
@@ -94,13 +94,33 @@ test("each coordinator call gets a fresh compact world snapshot while debug keep
     tool(h.llm, "reply", { outcome: "answer", message: "Two logs." });
     h.agent.submitUserMessage("owner", "Check inventory.");
     await idle(h.agent);
-    assert.match(h.llm.requests[0]!.messages[0]!.content!, /Inventory: oak_log x1/);
+    assert.match(h.llm.requests[0]!.messages[0]!.content!, /Bot inventory: oak_log x1/);
     const latest = h.llm.requests[1]!;
-    assert.match(latest.messages[0]!.content!, /Inventory: oak_log x2/);
+    assert.match(latest.messages[0]!.content!, /Bot inventory: oak_log x2/);
     assert.doesNotMatch(latest.messages[0]!.content!, /oak_log x1|displayName|metadata|slot/);
     const raw = latest.trace!.contextSnapshot as { world: { inventory: { items: { slot: number; count: number }[] } } };
     assert.equal(raw.world.inventory.items[0]!.slot, 36);
     assert.equal(raw.world.inventory.items[0]!.count, 2);
+  } finally { await h.close(); }
+});
+
+test("world observations sent to the coordinator use two decimals while inspector traces stay exact", async () => {
+  const h = await harness();
+  try {
+    const rawSelf = { ...h.world.getSelf(), position: { x: 10.53869625851037, y: -60, z: 4.688901945948571 }, health: 14.833333969116211 };
+    h.world.getSelf = () => rawSelf;
+    tool(h.llm, "get_self", {});
+    tool(h.llm, "reply", { outcome: "answer", message: "Observed." });
+    h.agent.submitUserMessage("owner", "Where are you?");
+    await idle(h.agent);
+    const latest = h.llm.requests[1]!;
+    assert.match(latest.messages[0]!.content!, /Bot position: \(10\.54, -60, 4\.69\)/);
+    assert.match(latest.messages[0]!.content!, /Bot health: 14\.83/);
+    const observed = JSON.parse(latest.messages.at(-1)!.content!).value;
+    assert.equal(observed.position.x, 10.54);
+    const execution = h.inspector.listRounds().flatMap((row) => h.inspector.getRound(row.id)!.toolExecutions).find((row) => row.name === "get_self")!;
+    assert.equal(JSON.parse(execution.result!).value.position.x, 10.53869625851037);
+    assert.equal(rawSelf.position.x, 10.53869625851037);
   } finally { await h.close(); }
 });
 

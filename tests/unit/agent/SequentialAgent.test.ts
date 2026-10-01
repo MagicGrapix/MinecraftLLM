@@ -27,7 +27,7 @@ test("inspector marks continue_plan as failed when its physical TaskResult faile
   enqueueDecision(llm, "set_plan", { tasks: [{ capability: "goto", input: { position: { x: 3, y: -60, z: 0 } } }] });
   enqueueDecision(llm, "continue_plan", {});
   executor.enqueue(failure("NO_PATH", "Blocked route."));
-  enqueueDecision(llm, "finish_run", { status: "failure", message: "No accessible route." });
+  enqueueDecision(llm, "finish_step", { status: "failure", message: "No accessible route." });
   const report = await agent.runDelegatedStep("Approach a log.");
   assert.equal(report.status, "failure");
   const rounds = inspector.listRounds().map((round) => inspector.getRound(round.id)!);
@@ -56,7 +56,7 @@ test("question run answers, updates memory, then returns to idle", async () => {
 test("delegated action skips intent routing and returns a private report", async () => {
   const { agent, llm, replies, workingMemory } = createHarness({ noMemory: true });
   workingMemory.replace("stale context from an earlier delegation");
-  enqueueDecision(llm, "finish_run", { status: "success", message: "Step verified." });
+  enqueueDecision(llm, "finish_step", { status: "success", message: "Step verified." });
 
   const report = await agent.runDelegatedStep("Collect one log.", {
     generationId: 42,
@@ -82,7 +82,7 @@ test("actioner keeps a bounded transcript across actions and clears it between d
     enqueueDecision(llm, "continue_plan", {});
     executor.enqueue(success({ block: `observed_${i}` }));
   }
-  enqueueDecision(llm, "finish_run", { status: "success", message: "All twelve tasks done." });
+  enqueueDecision(llm, "finish_step", { status: "success", message: "All twelve tasks done." });
   const report = await agent.runDelegatedStep("Distinct first delegation.");
   assert.equal(report.outcomes.length, 12);
   assert.equal(executor.started.length, 12);
@@ -107,7 +107,7 @@ test("actioner keeps a bounded transcript across actions and clears it between d
     assert.equal(pending.length, 0);
   }
   const beforeSecond = requests.length;
-  enqueueDecision(llm, "finish_run", { status: "needs_user", message: "Need a target." });
+  enqueueDecision(llm, "finish_step", { status: "needs_user", message: "Need a target." });
   await agent.runDelegatedStep("Distinct second delegation.");
   const fresh = llm.requests[beforeSecond]!;
   assert.equal(fresh.messages.length, 3);
@@ -125,7 +125,7 @@ test("set_plan does not execute and continue_plan runs exactly one task", async 
   enqueueMemory(llm, "Authorized first dig.");
   executor.enqueue(success({ block: "dirt" }));
   enqueueMemory(llm, "Dug the dirt.");
-  enqueueDecision(llm, "finish_run", {
+  enqueueDecision(llm, "finish_step", {
     status: "success",
     message: "The hole is ready.",
   });
@@ -145,7 +145,7 @@ test("actioner compact replay includes actual TaskResults and clears between del
   enqueueDecision(llm, "set_plan", { tasks: [{ capability: "dig", input: { position: { x: 1, y: 2, z: 3 } } }] });
   enqueueDecision(llm, "continue_plan", {});
   executor.enqueue(failure("NO_PATH", "Target unreachable.", { retryable: true, facts: { distance: 8 } }));
-  enqueueDecision(llm, "finish_run", { status: "failure", message: "Cannot reach target." });
+  enqueueDecision(llm, "finish_step", { status: "failure", message: "Cannot reach target." });
   const report = await agent.runDelegatedStep("Try the observed log.");
   assert.equal(report.status, "failure");
   assert.equal(executor.started.length, 1);
@@ -155,7 +155,7 @@ test("actioner compact replay includes actual TaskResults and clears between del
   assert.match(review.at(-1)!.content!, /"distance":8/);
   assert.ok(review.some((m) => m.role === "assistant" && m.content?.includes("tool: set_plan")));
   assert.ok(review.some((m) => m.role === "assistant" && m.toolCalls?.[0]?.name === "continue_plan"));
-  enqueueDecision(llm, "finish_run", { status: "needs_user", message: "Waiting." });
+  enqueueDecision(llm, "finish_step", { status: "needs_user", message: "Waiting." });
   await agent.runDelegatedStep("New delegation.");
   assert.doesNotMatch(JSON.stringify(llm.requests.at(-1)!.messages), /NO_PATH|Try the observed log/);
 });
@@ -201,7 +201,7 @@ test("invalid responses retry without side effects then recover", async () => {
     tasks: [{ capability: "dig", input: { position: { x: 1, y: 2, z: 3 } } }],
   });
   enqueueMemory(llm, "Plan saved after a retry.");
-  enqueueDecision(llm, "finish_run", {
+  enqueueDecision(llm, "finish_step", {
     status: "needs_user",
     message: "I need a closer look before digging.",
   });
@@ -242,7 +242,7 @@ test("stop and resume review the interrupted task instead of auto-retrying", asy
   assert.equal(executor.started.length, 1);
 
   enqueueMemory(llm, "Dig was interrupted.");
-  enqueueDecision(llm, "finish_run", {
+  enqueueDecision(llm, "finish_step", {
     status: "failure",
     message: "I stopped before finishing the dig.",
   });
@@ -273,7 +273,7 @@ test("LLM never runs while a capability is executing", async () => {
   assert.equal(llm.maxConcurrentRequests, 1);
 
   enqueueMemory(llm, "Task finished, awaiting review.");
-  enqueueDecision(llm, "finish_run", {
+  enqueueDecision(llm, "finish_step", {
     status: "success",
     message: "Done.",
   });
@@ -431,10 +431,10 @@ function stubBridge() {
       if (call.name === "continue_plan") {
         return { kind: "decision", decision: { type: "continue_plan" } };
       }
-      if (call.name === "finish_run") {
+      if (call.name === "finish_step") {
         return {
           kind: "decision",
-          decision: { type: "finish_run", ...JSON.parse(call.arguments) },
+          decision: { type: "finish_step", ...JSON.parse(call.arguments) },
         };
       }
       throw new Error(`Unknown tool ${call.name}`);

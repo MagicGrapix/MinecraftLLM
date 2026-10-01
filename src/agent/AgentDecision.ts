@@ -6,7 +6,7 @@ export type AgentDecision =
   | { readonly type: "set_plan"; readonly tasks: readonly TaskSpec[] }
   | { readonly type: "continue_plan" }
   | {
-      readonly type: "finish_run";
+      readonly type: "finish_step";
       readonly status: AgentFinishStatus;
       readonly message: string;
     };

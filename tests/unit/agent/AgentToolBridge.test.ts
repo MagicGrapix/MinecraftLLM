@@ -114,7 +114,12 @@ test("readonly catalog hides terminal decisions", async () => {
     assert.equal(readonlyTools.includes("set_plan"), false);
     assert.equal(actionTools.includes("set_plan"), true);
     assert.equal(actionTools.includes("continue_plan"), true);
-    assert.equal(actionTools.includes("finish_run"), true);
+    assert.equal(actionTools.includes("finish_step"), true);
+    assert.equal(actionTools.includes("finish_run"), false);
+    assert.equal(readonlyTools.includes("finish_step"), false);
+    const finished = bridge.validateResponseCalls([{ id: "finish", name: "finish_step", arguments: '{"status":"success","message":"Step verified."}' }], "action");
+    assert.deepEqual(finished, { kind: "decision", decision: { type: "finish_step", status: "success", message: "Step verified." } });
+    assert.throws(() => bridge.parseDecision({ id: "old", name: "finish_run", arguments: '{"status":"success","message":"Old name."}' }), ModelResponseError);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

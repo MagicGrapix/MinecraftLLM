@@ -52,7 +52,7 @@ class RequirementsAndExecution(unittest.TestCase):
         def wait(*args):
             return {"action": "wait", "probabilities": {"wait": 1.0},
                     "model_ms": 1, "input_tokens": 1}
-        result = run_episode(SimulatedWorld(), wait, no_progress_limit=3)
+        result = run_episode(SimulatedWorld(), wait, no_progress_limit=3, include_wait=True)
         self.assertEqual(result["status"], "no_progress")
         self.assertEqual(result["decisions"], 3)
 
@@ -66,6 +66,19 @@ class RequirementsAndExecution(unittest.TestCase):
         self.assertFalse(world.execute("chop_log")["valid"])
         self.assertEqual(world.trees[1].logs, before)
         self.assertEqual(world.dropped_logs, {})
+
+    def test_visible_tree_is_observed_before_selection(self):
+        state = SimulatedWorld().observe(WoodRequirement(10))
+        self.assertIsNone(state["selected_tree_distance"])
+        self.assertEqual(state["visible_trees"], [{"distance": 4, "remaining_logs": 5, "selected": False}])
+
+    def test_sole_legal_transitions_need_no_model(self):
+        def forbidden(*args):
+            raise AssertionError("A sole legal action does not need model scoring")
+        result = run_episode(SimulatedWorld(trees=[Tree(4, 1)]), forbidden, 1)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["model_calls"], 0)
+        self.assertEqual(result["forced_transitions"], 4)
 
 
 if __name__ == "__main__":

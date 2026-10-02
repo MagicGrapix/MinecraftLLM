@@ -34,6 +34,13 @@ Par exemple, couper exige un arbre à portée et ramasser exige des objets proch
 L'arrêt est une vérification d'inventaire, exécutée avant chaque appel et après
 chaque action. Jev n'a pas besoin de confirmer un comptage que le code peut faire.
 
+Le mode strict ne propose pas `wait` quand aucun événement ne peut faire évoluer
+le monde : toutes les actions de cette simulation sont atomiques. Avec
+`include_wait=True`, on peut observer les blocages dus à l'attente. Si une seule
+action est admissible, `skip_single_choice=True` l'exécute sans appel modèle.
+La trace indique explicitement `sole_legal_action` ou `jev`. Ces transitions
+forcées ne démontrent aucune compétence du modèle.
+
 `collect_new` signifie ramasser N bûches supplémentaires. `inventory_total`
 signifie atteindre N bûches en tout. Les planches et les objets au sol ne comptent
 pas. `LOG_ITEMS` définit les espèces acceptées ; ce prototype utilise du chêne.
@@ -47,6 +54,13 @@ mesure ni les mobs, ni la physique de Minecraft, ni le pathfinding ou la latence
 du serveur. Une réussite ici ne prouve pas que le bot réel fonctionne. Pour
 passer au jeu, un adaptateur séparé devra implémenter observation et exécution
 sans importer les actions du projet parent.
+
+Le premier essai avec attente libre s'est bloqué sans ramasser de bûches.
+L'ajout des arbres visibles à l'observation n'a pas suffi ; le modèle préférait
+encore attendre, en JSON comme en texte court. Le notebook conserve ce contrôle
+en plus du mode strict. Sur cette tâche simple, le graphe et l'exigence
+déterministe peuvent assurer l'essentiel du comportement. Il faut comparer les
+résultats à la règle fixe pour évaluer l'intérêt réel du modèle.
 
 ## Coût des requêtes
 
@@ -91,3 +105,29 @@ conservent les probabilités, les actions, l'inventaire et les échecs observés
 
 Source du format et de la limite :
 [fiche de guoan1/jev-qwen35-08b](https://huggingface.co/guoan1/jev-qwen35-08b).
+
+## Résultats observés le 2 octobre 2026
+
+Sur un **AMD Ryzen 7 9800X3D, 8 threads, CPU float32**, après chauffe et avec
+cinq répétitions par cas : oui/non de 128 tokens à 324 ms ; 4 candidats de
+128 tokens à 1 150 ms ; 4 candidats de 256 tokens à 2 301 ms ; 8 candidats de
+768 tokens à 13 705 ms. Les requêtes longues et les candidats supplémentaires
+augmentent nettement le coût. Les mesures concernent le runtime actuel avec
+les implémentations PyTorch de repli des couches DeltaNet.
+
+Le mode strict a obtenu 10 nouvelles bûches en 22 étapes, dont 10 appels Jev
+et 12 transitions forcées, pour environ 11,1 s d'inférence. Avec 3 bûches au
+départ et une demande de 10 nouvelles bûches, il s'est arrêté à 13. Avec 10
+bûches déjà présentes et un objectif de 10 au total, aucun appel modèle n'a eu
+lieu. Avec seulement 2 bûches disponibles pour une demande de 3, il s'est arrêté
+en échec `no_resources` à 2 bûches.
+
+L'attente libre reste un échec à 0 bûche après 6 décisions. Dans les sondes
+d'arrêt, le modèle ne choisit pas `stop` à 10 ou 11 bûches et sa probabilité
+oui/non d'atteinte de l'objectif reste inférieure à 0,04 sur ces deux états.
+Ces quelques cas ne constituent pas une évaluation générale du modèle, mais
+ils montrent pourquoi le comptage et l'arrêt doivent rester déterministes ici.
+
+La réussite du mode strict ne démontre pas une planification autonome : le
+graphe contraint fortement la tâche. La règle fixe résout aussi cette simulation,
+sans coût d'inférence. Les deux parcours et les probabilités restent consultables.

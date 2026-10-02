@@ -95,6 +95,10 @@ class SimulatedWorld:
 
     def observe(self, requirement):
         tree = self.target()
+        visible = [{"distance": abs(t.x - self.position), "remaining_logs": t.logs,
+                    "selected": i == self.selected_tree}
+                   for i, t in enumerate(self.trees)
+                   if t.logs > 0 and abs(t.x - self.position) <= 6]
         return {
             "task": f"Obtain {requirement.quantity} " +
                     ("NEW logs beyond the starting inventory." if requirement.mode == "collect_new"
@@ -105,7 +109,9 @@ class SimulatedWorld:
             "remaining_logs_to_collect": max(0, requirement.target_total - count_logs(self.inventory)),
             "selected_tree_distance": abs(tree.x - self.position) if tree else None,
             "selected_tree_remaining_logs": tree.logs if tree else 0,
+            "visible_trees": visible,
             "nearby_dropped_log_items": self.nearby_drops(),
+            "world_changes_without_actions": False,
             "last_action": self.last_action, "last_effect": self.last_effect,
         }
 
@@ -169,9 +175,29 @@ class SimulatedWorld:
         return {"valid": True, "effect": effect}
 
 
-def jev_policy(lab):
+def compact_state(state):
+    """Render the same observations in short text; no preferred action is added."""
+    visible = "; ".join(f"{tree['remaining_logs']} logs, {tree['distance']} blocks away"
+                        for tree in state["visible_trees"]) or "none"
+    return (
+        f"Minecraft task: {state['task']}\n"
+        f"Inventory now: {state['inventory_logs']} logs. Required inventory: "
+        f"{state['required_inventory_logs']} logs. Still needed: {state['remaining_logs_to_collect']}.\n"
+        f"Visible trees: {visible}.\n"
+        f"Selected tree: distance {state['selected_tree_distance']}, "
+        f"remaining log blocks {state['selected_tree_remaining_logs']}.\n"
+        f"Dropped logs within pickup reach: {state['nearby_dropped_log_items']}.\n"
+        f"Automatic changes while waiting: none.\n"
+        f"Last action: {state['last_action']}. Result: {state['last_effect']}"
+    )
+
+
+def jev_policy(lab, state_format="json"):
+    if state_format not in ("json", "compact_text"):
+        raise ValueError("Use json or compact_text")
     def select(state, candidates):
-        result = lab.decide(state, {"next_action": {
+        observed = compact_state(state) if state_format == "compact_text" else state
+        result = lab.decide(observed, {"next_action": {
             "type": "choice",
             "instructions": "Choose the next executable action to satisfy the inventory requirement. "
                             "Logs on the ground do NOT count as inventory. Use the reported state; "
@@ -181,7 +207,7 @@ def jev_policy(lab):
         answer = result["answers"]["next_action"]
         return {"action": answer["choice"], "probabilities": answer["probabilities"],
                 "model_ms": result["meta"]["elapsed_ms"],
-                "input_tokens": result["meta"]["input_tokens"]}
+                "input_tokens": result["meta"]["input_tokens"], "source": "jev"}
     return select
 
 
@@ -189,17 +215,20 @@ def baseline_policy(state, candidates):
     """Simple hand-written comparison, explicitly not a Jev decision."""
     priority = ("collect_logs", "chop_log", "approach_tree", "search_tree", "wait")
     chosen = next(action for action in priority if action in candidates)
-    return {"action": chosen, "probabilities": {}, "model_ms": 0, "input_tokens": 0}
+    return {"action": chosen, "probabilities": {}, "model_ms": 0, "input_tokens": 0,
+            "source": "fixed_rule"}
 
 
 def run_episode(world, policy, quantity=10, mode="collect_new", max_steps=48,
-                no_progress_limit=6, mask_preconditions=True):
+                no_progress_limit=6, mask_preconditions=True, include_wait=False,
+                skip_single_choice=True):
     """Stop before any next decision once the actual inventory satisfies the goal."""
     if max_steps < 1 or no_progress_limit < 1:
         raise ValueError("Positive episode limits required")
     requirement = WoodRequirement(quantity, mode, count_logs(world.inventory))
     trace, stalled = [], 0
     status = "step_limit"
+    initial_log_blocks = sum(tree.logs for tree in world.trees)
     start = time.perf_counter()
     for step in range(max_steps):
         state = world.observe(requirement)
@@ -207,11 +236,17 @@ def run_episode(world, policy, quantity=10, mode="collect_new", max_steps=48,
             status = "success"
             break
         legal = world.available_actions()
-        if list(legal) == ["wait"]:
+        if not include_wait:
+            legal = {name: description for name, description in legal.items() if name != "wait"}
+        if not legal or list(legal) == ["wait"]:
             status = "no_resources"
             break
         candidates = legal if mask_preconditions else dict(ACTIONS)
-        decision = policy(state, candidates)
+        if skip_single_choice and len(candidates) == 1:
+            decision = {"action": next(iter(candidates)), "probabilities": {},
+                        "model_ms": 0, "input_tokens": 0, "source": "sole_legal_action"}
+        else:
+            decision = policy(state, candidates)
         action = decision["action"]
         if action not in candidates:
             raise ValueError("Policy returned an action outside the proposed choices")
@@ -231,6 +266,7 @@ def run_episode(world, policy, quantity=10, mode="collect_new", max_steps=48,
             "tree_distance_before": state["selected_tree_distance"],
             "candidates": list(candidates), "selected": action,
             "probabilities": decision["probabilities"], "valid": effect["valid"],
+            "decision_source": decision.get("source", "policy"),
             "effect": effect["effect"], "model_ms": decision["model_ms"],
             "input_tokens": decision["input_tokens"], "goal_met_after": met,
         })
@@ -246,11 +282,15 @@ def run_episode(world, policy, quantity=10, mode="collect_new", max_steps=48,
         "starting_logs": requirement.baseline_logs, "required_total": requirement.target_total,
         "final_logs": count_logs(world.inventory), "decisions": len(trace),
         "model_calls": sum(bool(row["probabilities"]) for row in trace),
+        "forced_transitions": sum(row["decision_source"] == "sole_legal_action" for row in trace),
         "invalid_choices": sum(not row["valid"] for row in trace),
         "model_total_ms": round(sum(row["model_ms"] for row in trace), 2),
         "wall_ms": round((time.perf_counter() - start) * 1000, 2),
         "stop_reason": "inventory_requirement" if success else status,
         "masked_preconditions": mask_preconditions, "trace": trace,
+        "include_wait": include_wait, "skip_single_choice": skip_single_choice,
+        "log_blocks_broken": initial_log_blocks - sum(tree.logs for tree in world.trees),
+        "ground_logs_remaining": sum(world.dropped_logs.values()),
         "simulation": "toy 1D world, atomic skills; no Minecraft physics or server",
     }
 

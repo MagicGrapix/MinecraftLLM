@@ -38,6 +38,9 @@ def main():
             ("not_enough_resources", {}, 3, "collect_new", [Tree(4, 2)]),
         ]
         results = []
+        idle = run_episode(SimulatedWorld(), jev_policy(lab), 10,
+                           include_wait=True, skip_single_choice=False)
+        print("IDLE_ALLOWED=" + json.dumps({k: v for k, v in idle.items() if k != "trace"}), flush=True)
         for name, inventory, quantity, mode, trees in cases:
             config = {"inventory": inventory}
             if trees is not None:
@@ -51,7 +54,7 @@ def main():
             print(json.dumps({"case": name, **summary}), flush=True)
         probes = stopping_probes(lab)
         print("STOPPING_PROBES=" + json.dumps(probes), flush=True)
-        saved = save_episode({"device": "cpu", "threads": torch.get_num_threads(),
+        saved = save_episode({"device": "cpu", "threads": torch.get_num_threads(), "idle_allowed": idle,
                               "episodes": results, "stopping_probes": probes}, "wood_agent_validation")
         print(f"AGENT_RESULTS_SAVED={saved}", flush=True)
     finally:

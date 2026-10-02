@@ -34,8 +34,8 @@ test("coordinator native tools exclude capabilities and world state is injected 
     assert.doesNotMatch(request.messages[0]!.content!, /Inventory\?|objective|summaryVersion|planVersion|lastReport|capabilities/);
     assert.equal(request.responseFormat, undefined);
     const names = request.tools!.map((t) => t.name);
-    for (const name of ["reply", "ask_planner", "run_step", "complete_step", "refresh_summary", "get_inventory", "get_voxel_view", "get_block_access"]) assert.ok(names.includes(name));
-    for (const name of ["dig", "goto", "set_plan", "add_step", "get_capability_schemas"]) assert.ok(!names.includes(name));
+    for (const name of ["reply", "ask_planner", "run_step", "complete_step", "refresh_summary", "get_inventory", "get_voxel_view", "get_block_access", "get_dropped_items"]) assert.ok(names.includes(name));
+    for (const name of ["dig", "goto", "set_plan", "add_step", "get_capability_schemas", "get_nearby_entities"]) assert.ok(!names.includes(name));
     assert.equal(h.agent.task.summary, "");
   } finally { await h.close(); }
 });

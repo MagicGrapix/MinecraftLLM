@@ -52,11 +52,13 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   assert.deepEqual(gather.requiredQueries, [
     "get_inventory",
     "find_nearest_blocks",
-    "get_nearby_entities",
+    "get_dropped_items",
     "get_block_access",
   ]);
   assert.match(gather.instructions, /Success condition/);
-  assert.match(gather.instructions, /droppedItem/);
+  assert.match(gather.instructions, /get_dropped_items/);
+  assert.match(gather.instructions, /item: null/);
+  assert.doesNotMatch(gather.instructions, /get_nearby_entities|droppedItem/);
   assert.match(gather.instructions, /Capabilities are native tools/);
   assert.doesNotMatch(gather.instructions, /set_plan|continue_plan|get_capability_schemas/);
   assert.doesNotMatch(gather.instructions, /enqueue_tasks/);

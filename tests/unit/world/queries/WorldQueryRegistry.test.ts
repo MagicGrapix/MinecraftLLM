@@ -40,6 +40,9 @@ test("default registry executes a valid query and exposes summaries", async () =
   if (result.ok) assert.equal((result.value as SelfState).health, 20);
   assert.equal(registry.list().length, 7);
   assert.equal(registry.has("find_nearest_blocks"), true);
+  assert.equal(registry.has("get_dropped_items"), true);
+  assert.equal(registry.has("get_nearby_entities"), false);
+  assert.equal((await registry.execute("get_nearby_entities", {})).ok, false);
 });
 
 test("unknown and invalid queries return structured errors", async () => {

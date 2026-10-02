@@ -8,7 +8,7 @@ required_capabilities:
 required_queries:
   - get_inventory
   - find_nearest_blocks
-  - get_nearby_entities
+  - get_dropped_items
   - get_block_access
 ---
 
@@ -25,9 +25,12 @@ from currently known chunks, such as logs or stone.
 2. Use the delegated success criterion to calculate the remaining quantity. If the
    request asks for additional resources, use the initial inventory as a baseline;
    an existing item does not prove a new item was collected.
-3. Look for matching drops with `get_nearby_entities` before digging more blocks.
-   A dropped-item entity has `droppedItem` with its item name and count when the
-   server has supplied that metadata. If `droppedItem` is null, its contents are unknown.
+3. Look for matching loose items with `get_dropped_items` before digging more blocks.
+   Use `names` to filter item names, `maxDistance` for the search radius, and
+   `count` for the maximum number of returned entities, not the quantity to collect.
+   Each result contains `item`, `count`, `position` and `distance`.
+   Without a name filter, unidentified drops have `item: null` and `count: null`;
+   their contents are unknown. This tool finds loose items, not placed blocks.
 4. If no suitable drop is visible, call `find_nearest_blocks` with the exact Minecraft block name.
 5. Check whether a suitable tool is available before proposing `equip`.
 
@@ -49,7 +52,7 @@ Work in short horizons. For each known block target:
    action, changed approach, or `finish_step` report. Call one tool at a time.
 3. After digging, check `get_inventory`. A successful `dig` only proves the block
    broke; it does not prove the dropped resource was picked up.
-4. If the item is still missing, call `get_nearby_entities`. For a matching
+4. If the item is still missing, call `get_dropped_items` with the desired item name. For a matching
    dropped item, call `goto` to its observed entity position with `range: 0`,
    then check `get_inventory` again after navigation finishes.
    Dropped items are picked up by proximity; do not dig another block merely
@@ -70,7 +73,7 @@ Never invent coordinates. Every position must come from a World Query.
 - `MISSING_ITEM` from `equip`: continue without a tool if the resource remains gatherable; otherwise
   report the missing prerequisite.
 - `TIMEOUT` or `INTERRUPTED`: observe the world again before replanning.
-- Missing or unidentifiable drop: observe nearby entities and inventory again;
+- Missing or unidentifiable drop: observe loose items and inventory again;
   do not claim that the item was collected.
 
 ## Success condition

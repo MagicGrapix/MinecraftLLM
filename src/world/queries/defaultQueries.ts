@@ -4,7 +4,6 @@ import type { WorldQueries } from "../WorldQueries";
 import type { BlockAccessInfo } from "../BlockAccess";
 import type {
   BlockInfo,
-  EntityInfo,
   InventoryState,
   SelfState,
 } from "../types";
@@ -12,6 +11,7 @@ import { buildVoxelView, type VoxelView } from "../VoxelView";
 import { queryFailure, querySuccess } from "./QueryResult";
 import type { WorldQuery } from "./WorldQuery";
 import { WorldQueryRegistry } from "./WorldQueryRegistry";
+import { getDroppedItemsQuery } from "./GetDroppedItems";
 
 const emptyInputSchema = z.object({}).strict();
 const getBlockInputSchema = z
@@ -25,12 +25,6 @@ const findNearestBlocksInputSchema = z
     ]),
     maxDistance: z.number().finite().positive().max(512).optional(),
     count: z.number().int().positive().max(128).optional(),
-  })
-  .strict();
-const nearbyEntitiesInputSchema = z
-  .object({
-    maxDistance: z.number().finite().positive().max(512).optional(),
-    type: z.string().trim().min(1).optional(),
   })
   .strict();
 const voxelViewInputSchema = z
@@ -111,24 +105,6 @@ const findNearestBlocksQuery: WorldQuery<
     ),
 };
 
-const getNearbyEntitiesQuery: WorldQuery<
-  z.infer<typeof nearbyEntitiesInputSchema>,
-  EntityInfo[]
-> = {
-  name: "get_nearby_entities",
-  description: "List nearby entities, including the item stack carried by visible dropped-item entities when known; optionally filter by type.",
-  inputSchema: nearbyEntitiesInputSchema,
-  execute: async (input, world) =>
-    querySuccess(
-      world.getNearbyEntities({
-        ...(input.maxDistance === undefined
-          ? {}
-          : { maxDistance: input.maxDistance }),
-        ...(input.type === undefined ? {} : { type: input.type }),
-      }),
-    ),
-};
-
 const getVoxelViewQuery: WorldQuery<
   z.infer<typeof voxelViewInputSchema>,
   VoxelView
@@ -161,7 +137,7 @@ export const defaultWorldQueries = [
   getBlockQuery,
   getBlockAccessQuery,
   findNearestBlocksQuery,
-  getNearbyEntitiesQuery,
+  getDroppedItemsQuery,
   getVoxelViewQuery,
 ] as const;
 
@@ -174,7 +150,7 @@ export function createDefaultWorldQueryRegistry(
   registry.register(getBlockQuery);
   registry.register(getBlockAccessQuery);
   registry.register(findNearestBlocksQuery);
-  registry.register(getNearbyEntitiesQuery);
+  registry.register(getDroppedItemsQuery);
   registry.register(getVoxelViewQuery);
   return registry;
 }

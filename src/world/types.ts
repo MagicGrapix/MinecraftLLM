@@ -51,6 +51,15 @@ export interface FindBlocksOptions {
   count?: number;
 }
 
+/** A loose item entity; null stack fields mean its metadata is not known yet. */
+export interface DroppedItemInfo {
+  id: number;
+  item: string | null;
+  count: number | null;
+  position: Position;
+  distance: number;
+}
+
 export interface NearbyEntitiesOptions {
   maxDistance?: number;
   type?: string;

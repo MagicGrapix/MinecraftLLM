@@ -7,7 +7,11 @@ In agent mode, Minecraft chat goes to `WorkflowAgent`. There is no separate inte
 - `run_step({ step, instruction })`: delegate one existing unfinished step. `step: 2` means the second entry of the CURRENT plan, not an ID.
 - `complete_step({ step })`: separately check off a step after reviewing its matching successful action report and fresh world state.
 - `refresh_summary({})`: generate a replacement factual memory in a separate LLM call; return only an acknowledgement/version/length.
-- Existing read-only world queries: `get_self`, `get_inventory`, `get_block`, `get_block_access`, `find_nearest_blocks`, `get_nearby_entities`, `get_voxel_view`.
+- Existing read-only world queries: `get_self`, `get_inventory`, `get_block`, `get_block_access`, `find_nearest_blocks`, `get_dropped_items`, `get_voxel_view`.
+
+`get_dropped_items({ names?, maxDistance?, count? })` returns nearby loose item entities as `{ id, item, count, position, distance }`, nearest first. Names may be one exact item name or a list. Defaults: 32-block distance and 16 results; maximums: 512 blocks and 128 results. The result count limits entities, not the total item quantity. Without a name filter, unknown stacks retain `item: null, count: null`; a name filter selects only known matching stacks. An empty result is a current observation, not proof that a previous drop was picked up. Move near an observed drop and verify inventory changes.
+
+The generic `get_nearby_entities` tool is no longer exposed to either agent. The internal `WorldQueries.getNearbyEntities` API remains available and supplies this projection. Generic entity discovery can be exposed again when working on mobs/players; `attack` and `interact_entity` are unchanged but currently have no generic entity-discovery tool.
 
 The planner is single-shot (validation retries do not create an agent loop). It receives recent user/assistant chat, coordinator instructions and current state. Its JSON contains only `steps: [{ title, successCriteria }]`. Application code assigns 1-based indices. Replanning replaces the list, advances `planVersion`, and invalidates the old report; old step numbers in the transcript must not be used against the replacement plan.
 

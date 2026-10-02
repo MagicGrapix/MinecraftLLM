@@ -54,6 +54,12 @@ test("bridge allows queries and validates native capability arguments without ex
     assert.equal(voxelView.ok, true);
     assert.match(voxelView.content, /"layers"/);
 
+    const dropsCall = { id: "drops", name: "get_dropped_items", arguments: "{}" };
+    assert.deepEqual(bridge.validateResponseCalls([dropsCall]), { kind: "read" });
+    const drops = await bridge.executeRead(dropsCall);
+    assert.equal(drops.ok, true);
+    assert.deepEqual(JSON.parse(drops.content), { ok: true, value: [] });
+
     const decision = bridge.validateResponseCalls(
       [
         {
@@ -90,6 +96,8 @@ test("stable actioner catalog includes exact native schemas and handoff, not que
     const actionTools = bridge.catalog.build().map((tool) => tool.name);
     assert.equal(actionTools.includes("get_voxel_view"), true);
     assert.equal(actionTools.includes("get_block_access"), true);
+    assert.equal(actionTools.includes("get_dropped_items"), true);
+    assert.equal(actionTools.includes("get_nearby_entities"), false);
     assert.equal(actionTools.includes("test_action"), true);
     assert.equal(actionTools.includes("set_plan"), false);
     assert.equal(actionTools.includes("continue_plan"), false);
@@ -98,7 +106,7 @@ test("stable actioner catalog includes exact native schemas and handoff, not que
     assert.equal(actionTools.includes("finish_run"), false);
     const finished = bridge.validateResponseCalls([{ id: "finish", name: "finish_step", arguments: '{"status":"success","message":"Step verified."}' }]);
     assert.deepEqual(finished, { kind: "finish", status: "success", message: "Step verified." });
-    for (const name of ["set_plan", "continue_plan", "get_capability_schemas", "finish_run"]) {
+    for (const name of ["set_plan", "continue_plan", "get_capability_schemas", "finish_run", "get_nearby_entities"]) {
       assert.throws(() => bridge.validateResponseCalls([{ id: "old", name, arguments: "{}" }]), /Unknown tool/);
     }
     const native = bridge.catalog.build().find((tool) => tool.name === "test_action")!.parameters;

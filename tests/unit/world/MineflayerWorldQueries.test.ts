@@ -5,6 +5,7 @@ import type { Entity } from "prismarine-entity";
 import { Vec3 } from "vec3";
 import type { MinecraftRuntime } from "../../../src/runtime/MinecraftRuntime";
 import { cardinalFacing, MineflayerWorldQueries } from "../../../src/world/MineflayerWorldQueries";
+import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
 
 test("cardinal facing follows Mineflayer's yaw convention", () => {
   assert.equal(cardinalFacing(0), "north");
@@ -39,6 +40,25 @@ test("nearby dropped items include their stack identity and count", () => {
     },
   ]);
   assert.equal(world.getNearbyEntities().find((entry) => entry.id === 3)?.droppedItem, null);
+});
+
+test("dropped-items tool projects real adapter metadata while keeping generic discovery internal", async () => {
+  const self = entity(1, "player", new Vec3(0, 64, 0));
+  const known = entity(2, "item", new Vec3(2, 64, 0), () => ({
+    name: "oak_log", displayName: "Oak Log", count: 3,
+  }));
+  const unknown = entity(3, "item", new Vec3(1, 64, 0), () => { throw new Error("Metadata pending."); });
+  const zombie = entity(4, "zombie", new Vec3(1, 64, 1));
+  const world = worldQueries(self, known, unknown, zombie);
+  const registry = createDefaultWorldQueryRegistry(world);
+  assert.deepEqual(await registry.execute("get_dropped_items", { maxDistance: 10 }), {
+    ok: true, value: [
+      { id: 3, item: null, count: null, position: { x: 1, y: 64, z: 0 }, distance: 1 },
+      { id: 2, item: "oak_log", count: 3, position: { x: 2, y: 64, z: 0 }, distance: 2 },
+    ],
+  });
+  assert.equal(registry.has("get_nearby_entities"), false);
+  assert.ok(world.getNearbyEntities().some((entity) => entity.name === "zombie"));
 });
 
 test("item entities without metadata remain visible with an unknown stack", () => {

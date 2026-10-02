@@ -1,6 +1,6 @@
 # Block access diagnostics
 
-`get_block_access({ position: { x: 7, y: -59, z: 4 } })` is a read-only World Query exposed through the existing coordinator and action-agent catalogs. Coordinates must be integers. It never turns the bot's head, moves, changes blocks, or creates tasks. It does not change the actioner's `set_plan` / `continue_plan` architecture.
+`get_block_access({ position: { x: 7, y: -59, z: 4 } })` is a read-only World Query exposed through the existing coordinator and action-agent catalogs. Coordinates must be integers. It never turns the bot's head, moves, changes blocks, or creates tasks. The actioner can use this observation to choose its next native capability call.
 
 Example tool result:
 

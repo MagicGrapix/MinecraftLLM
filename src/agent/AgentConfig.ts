@@ -10,7 +10,6 @@ const EnvironmentSchema = z.object({
     .default("medium"),
   LLM_MAX_TOKENS: integerEnvironment(4_096, 1),
   LLM_REQUEST_TIMEOUT_MS: integerEnvironment(120_000, 1),
-  LLM_MAX_TOOL_ROUNDS: integerEnvironment(8, 1, 32),
   LLM_CONTEXT_BUDGET_CHARS: integerEnvironment(30_000, 4_000),
   BOT_MODE: z.enum(["agent", "demo"]).default("agent"),
   LANDMARKS_FILE: z.string().min(1).default("./data/landmarks.json"),
@@ -32,7 +31,6 @@ export interface AgentConfig {
   readonly llmReasoningEffort: "none" | "low" | "medium" | "high" | "max";
   readonly llmMaxTokens: number;
   readonly llmRequestTimeoutMs: number;
-  readonly llmMaxToolRounds: number;
   readonly llmContextBudgetChars: number;
   readonly botMode: "agent" | "demo";
   readonly landmarksFile: string;
@@ -58,7 +56,6 @@ export function loadAgentConfig(
     llmReasoningEffort: parsed.LLM_REASONING_EFFORT,
     llmMaxTokens: parsed.LLM_MAX_TOKENS,
     llmRequestTimeoutMs: parsed.LLM_REQUEST_TIMEOUT_MS,
-    llmMaxToolRounds: parsed.LLM_MAX_TOOL_ROUNDS,
     llmContextBudgetChars: parsed.LLM_CONTEXT_BUDGET_CHARS,
     botMode: parsed.BOT_MODE,
     landmarksFile: parsed.LANDMARKS_FILE,

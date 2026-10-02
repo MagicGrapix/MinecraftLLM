@@ -57,7 +57,8 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   ]);
   assert.match(gather.instructions, /Success condition/);
   assert.match(gather.instructions, /droppedItem/);
-  assert.match(gather.instructions, /continue_plan/);
+  assert.match(gather.instructions, /Capabilities are native tools/);
+  assert.doesNotMatch(gather.instructions, /set_plan|continue_plan|get_capability_schemas/);
   assert.doesNotMatch(gather.instructions, /enqueue_tasks/);
 });
 

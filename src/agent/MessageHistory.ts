@@ -31,9 +31,7 @@ export class MessageHistory {
       results.some((result, index) => result.toolCallId !== ids[index])) {
       throw new Error("Tool exchange must contain exactly one matching result per call, in order.");
     }
-    const presentedResults = results.map((result, index) => {
-      // Schemas are exact execution contracts, not world-state presentation.
-      if (message.toolCalls![index]!.name === "get_capability_schemas") return result;
+    const presentedResults = results.map((result) => {
       try {
         return { ...result, content: JSON.stringify(promptNumbers(JSON.parse(result.content))) };
       } catch {

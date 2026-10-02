@@ -50,7 +50,7 @@ test("history rejects malformed exchanges and retry feedback is internal", () =>
   assert.match(messages[0]!.content!, /Invalid field/);
 });
 
-test("native and compact tool results round presentation but keep schemas and original calls exact", () => {
+test("native and compact tool results round presentation but keep original calls exact", () => {
   for (const mode of ["native", "compact"] as const) {
     const history = new MessageHistory(20, 30_000, mode);
     const args = { position: { x: 10.53869625851037, y: -60, z: 4 } };
@@ -63,9 +63,9 @@ test("native and compact tool results round presentation but keep schemas and or
     assert.equal(native.value.position.x, 10.54);
     assert.equal(native.value.health, 14.83);
     assert.equal(native.value.count, 1);
-    const schema = { ok: true, value: { inputSchema: { minimum: 0.0001, multipleOf: 0.0001 } } };
-    history.appendExchange({ role: "assistant", content: null, toolCalls: [{ id: "s", name: "get_capability_schemas", arguments: '{"names":["goto"]}' }] }, [{ role: "tool", toolCallId: "s", content: JSON.stringify(schema) }]);
-    assert.deepEqual(JSON.parse(history.snapshot().messages.at(-1)!.content!), schema);
+    const inventory = { ok: true, value: { items: [{ name: "oak_log", count: 1 }] } };
+    history.appendExchange({ role: "assistant", content: null, toolCalls: [{ id: "s", name: "get_inventory", arguments: "{}" }] }, [{ role: "tool", toolCallId: "s", content: JSON.stringify(inventory) }]);
+    assert.deepEqual(JSON.parse(history.snapshot().messages.at(-1)!.content!), inventory);
     if (mode === "compact") {
       const older = parse(history.snapshot().messages[0]!.content!.split("\n").slice(1).join("\n"));
       assert.equal(older.arguments.position.x, 10.54);
@@ -79,14 +79,14 @@ test("compact replay keeps the latest exchange native and preserves older argume
   const history = new MessageHistory(20, 30_000, "compact");
   const args = { position: { x: -2.5, y: -60, z: 3 }, expected: "oak_log" };
   const result = { ok: false, error: { code: "NO_PATH", message: "Cannot reach target.\nGround is missing.", facts: { partial: true } } };
-  const schema = { type: "object", properties: { quantity: { type: "integer", minimum: 1 } }, required: ["quantity"], additionalProperties: false };
+  const inventory = { items: [{ name: "oak_log", count: 1 }] };
   const response = { role: "assistant" as const, content: null, toolCalls: [
     { id: "a", name: "get_block", arguments: JSON.stringify(args) },
-    { id: "b", name: "get_capability_schemas", arguments: '{"names":["drop"]}' },
+    { id: "b", name: "get_inventory", arguments: "{}" },
   ] };
   const results = [
     { role: "tool" as const, toolCallId: "a", content: JSON.stringify(result) },
-    { role: "tool" as const, toolCallId: "b", content: JSON.stringify({ ok: true, value: schema }) },
+    { role: "tool" as const, toolCallId: "b", content: JSON.stringify({ ok: true, value: inventory }) },
   ];
   const before = structuredClone({ response, results });
   history.appendExchange(response, results);
@@ -99,7 +99,7 @@ test("compact replay keeps the latest exchange native and preserves older argume
   assert.match(messages[0]!.content!, /^Tool activity \(application record, not a player message\):/);
   assert.deepEqual(parse(messages[0]!.content!.split("\n").slice(1).join("\n")), [
     { tool: "get_block", arguments: args, result },
-    { tool: "get_capability_schemas", arguments: { names: ["drop"] }, result: { ok: true, value: schema } },
+    { tool: "get_inventory", result: { ok: true, value: inventory } },
   ]);
   assert.deepEqual({ response, results }, before);
 });

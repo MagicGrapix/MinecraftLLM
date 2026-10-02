@@ -4,7 +4,7 @@ import { AgentInspector } from "../../../src/debug/AgentInspector";
 import type { InspectorRound, InspectorToolExecution } from "../../../src/debug/InspectorTypes";
 import type { LLMRequestTrace } from "../../../src/llm/LLMClient";
 
-test("actioner cards show the player request, delegated step, capability and actual failure", () => {
+test("legacy queue cards show the player request, delegated step, capability and actual failure", () => {
   const result = { task: { capability: "goto" }, result: { ok: false, error: { code: "NO_PATH", message: "Target unreachable." } } };
   const round = snapshot({
     phase: "actioner_review",
@@ -48,7 +48,7 @@ test("cards highlight failed actions even in a success report after recovery", (
 
 test("finish_step displays its concise report without confusing needs_user with execution failure", () => {
   for (const status of ["success", "failure", "needs_user"]) {
-    const round = snapshot({ phase: "actioner_planning" }, {
+    const round = snapshot({ phase: "actioner" }, {
       name: "finish_step", arguments: JSON.stringify({ status, message: "Observed facts." }), ok: true,
       result: JSON.stringify({ ok: true, value: { status, message: "Observed facts." } }),
     });
@@ -96,7 +96,7 @@ test("cards flag parsing, provider and token limit errors and show their cause",
   assert.match(round.outcome, /token limit/);
 });
 
-test("plan previews list capabilities and never mutate exact payloads", () => {
+test("legacy plan previews list capabilities and never mutate exact payloads", () => {
   const input = { tasks: [{ capability: "goto", input: { x: 1.123456 } }, { capability: "dig", input: {} }] };
   const inspector = new AgentInspector(5, "immutable");
   const current = trace();
@@ -122,10 +122,42 @@ test("plan previews list capabilities and never mutate exact payloads", () => {
 });
 
 test("invalid JSON arguments remain available without breaking the card summary", () => {
-  const round = snapshot({}, { name: "set_plan", arguments: '{"tasks":', ok: false, result: '{"ok":false,"error":{"message":"Invalid JSON."}}' });
-  assert.equal(round.activity, "set_plan");
+  const round = snapshot({}, { name: "dig", arguments: '{"position":', ok: false, result: '{"ok":false,"error":{"message":"Invalid JSON."}}' });
+  assert.equal(round.activity, "dig");
   assert.equal(round.failed, true);
   assert.match(round.outcome, /Invalid JSON/);
+});
+
+test("direct capability cards show their target and actual TaskResult without a runner wrapper", () => {
+  for (const ok of [true, false]) {
+    const result = ok ? { ok: true, value: { block: "oak_log" } }
+      : { ok: false, error: { code: "OUT_OF_REACH", message: "Block too far away." } };
+    const round = snapshot({
+      phase: "actioner", contextSnapshot: { delegation: { userObjective: "Get more wood", step: { step: 1, title: "Collect one log" } } },
+    }, { name: "dig", arguments: '{"position":{"x":3,"y":-59,"z":0}}', result: JSON.stringify(result), ok });
+    assert.equal(round.requestTitle, "Get more wood");
+    assert.equal(round.stepLabel, "Step 1 — Collect one log");
+    assert.equal(round.activity, "dig → (3, -59, 0)");
+    assert.equal(round.failed, !ok);
+    assert.equal(round.outcome, ok ? "Succeeded — oak_log" : "Failed: OUT_OF_REACH — Block too far away.");
+  }
+});
+
+test("native target previews round only display and keep exact input in the debug record", () => {
+  const exact = '{"position":{"x":1.123456,"y":-60,"z":0}}';
+  const round = snapshot({ phase: "actioner" }, { name: "goto", arguments: exact, result: '{"ok":true,"value":{}}', ok: true });
+  assert.equal(round.activity, "goto → (1.12, -60, 0)");
+  assert.equal(round.toolExecutions[0]!.arguments, exact);
+});
+
+test("diagnosed inaccessible block is shown as an observation, not a tool execution failure", () => {
+  const round = snapshot({ phase: "actioner" }, {
+    name: "get_block_access", arguments: '{"position":{"x":3,"y":-59,"z":0}}', ok: true,
+    result: '{"ok":true,"value":{"block":"oak_log","canDig":false,"reason":"occluded"}}',
+  });
+  assert.equal(round.activity, "get_block_access → (3, -59, 0)");
+  assert.equal(round.outcome, "Observed — occluded — oak_log");
+  assert.equal(round.failed, false);
 });
 
 function snapshot(

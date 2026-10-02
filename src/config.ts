@@ -12,5 +12,7 @@ export const GOTO_DEFAULTS = {
 };
 // Replay completed tools as readable text, or keep the original assistant/tool messages.
 export const TOOL_REPLAY_MODE: "native" | "compact" = "compact";
+// Total validated tool invocations per delegation; parsing retries do not count.
+export const ACTION_MAX_TOOL_CALLS = 256;
 
 export const mcData = MinecraftData(MINECRAFT_VERSION);

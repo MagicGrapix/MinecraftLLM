@@ -1,5 +1,12 @@
-import type { SequentialTaskOutcome } from "../execution/SequentialPlanRunner";
-import type { AgentFinishStatus } from "./AgentDecision";
+import type { Task } from "../execution/Task";
+import type { TaskResult } from "../execution/TaskResult";
+
+export type ActionFinishStatus = "success" | "failure" | "needs_user";
+
+export interface ActionTaskOutcome {
+  readonly task: Task;
+  readonly result: TaskResult;
+}
 
 /** A fresh, private conversation is created for each delegation. */
 export interface ActionDelegation {
@@ -15,9 +22,9 @@ export interface ActionDelegation {
 }
 
 export interface DelegatedActionReport {
-  readonly status: AgentFinishStatus | "interrupted";
+  readonly status: ActionFinishStatus | "interrupted";
   readonly message: string;
-  readonly outcomes: readonly SequentialTaskOutcome[];
+  readonly outcomes: readonly ActionTaskOutcome[];
 }
 
 export interface DelegatedTraceContext {

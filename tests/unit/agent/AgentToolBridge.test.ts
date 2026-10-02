@@ -16,6 +16,7 @@ import type { WorldQueries } from "../../../src/world/WorldQueries";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
 import type { BlockAccessInfo } from "../../../src/world/BlockAccess";
 import { MessageHistory } from "../../../src/agent/MessageHistory";
+import { ToolCatalogBuilder } from "../../../src/agent/ToolCatalogBuilder";
 
 const world: WorldQueries = {
   getSelf: () => ({
@@ -34,7 +35,7 @@ const world: WorldQueries = {
   getNearbyEntities: () => [],
 };
 
-test("bridge allows queries and validated decisions without queue revisions", async () => {
+test("bridge allows queries and validates native capability arguments without executing them", async () => {
   const root = await mkdtemp(join(tmpdir(), "minecraft-agent-bridge-"));
   try {
     const bridge = await createBridge(root);
@@ -57,18 +58,12 @@ test("bridge allows queries and validated decisions without queue revisions", as
       [
         {
           id: "plan",
-          name: "set_plan",
-          arguments: JSON.stringify({
-            description: "Perform one test action.",
-            tasks: [{ capability: "test_action", input: { value: 3 } }],
-          }),
+          name: "test_action",
+          arguments: JSON.stringify({ value: 3 }),
         },
       ],
     );
-    assert.equal(decision.kind, "decision");
-    if (decision.kind === "decision") {
-      assert.equal(decision.decision.type, "set_plan");
-    }
+    assert.deepEqual(decision, { kind: "action", task: { capability: "test_action", input: { value: 3 } } });
 
     assert.throws(
       () =>
@@ -76,11 +71,8 @@ test("bridge allows queries and validated decisions without queue revisions", as
           [
             {
               id: "plan",
-              name: "set_plan",
-              arguments: JSON.stringify({
-                description: "Perform an unknown action.",
-                tasks: [{ capability: "missing", input: {} }],
-              }),
+              name: "missing",
+              arguments: "{}",
             },
           ],
         ),
@@ -91,21 +83,30 @@ test("bridge allows queries and validated decisions without queue revisions", as
   }
 });
 
-test("single actioner catalog includes queries and decisions, never direct capabilities", async () => {
+test("stable actioner catalog includes exact native schemas and handoff, not queue tools", async () => {
   const root = await mkdtemp(join(tmpdir(), "minecraft-agent-catalog-"));
   try {
     const bridge = await createBridge(root);
     const actionTools = bridge.catalog.build().map((tool) => tool.name);
     assert.equal(actionTools.includes("get_voxel_view"), true);
     assert.equal(actionTools.includes("get_block_access"), true);
-    assert.equal(actionTools.includes("test_action"), false);
-    assert.equal(actionTools.includes("set_plan"), true);
-    assert.equal(actionTools.includes("continue_plan"), true);
+    assert.equal(actionTools.includes("test_action"), true);
+    assert.equal(actionTools.includes("set_plan"), false);
+    assert.equal(actionTools.includes("continue_plan"), false);
+    assert.equal(actionTools.includes("get_capability_schemas"), false);
     assert.equal(actionTools.includes("finish_step"), true);
     assert.equal(actionTools.includes("finish_run"), false);
     const finished = bridge.validateResponseCalls([{ id: "finish", name: "finish_step", arguments: '{"status":"success","message":"Step verified."}' }]);
-    assert.deepEqual(finished, { kind: "decision", decision: { type: "finish_step", status: "success", message: "Step verified." } });
-    assert.throws(() => bridge.parseDecision({ id: "old", name: "finish_run", arguments: '{"status":"success","message":"Old name."}' }), ModelResponseError);
+    assert.deepEqual(finished, { kind: "finish", status: "success", message: "Step verified." });
+    for (const name of ["set_plan", "continue_plan", "get_capability_schemas", "finish_run"]) {
+      assert.throws(() => bridge.validateResponseCalls([{ id: "old", name, arguments: "{}" }]), /Unknown tool/);
+    }
+    const native = bridge.catalog.build().find((tool) => tool.name === "test_action")!.parameters;
+    assert.deepEqual(native, {
+      type: "object", properties: { value: { type: "integer" }, precision: { type: "number", minimum: 0.0001 } },
+      required: ["value"], additionalProperties: false,
+    });
+    assert.equal(bridge.catalog.build(), bridge.catalog.build());
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -123,8 +124,7 @@ test("block access is a read tool and raw precision is only rounded in model his
     const bridge = await createBridge(root, { ...world, getBlockAccess: () => expected });
     const call = { id: "access", name: "get_block_access", arguments: JSON.stringify({ position }) };
     assert.equal(bridge.isReadTool(call.name), true);
-    assert.equal(bridge.isDecision(call.name), false);
-    assert.equal(bridge.validateResponseCalls([call]).kind, "reads");
+    assert.equal(bridge.validateResponseCalls([call]).kind, "read");
     assert.throws(() => bridge.validateResponseCalls([{ ...call, arguments: JSON.stringify({ position: JSON.stringify(position) }) }]), ModelResponseError);
     const result = await bridge.executeRead(call);
     assert.equal(result.ok, true, "An observed obstruction is a successful read, not a query execution error.");
@@ -145,12 +145,58 @@ test("block access is a read tool and raw precision is only rounded in model his
   }
 });
 
-async function createBridge(root: string, queryWorld: WorldQueries = world): Promise<AgentToolBridge> {
+test("bridge rejects malformed, wrapped, mixed and multi-tool calls before observations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minecraft-agent-validation-"));
+  let reads = 0;
+  try {
+    const bridge = await createBridge(root, { ...world, getSelf: () => { reads += 1; return world.getSelf(); } });
+    const native = { id: "native", name: "test_action", arguments: '{"value":3}' };
+    const query = { id: "query", name: "get_self", arguments: "{}" };
+    for (const calls of [[], [query, native], [native, native]]) {
+      assert.throws(() => bridge.validateResponseCalls(calls), /exactly one/i);
+    }
+    for (const argumentsText of ["null", "[]", '"string"', '{"value":']) {
+      assert.throws(() => bridge.validateResponseCalls([{ ...native, arguments: argumentsText }]), ModelResponseError);
+    }
+    assert.throws(() => bridge.validateResponseCalls([{ ...native, arguments: '{"value":"3"}' }]), /value: Expected number, received string/);
+    assert.throws(() => bridge.validateResponseCalls([{ ...native, arguments: '{"capability":"test_action","input":{"value":3}}' }]), /Invalid arguments/);
+    assert.throws(() => bridge.validateResponseCalls([{ ...query, arguments: '{"unwanted":true}' }]), /Invalid arguments/);
+    assert.throws(() => bridge.validateResponseCalls([{ id: "finish", name: "finish_step", arguments: '{"status":"success","message":""}' }]), /Invalid arguments/);
+    assert.equal(reads, 0);
+    assert.deepEqual(bridge.validateResponseCalls([{ ...native, arguments: '{"value":3,"precision":0.00015}' }]), {
+      kind: "action", task: { capability: "test_action", input: { value: 3, precision: 0.00015 } },
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("catalog rejects ambiguous names shared by native capabilities and other tools", () => {
+  for (const name of ["get_self", "finish_step", "load_skill"]) {
+    const capabilities = new CapabilityRegistry();
+    capabilities.register({ name, description: "Collision", inputSchema: z.object({}), execute: async () => success(null) });
+    assert.throws(() => new ToolCatalogBuilder(capabilities, createDefaultWorldQueryRegistry(world)), /must be unique/);
+  }
+});
+
+test("oversized observation is a failed result in both the tool payload and inspector flag", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minecraft-agent-result-limit-"));
+  try {
+    const bridge = await createBridge(root, world, 5);
+    const result = await bridge.executeRead({ id: "self", name: "get_self", arguments: "{}" });
+    assert.equal(result.ok, false);
+    assert.equal(JSON.parse(result.content).error.code, "RESULT_TOO_LARGE");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+async function createBridge(root: string, queryWorld: WorldQueries = world, maxResultChars?: number): Promise<AgentToolBridge> {
   const capabilities = new CapabilityRegistry();
   const capability: Capability<{ value: number }, null> = {
     name: "test_action",
     description: "Perform one test action.",
-    inputSchema: z.object({ value: z.number().int() }).strict(),
+    inputSchema: z.object({ value: z.number().int(), precision: z.number().min(0.0001).optional() }).strict(),
     execute: async () => success(null),
   };
   capabilities.register(capability);
@@ -163,5 +209,6 @@ async function createBridge(root: string, queryWorld: WorldQueries = world): Pro
     skills,
     skillLoader: new SkillLoader(skills, capabilities, queries),
     landmarks,
+    maxResultChars,
   });
 }

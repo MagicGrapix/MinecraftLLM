@@ -3,6 +3,7 @@ import type { AgentConfig } from "../agent/AgentConfig";
 import { ActionContextBuilder } from "../agent/ActionContextBuilder";
 import { AgentToolBridge } from "../agent/AgentToolBridge";
 import { ActionAgent } from "../agent/ActionAgent";
+import type { ActionTaskOutcome } from "../agent/ActionTypes";
 import { WorkflowAgent } from "../agent/WorkflowAgent";
 import { WorkflowSummaryFile } from "../agent/WorkflowState";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
@@ -13,10 +14,6 @@ import {
   type AgentInspectorServerHandle,
 } from "../debug/AgentInspectorServer";
 import { resolveInspectorUiRoot } from "../debug/resolveInspectorUiRoot";
-import {
-  SequentialPlanRunner,
-  type SequentialRunnerEvent,
-} from "../execution/SequentialPlanRunner";
 import { Executor } from "../execution/Executor";
 import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
@@ -32,7 +29,6 @@ import { createCapabilityRegistry } from "./createCapabilities";
 
 export interface RunningAgentRuntime {
   readonly agent: WorkflowAgent;
-  readonly runner: SequentialPlanRunner;
   readonly chat: MinecraftChatAdapter;
   readonly inspector: AgentInspector | null;
   shutdown(reason?: string): Promise<void>;
@@ -64,7 +60,6 @@ export async function createAgentRuntime(
     runtime,
     world,
   });
-  const runner = new SequentialPlanRunner(executor);
   const inspector = config.inspectorEnabled
     ? new AgentInspector(config.inspectorMaxRounds)
     : null;
@@ -89,7 +84,6 @@ export async function createAgentRuntime(
   const contextBuilder = new ActionContextBuilder({
     world,
     landmarks,
-    capabilities,
     systemPrompt: prompts.actioner,
     conversationSummaryPrompt: prompts.conversationSummary,
   });
@@ -99,8 +93,7 @@ export async function createAgentRuntime(
     llm,
     contextBuilder,
     toolBridge: bridge,
-    runner,
-    maxToolRounds: config.llmMaxToolRounds,
+    executor,
     maxResponseRetries: config.responseMaxRetries,
     temperature: config.llmTemperature,
     reasoningEffort: config.llmReasoningEffort,
@@ -110,6 +103,9 @@ export async function createAgentRuntime(
     toolReplayMode: TOOL_REPLAY_MODE,
     ...(inspector ? { inspector } : {}),
     onRetry: async (message) => { console.warn("Action agent:", message); },
+    onTaskFinished: async (outcome) => {
+      await refreshLandmarksFromTask(outcome, runtime.bot.game.dimension, landmarks);
+    },
   });
   const summaryFile = new WorkflowSummaryFile(inspector?.sessionId ?? `${Date.now()}_${process.pid}`);
   const agent = new WorkflowAgent({
@@ -169,26 +165,11 @@ export async function createAgentRuntime(
     }
   }
 
-  const landmarkRefreshes = new Set<Promise<void>>();
-  const unsubscribe = runner.subscribe((event) => {
-    if (event.type !== "task_finished") return;
-    const refresh = refreshLandmarksFromTask(
-      event,
-      runtime.bot.game.dimension,
-      landmarks,
-    ).catch((error: unknown) => {
-      console.error("Landmark refresh failed:", error);
-    });
-    landmarkRefreshes.add(refresh);
-    void refresh.finally(() => landmarkRefreshes.delete(refresh));
-  });
-
   chat.attach();
   let shutdownPromise: Promise<void> | null = null;
 
   return {
     agent,
-    runner,
     chat,
     inspector,
     shutdown(reason = "Agent runtime stopped."): Promise<void> {
@@ -196,9 +177,6 @@ export async function createAgentRuntime(
       shutdownPromise = (async () => {
         chat?.detach();
         await agent.shutdown();
-        await runner.shutdown(reason);
-        unsubscribe();
-        await Promise.all([...landmarkRefreshes]);
         await sessions.closeActive(reason);
         await landmarks.persist();
         if (inspectorServer) {
@@ -217,7 +195,7 @@ export async function createAgentRuntime(
 }
 
 export async function refreshLandmarksFromTask(
-  event: Extract<SequentialRunnerEvent, { type: "task_finished" }>,
+  event: ActionTaskOutcome,
   dimension: string,
   landmarks: LandmarkMemory,
 ): Promise<void> {

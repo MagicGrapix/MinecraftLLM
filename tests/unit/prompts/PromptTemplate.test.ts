@@ -31,16 +31,15 @@ test("all runtime agent prompts load from Markdown and render", async () => {
 
   const system = prompts.actioner.render({
     task_context: "Delegated step 1: collect wood.",
-    local_plan: "No local plan yet.",
     last_action: "No action yet.",
-    capabilities: "dig: Break one block.",
     world_context: "Inventory: empty.",
   });
   assert.match(system, /Minecraft Action Agent/);
   assert.match(system, /finish_step/);
   assert.doesNotMatch(system, /finish_run/);
   assert.match(system, /Delegated step 1: collect wood/);
-  assert.match(system, /## Local Plan\s+This is your latest saved operational plan/);
+  assert.match(system, /exactly ONE native tool call/);
+  assert.doesNotMatch(system, /## Local Plan|## Available Capabilities|set_plan|continue_plan|get_capability_schemas/);
   const values = { task_context: "No plan yet.", task_summary_section: "", world_context: "Inventory: empty." };
   const coordinator = prompts.coordinator.render(values);
   assert.match(coordinator, /ONE native tool call/);

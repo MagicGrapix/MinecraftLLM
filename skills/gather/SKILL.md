@@ -22,7 +22,9 @@ from currently known chunks, such as logs or stone.
 ## Information to obtain before acting
 
 1. Call `get_inventory` to measure the quantity already held.
-2. Calculate the remaining quantity.
+2. Use the delegated success criterion to calculate the remaining quantity. If the
+   request asks for additional resources, use the initial inventory as a baseline;
+   an existing item does not prove a new item was collected.
 3. Look for matching drops with `get_nearby_entities` before digging more blocks.
    A dropped-item entity has `droppedItem` with its item name and count when the
    server has supplied that metadata. If `droppedItem` is null, its contents are unknown.
@@ -33,10 +35,9 @@ from currently known chunks, such as logs or stone.
 
 Work in short horizons. For each known block target:
 
-1. Use `get_capability_schemas` for any TaskSpec you will create.
-2. Use `set_plan` to prepare a short sequence, usually `goto` with `goal: "interact"` at the observed block position,
-   optional `equip` if an appropriate tool is in inventory, then `dig` at the
-   block's observed position.
+1. Call `goto` with `goal: "interact"` at the observed block position and wait for
+   its result. If a suitable tool is available, optionally call `equip` before
+   calling `dig` at the block's observed position.
    This goal finds a reachable visible face; do not invent feet coordinates or
    navigate underground to the supporting dirt. `goto` may clear obstacles and
    build using dirt/cobblestone already in inventory. It protects the target block.
@@ -44,18 +45,19 @@ Work in short horizons. For each known block target:
    If access is uncertain after navigation, call `get_block_access` at the observed
    target coordinates. Inspect `reason` and `blocker` before retrying: visibility
    alone is not dig reach, and an unloaded target is unknown, not air.
-3. Call `continue_plan` to execute the next task. After each TaskResult, inspect
-   the new state and decide whether to continue, replace the plan, or finish.
-4. After digging, check `get_inventory`. A successful `dig` only proves the block
+2. After each tool result, inspect the new state and choose the next observation,
+   action, changed approach, or `finish_step` report. Call one tool at a time.
+3. After digging, check `get_inventory`. A successful `dig` only proves the block
    broke; it does not prove the dropped resource was picked up.
-5. If the item is still missing, call `get_nearby_entities`. For a matching
-   dropped item, plan a `goto` to its observed entity position with `range: 0`,
-   execute it with `continue_plan`, then check `get_inventory` again.
+4. If the item is still missing, call `get_nearby_entities`. For a matching
+   dropped item, call `goto` to its observed entity position with `range: 0`,
+   then check `get_inventory` again after navigation finishes.
    Dropped items are picked up by proximity; do not dig another block merely
    because the first drop remains on the ground.
 
-Capabilities are never called directly as tools. `set_plan` does not execute a
-task; `continue_plan` executes exactly one planned task.
+Capabilities are native tools. Their exact input schemas are supplied in the
+tool catalog. A short intended approach can accompany a tool call as assistant
+text; there is no separate executable plan to create or advance.
 
 Never invent coordinates. Every position must come from a World Query.
 
@@ -64,7 +66,7 @@ Never invent coordinates. Every position must come from a World Query.
 - `TARGET_NOT_FOUND` or `WORLD_CHANGED`: call `find_nearest_blocks` again because the observation is stale.
 - `NO_PATH`: inspect the path diagnostics and movement policy, including available scaffolding, and choose a reachable target or
   report the obstruction instead of repeating the same task.
-- `OUT_OF_REACH`: add or correct a `goto` task.
+- `OUT_OF_REACH`: inspect `get_block_access`, then choose an appropriate `goto`.
 - `MISSING_ITEM` from `equip`: continue without a tool if the resource remains gatherable; otherwise
   report the missing prerequisite.
 - `TIMEOUT` or `INTERRUPTED`: observe the world again before replanning.
@@ -73,8 +75,9 @@ Never invent coordinates. Every position must come from a World Query.
 
 ## Success condition
 
-Verify success only with `get_inventory`. The skill is complete when the total quantity of the
-requested resource is greater than or equal to the target quantity.
+Verify success with `get_inventory` against the delegated success criterion.
+For an additional-resource request, verify the required increase from the initial
+inventory; otherwise verify the requested total quantity.
 
 ## Known limitations
 

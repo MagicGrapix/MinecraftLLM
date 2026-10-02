@@ -12,7 +12,7 @@ required_queries:
 # Eat when hungry
 
 Call `get_self` first. If the food level is low, use `get_inventory` to select a suitable food item
-that is actually available. Then add `equip` for `"hand"`, followed by `consume` with the same
+that is actually available. Call `equip` for `"hand"` and wait for its result, then call `consume` with the same
 `expectedItem` and `hand: "hand"`.
 
 After the `consume` result, call `get_self` again and verify that the food level increased.

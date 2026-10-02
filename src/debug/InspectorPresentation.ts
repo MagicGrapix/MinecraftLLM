@@ -85,6 +85,9 @@ function describeExecution(execution: InspectorToolExecution) {
   else if (Array.isArray(value.remainingPlan)) outcome = `Plan saved — ${value.remainingPlan.length} actions`;
   else if (execution.name === "complete_step") outcome = `Step ${input.step} marked complete`;
   else if (execution.name === "refresh_summary") outcome = "Summary updated";
+  else if (execution.name === "get_block_access") outcome = text(value.reason)
+    ? `Observed — ${value.reason}${text(value.block) ? ` — ${value.block}` : ""}`
+    : "Completed";
   else if (Array.isArray(result.value)) outcome = `Completed — ${result.value.length} results`;
   else if (Array.isArray(value.items)) outcome = `Completed — ${value.items.length} inventory stacks`;
   else outcome = `Succeeded${text(value.block) ? ` — ${value.block}` : ""}`;
@@ -92,6 +95,14 @@ function describeExecution(execution: InspectorToolExecution) {
 }
 
 function describeCall(name: string, input: Record<string, unknown>, raw: Record<string, unknown> = {}): string {
+  if (["goto", "dig", "get_block", "get_block_access", "use_block", "open_container"].includes(name)) {
+    const position = record(input.position);
+    const coordinates = [position.x, position.y, position.z];
+    if (coordinates.every((value) => typeof value === "number" && Number.isFinite(value))) {
+      return `${name} → (${coordinates.map((value) => Math.round((value as number) * 100) / 100).join(", ")})`;
+    }
+  }
+  // Display compatibility for saved logs only; these queue tools are no longer exposed.
   if (name === "continue_plan" && text(record(raw.task).capability)) {
     return `${name} → ${record(raw.task).capability}`;
   }

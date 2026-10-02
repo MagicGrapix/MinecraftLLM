@@ -56,7 +56,7 @@ const getSelfQuery: WorldQuery<
   SelfState
 > = {
   name: "get_self",
-  description: "Return the bot's current position, cardinal facing, and survival state.",
+  description: "Return the bot's current position, cardinal facing, and survival state (life + hunger).",
   inputSchema: emptyInputSchema,
   execute: async (_input, world) => querySuccess(world.getSelf()),
 };
@@ -98,7 +98,7 @@ const findNearestBlocksQuery: WorldQuery<
   BlockInfo[]
 > = {
   name: "find_nearest_blocks",
-  description: "Find nearby blocks matching one or more Minecraft names.",
+  description: "Find nearby blocks matching one or more Minecraft names. You can specify the max distance search as well as the max results count.",
   inputSchema: findNearestBlocksInputSchema,
   execute: async (input, world) =>
     querySuccess(
@@ -134,7 +134,7 @@ const getVoxelViewQuery: WorldQuery<
   VoxelView
 > = {
   name: "get_voxel_view",
-  description: "Read a 5x5x4 north-up block grid around the bot or an observed integer position. Offsets are dx west/east, dy down/up, dz north/south; optional focus resolves one cell to world coordinates.",
+  description: "Read a 5x5x4 north-up block grid around the bot or an observed integer position. Offsets are dx west/east, dy down/up, dz north/south; optional focus resolves one cell to world coordinates. The returned voxel grid is annotated with the block types and provide insights about the terrain.",
   inputSchema: voxelViewInputSchema,
   execute: async (input, world) => {
     const self = world.getSelf();

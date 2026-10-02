@@ -28,7 +28,7 @@ export function createCapabilityRegistry(
   register(
     registry,
     new DigCapability(),
-    "Break one explicit visible block by attacking it. The target must be reachable.",
+    "Break one explicit visible block by attacking it over time. The target must be reachable by view and the bot must be close enough. Can use `get_block_access` to make sure.",
   );
   register(
     registry,
@@ -48,7 +48,7 @@ export function createCapabilityRegistry(
   register(
     registry,
     new CraftCapability(),
-    "Craft an item in the 2x2 inventory grid or at a reachable crafting table.",
+    "Craft an item in the 2x2 inventory grid or at a reachable crafting table 3x3.",
   );
   register(
     registry,

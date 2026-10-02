@@ -8,6 +8,7 @@ import { TaskFactory } from "../../../../src/execution/TaskFactory";
 import type { TaskResult } from "../../../../src/execution/TaskResult";
 import type { MinecraftRuntime } from "../../../../src/runtime/MinecraftRuntime";
 import type { WorldQueries } from "../../../../src/world/WorldQueries";
+import type { BlockAccessInfo } from "../../../../src/world/BlockAccess";
 import type { SelfState } from "../../../../src/world/types";
 import { createDefaultWorldQueryRegistry } from "../../../../src/world/queries/defaultQueries";
 import type { WorldQuery } from "../../../../src/world/queries/WorldQuery";
@@ -25,6 +26,7 @@ const world: WorldQueries = {
   }),
   getInventory: () => ({ items: [], selectedItem: null }),
   getBlock: () => null,
+  getBlockAccess: () => { throw new Error("Block access was not stubbed."); },
   findNearestBlocks: () => [],
   getNearbyEntities: () => [],
 };
@@ -36,7 +38,7 @@ test("default registry executes a valid query and exposes summaries", async () =
 
   assert.equal(result.ok, true);
   if (result.ok) assert.equal((result.value as SelfState).health, 20);
-  assert.equal(registry.list().length, 6);
+  assert.equal(registry.list().length, 7);
   assert.equal(registry.has("find_nearest_blocks"), true);
 });
 
@@ -52,6 +54,34 @@ test("unknown and invalid queries return structured errors", async () => {
   if (!unknown.ok) assert.equal(unknown.error.code, "QUERY_NOT_FOUND");
   assert.equal(invalid.ok, false);
   if (!invalid.ok) assert.equal(invalid.error.code, "INVALID_ARGUMENT");
+});
+
+test("get_block_access delegates strict integer coordinates to the world adapter", async () => {
+  const position = { x: 7, y: -59, z: 4 };
+  const expected: BlockAccessInfo = {
+    position, loaded: true, block: "oak_log", distanceFromEyes: Math.PI,
+    reach: 5, withinReach: true, visible: false, canDig: false,
+    reason: "occluded", blocker: { block: "oak_leaves", position: { x: 8, y: -59, z: 4 } },
+  };
+  const observed: unknown[] = [];
+  const registry = createDefaultWorldQueryRegistry({
+    ...world,
+    getBlockAccess: (input) => { observed.push(input); return expected; },
+  });
+  assert.equal(registry.has("get_block_access"), true);
+  assert.deepEqual(await registry.execute("get_block_access", { position }), { ok: true, value: expected });
+  assert.deepEqual(observed, [position]);
+
+  for (const input of [
+    {}, { position: JSON.stringify(position) },
+    { position: { ...position, x: 7.5 } }, { position: { ...position, x: Infinity } },
+    { position: { ...position, dimension: "overworld" } }, { position, move: true },
+  ]) {
+    const result = await registry.execute("get_block_access", input);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "INVALID_ARGUMENT");
+  }
+  assert.equal(observed.length, 1, "Invalid inputs must not execute the query.");
 });
 
 test("unexpected query exceptions become INTERNAL_ERROR", async () => {

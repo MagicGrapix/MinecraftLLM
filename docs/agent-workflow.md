@@ -7,7 +7,7 @@ In agent mode, Minecraft chat goes to `WorkflowAgent`. There is no separate inte
 - `run_step({ step, instruction })`: delegate one existing unfinished step. `step: 2` means the second entry of the CURRENT plan, not an ID.
 - `complete_step({ step })`: separately check off a step after reviewing its matching successful action report and fresh world state.
 - `refresh_summary({})`: generate a replacement factual memory in a separate LLM call; return only an acknowledgement/version/length.
-- Existing read-only world queries: `get_self`, `get_inventory`, `get_block`, `find_nearest_blocks`, `get_nearby_entities`, `get_voxel_view`.
+- Existing read-only world queries: `get_self`, `get_inventory`, `get_block`, `get_block_access`, `find_nearest_blocks`, `get_nearby_entities`, `get_voxel_view`.
 
 The planner is single-shot (validation retries do not create an agent loop). It receives recent user/assistant chat, coordinator instructions and current state. Its JSON contains only `steps: [{ title, successCriteria }]`. Application code assigns 1-based indices. Replanning replaces the list, advances `planVersion`, and invalidates the old report; old step numbers in the transcript must not be used against the replacement plan.
 

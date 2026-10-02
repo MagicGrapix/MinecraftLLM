@@ -14,6 +14,8 @@ import { SkillLoader } from "../../../src/skills/SkillLoader";
 import { SkillRegistry } from "../../../src/skills/SkillRegistry";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
+import type { BlockAccessInfo } from "../../../src/world/BlockAccess";
+import { MessageHistory } from "../../../src/agent/MessageHistory";
 
 const world: WorldQueries = {
   getSelf: () => ({
@@ -27,6 +29,7 @@ const world: WorldQueries = {
   }),
   getInventory: () => ({ items: [], selectedItem: null }),
   getBlock: () => null,
+  getBlockAccess: () => { throw new Error("Block access was not stubbed."); },
   findNearestBlocks: () => [],
   getNearbyEntities: () => [],
 };
@@ -94,6 +97,7 @@ test("single actioner catalog includes queries and decisions, never direct capab
     const bridge = await createBridge(root);
     const actionTools = bridge.catalog.build().map((tool) => tool.name);
     assert.equal(actionTools.includes("get_voxel_view"), true);
+    assert.equal(actionTools.includes("get_block_access"), true);
     assert.equal(actionTools.includes("test_action"), false);
     assert.equal(actionTools.includes("set_plan"), true);
     assert.equal(actionTools.includes("continue_plan"), true);
@@ -107,7 +111,41 @@ test("single actioner catalog includes queries and decisions, never direct capab
   }
 });
 
-async function createBridge(root: string): Promise<AgentToolBridge> {
+test("block access is a read tool and raw precision is only rounded in model history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minecraft-block-access-bridge-"));
+  try {
+    const position = { x: 7, y: -59, z: 4 };
+    const expected: BlockAccessInfo = {
+      position, loaded: true, block: "oak_log", distanceFromEyes: 3.30352210163947,
+      reach: 5, withinReach: true, visible: false, canDig: false,
+      reason: "occluded", blocker: { block: "oak_leaves", position: { x: 8, y: -59, z: 4 } },
+    };
+    const bridge = await createBridge(root, { ...world, getBlockAccess: () => expected });
+    const call = { id: "access", name: "get_block_access", arguments: JSON.stringify({ position }) };
+    assert.equal(bridge.isReadTool(call.name), true);
+    assert.equal(bridge.isDecision(call.name), false);
+    assert.equal(bridge.validateResponseCalls([call]).kind, "reads");
+    assert.throws(() => bridge.validateResponseCalls([{ ...call, arguments: JSON.stringify({ position: JSON.stringify(position) }) }]), ModelResponseError);
+    const result = await bridge.executeRead(call);
+    assert.equal(result.ok, true, "An observed obstruction is a successful read, not a query execution error.");
+    assert.equal(result.toolCallId, "access");
+    assert.deepEqual(JSON.parse(result.content), { ok: true, value: expected });
+    for (const mode of ["native", "compact"] as const) {
+      const history = new MessageHistory(20, 30_000, mode);
+      history.appendExchange({ role: "assistant", content: null, toolCalls: [call] },
+        [{ role: "tool", toolCallId: result.toolCallId, content: result.content }]);
+      const presented = JSON.parse(history.snapshot().messages.at(-1)!.content!);
+      assert.equal(presented.value.distanceFromEyes, 3.3);
+      assert.equal(presented.value.canDig, false);
+      assert.deepEqual(presented.value.blocker, expected.blocker);
+    }
+    assert.equal(expected.distanceFromEyes, 3.30352210163947);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+async function createBridge(root: string, queryWorld: WorldQueries = world): Promise<AgentToolBridge> {
   const capabilities = new CapabilityRegistry();
   const capability: Capability<{ value: number }, null> = {
     name: "test_action",
@@ -116,7 +154,7 @@ async function createBridge(root: string): Promise<AgentToolBridge> {
     execute: async () => success(null),
   };
   capabilities.register(capability);
-  const queries = createDefaultWorldQueryRegistry(world);
+  const queries = createDefaultWorldQueryRegistry(queryWorld);
   const skills = await SkillRegistry.discover(resolve(process.cwd(), "skills"));
   const landmarks = await LandmarkMemory.load(join(root, "landmarks.json"));
   return new AgentToolBridge({

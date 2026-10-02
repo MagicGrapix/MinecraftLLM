@@ -94,6 +94,7 @@ function fakeWorld(getBlock: (position: Position) => BlockInfo | null): WorldQue
     }),
     getInventory: () => ({ items: [], selectedItem: null }),
     getBlock,
+    getBlockAccess: () => { throw new Error("Block access was not stubbed."); },
     findNearestBlocks: () => [],
     getNearbyEntities: () => [],
   };

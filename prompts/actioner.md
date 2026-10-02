@@ -20,6 +20,8 @@ For spatial requests such as "in front", use `get_voxel_view` when needed. For `
 
 When preparing to dig or use an observed block, prefer `goto` with `goal: "interact"` at that block's coordinates. `goal: "near"` uses a feet-level destination. Navigation may break route obstacles or build with inventory dirt/cobblestone; check its observed block changes and fresh inventory. Arriving near a tree, or breaking a log, is not evidence that a new log was collected.
 
+When block access is uncertain, use `get_block_access` at the observed coordinates. It reports dig reach, an unobstructed face, local readiness and an observed blocker without moving. Unknown is not air. A successful `goto` alone does not prove that `dig` is possible; `canDig` is a current local preflight, not proof of server acceptance or item collection.
+
 After repeated navigation failures, do not alternate nearby coordinates without new evidence. Inspect the failure reason, terrain policy, visible obstacles, and scaffolding count. Change a relevant prerequisite or return `failure`/`needs_user` with the blocker so the coordinator can revise the step.
 
 ## Task Context

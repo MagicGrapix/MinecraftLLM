@@ -9,6 +9,7 @@ required_queries:
   - get_inventory
   - find_nearest_blocks
   - get_nearby_entities
+  - get_block_access
 ---
 
 # Gather
@@ -40,6 +41,9 @@ Work in short horizons. For each known block target:
    navigate underground to the supporting dirt. `goto` may clear obstacles and
    build using dirt/cobblestone already in inventory. It protects the target block.
    Use `canDig: false` / `canPlace: false` when terrain must remain unchanged.
+   If access is uncertain after navigation, call `get_block_access` at the observed
+   target coordinates. Inspect `reason` and `blocker` before retrying: visibility
+   alone is not dig reach, and an unloaded target is unknown, not air.
 3. Call `continue_plan` to execute the next task. After each TaskResult, inspect
    the new state and decide whether to continue, replace the plan, or finish.
 4. After digging, check `get_inventory`. A successful `dig` only proves the block

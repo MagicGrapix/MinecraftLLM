@@ -24,6 +24,7 @@ const emptyWorld: WorldQueries = {
   }),
   getInventory: () => ({ items: [], selectedItem: null }),
   getBlock: () => null,
+  getBlockAccess: () => { throw new Error("Block access was not stubbed."); },
   findNearestBlocks: () => [],
   getNearbyEntities: () => [],
 };
@@ -52,6 +53,7 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
     "get_inventory",
     "find_nearest_blocks",
     "get_nearby_entities",
+    "get_block_access",
   ]);
   assert.match(gather.instructions, /Success condition/);
   assert.match(gather.instructions, /droppedItem/);

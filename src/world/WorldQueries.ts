@@ -1,4 +1,5 @@
 import type { Position } from "../shared/types";
+import type { BlockAccessInfo } from "./BlockAccess";
 import type {
   BlockInfo,
   EntityInfo,
@@ -12,6 +13,7 @@ export interface WorldQueries {
   getSelf(): SelfState;
   getInventory(): InventoryState;
   getBlock(position: Position): BlockInfo | null;
+  getBlockAccess(position: Position): BlockAccessInfo;
   findNearestBlocks(
     names: string | readonly string[],
     options?: FindBlocksOptions,

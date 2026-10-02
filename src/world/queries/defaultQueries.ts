@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BlockPositionSchema } from "../../shared/types";
 import type { WorldQueries } from "../WorldQueries";
+import type { BlockAccessInfo } from "../BlockAccess";
 import type {
   BlockInfo,
   EntityInfo,
@@ -81,6 +82,17 @@ const getBlockQuery: WorldQuery<
     querySuccess(world.getBlock(input.position)),
 };
 
+const getBlockAccessQuery: WorldQuery<
+  z.infer<typeof getBlockInputSchema>,
+  BlockAccessInfo
+> = {
+  name: "get_block_access",
+  description: "Read a block's loaded state, eye-to-center distance, dig reach, unobstructed dig face, canDig preflight, reason and an observed blocker. Visible is independent of camera direction; null means unknown (including unloaded cells or visibility beyond 64 blocks). Reach is eye-to-face, not center distance. This never moves or digs and does not prove server permission or item pickup.",
+  inputSchema: getBlockInputSchema,
+  execute: async (input, world) =>
+    querySuccess(world.getBlockAccess(input.position)),
+};
+
 const findNearestBlocksQuery: WorldQuery<
   z.infer<typeof findNearestBlocksInputSchema>,
   BlockInfo[]
@@ -147,6 +159,7 @@ export const defaultWorldQueries = [
   getSelfQuery,
   getInventoryQuery,
   getBlockQuery,
+  getBlockAccessQuery,
   findNearestBlocksQuery,
   getNearbyEntitiesQuery,
   getVoxelViewQuery,
@@ -159,6 +172,7 @@ export function createDefaultWorldQueryRegistry(
   registry.register(getSelfQuery);
   registry.register(getInventoryQuery);
   registry.register(getBlockQuery);
+  registry.register(getBlockAccessQuery);
   registry.register(findNearestBlocksQuery);
   registry.register(getNearbyEntitiesQuery);
   registry.register(getVoxelViewQuery);

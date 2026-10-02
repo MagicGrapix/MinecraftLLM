@@ -5,6 +5,7 @@ import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
 import { fromVec3, toVec3 } from "../runtime/PositionAdapter";
 import { normalizeMinecraftName } from "../shared/helper";
 import type { Position } from "../shared/types";
+import { inspectBlockAccess, type BlockAccessInfo } from "./BlockAccess";
 import type { WorldQueries } from "./WorldQueries";
 import type {
   BlockInfo,
@@ -45,6 +46,10 @@ export class MineflayerWorldQueries implements WorldQueries {
   getBlock(position: Position): BlockInfo | null {
     const block = this.runtime.bot.blockAt(toVec3(position));
     return block ? toBlockInfo(block) : null;
+  }
+
+  getBlockAccess(position: Position): BlockAccessInfo {
+    return inspectBlockAccess(this.runtime.bot, position);
   }
 
   findNearestBlocks(

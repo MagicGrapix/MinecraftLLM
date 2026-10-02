@@ -9,22 +9,30 @@ Il n'exécute aucune capability Minecraft lui-même.
 Le planner reçoit la conversation joueur/assistant restante, son résumé compacté, le monde actuel,
 la checklist et l'instruction du coordinateur. Il produit un seul JSON :
 `{"steps":[{"title":"...","successCriteria":"..."}]}`.
-Le code numérote les étapes à partir de 1. Un nouveau plan remplace l'ancien et invalide son dernier rapport.
+Le code numérote les étapes à partir de 1. Un nouveau plan remplace l'ancien et invalide tous ses rapports.
 
-L'actionneur reçoit une étape avec son critère, l'objectif utilisateur, la checklist et le résumé de tâche.
+L'actionneur reçoit une étape avec son critère, l'objectif utilisateur, la checklist complète, le résumé
+de tâche et les derniers rapports des étapes déjà tentées. Il travaille uniquement sur l'étape déléguée.
 Il garde une conversation privée pendant cette délégation, sans phases planning/review.
 Il choisit un tool à la fois : lecture, capability, skill ou `finish_step`.
 Le résultat réel est ajouté avant le prochain appel LLM. Chaque nouvelle délégation repart à zéro.
 
 `finish_step` rend une déclaration et les TaskResults réels au coordinateur.
-`complete_step` coche une étape seulement si le rapport réussi correspond au plan courant.
+`complete_step` exige le dernier rapport réussi de cette étape dans le plan courant.
 La validation du critère de réussite reste à la charge du coordinateur : ce contrôle de correspondance
 n'est pas une vérification déterministe de l'objectif.
+
+`WorkflowState` garde un dernier rapport par numéro d'étape, avec ses TaskResults complets et sa version
+de plan. Déléguer une autre étape n'écrase pas ce rapport : le coordinateur peut donc cocher une étape
+oubliée après vérification. Le prompt lui demande toutefois de vérifier et cocher avant de poursuivre.
+Une nouvelle tentative reçoit le rapport précédent comme contexte, mais l'invalide pour la complétion :
+seul le nouveau rapport peut autoriser `complete_step`. Un échec ou une exception ne laisse pas un ancien
+succès utilisable. Une nouvelle demande joueur ou un nouveau plan vide les rapports et l'étape sélectionnée.
 
 ## Ordre des messages
 
 ```text
-system    : prompt du rôle + checklist + World Context actuel
+system    : prompt du rôle + Task Context + Task Summary éventuel + World Context actuel
 assistant : résumé de conversation antérieure (vide au départ)
 user      : demande active, conservée telle quelle
 assistant / tool : échanges suivants, dans leur ordre
@@ -34,6 +42,18 @@ Les demandes précédentes et leurs réponses restent à leur place tant qu'elle
 La demande active ne migre pas à la fin du contexte à chaque call. Elle ne peut pas être supprimée
 par la compression. Pour l'actionneur, l'instruction du coordinateur est le message user protégé ;
 l'objectif global reste également présent dans ses données de délégation.
+
+Pour le coordinateur et l'actionneur, `TaskContextFormatter` présente l'objectif, l'étape sélectionnée
+et son critère, la checklist complète et les rapports compacts (numéro, statut déclaré, message).
+Sans plan, il affiche `No plan yet.`. Les rapports sont des déclarations historiques ; seuls les `[x]`
+représentent une validation du coordinateur. Ils ne remplacent ni les observations fraîches ni les résultats
+réels, conservés dans les échanges d'outils et les traces. Ces rapports de plan restent dans le system
+même si l'historique est compacté. Le planner garde sa vue checklist et son instruction, sans ces rapports.
+
+L'actionneur n'a plus de section `Last Action Result` dans le system : chaque résultat d'action est déjà
+ajouté à sa conversation avant le call suivant. Le dernier résultat brut reste dans le snapshot debug.
+Sa conversation repart à zéro à chaque délégation ; les rapports compacts lui transmettent le progrès utile
+sans rejouer les conversations privées des étapes précédentes.
 
 Le World Context est un instantané courant dans le system, sans horodatage. Il utilise du texte dense :
 position du bot, direction, état de survie, inventaire du bot, item tenu et landmarks.
@@ -76,7 +96,7 @@ Le **résumé de tâche** est demandé par `refresh_summary`, limité par `AGENT
 (500 caractères par défaut). Il reçoit les faits courants, le résumé précédent, le résumé de conversation
 et l'activité récente, puis remplace la section Task Summary du system.
 Sa réponse complète n'est pas rejouée dans l'historique ; seul un accusé de mise à jour y entre.
-Il est écrit avec la checklist dans `logs/agent_summary_<session>.md`.
+Il est écrit avec la checklist, l'étape sélectionnée et les rapports compacts dans `logs/agent_summary_<session>.md`.
 Aucun de ces résumés n'est automatiquement rechargé après redémarrage.
 
 ## Présentation compacte des tools

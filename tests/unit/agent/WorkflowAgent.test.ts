@@ -144,25 +144,129 @@ test("planner creates indices, actioner gets context, completion and summary are
     assert.equal(h.llm.requests[1]!.messages.at(-1)?.content, "Collect another log.");
     assert.equal(section(h.llm.requests[1]!.messages, "Instruction"), "Plan a small wood task.");
     assert.equal(section(h.llm.requests[1]!.messages, "Task Context"), "No plan yet.");
-    assert.equal(section(h.llm.requests[2]!.messages, "Task Context"), "- [ ] 1. Collect a log — Inventory increases by one log relative to the initial state.");
-    assert.equal(section(h.llm.requests[4]!.messages, "Task Context"), "- [x] 1. Collect a log — Inventory increases by one log relative to the initial state.");
-    assert.doesNotMatch(h.llm.requests[3]!.messages[0]!.content!, /One log collected|dig-1|planVersion|Collect another log/);
+    assert.match(section(h.llm.requests[2]!.messages, "Task Context")!, /- \[ \] 1\. Collect a log — Inventory increases by one log relative to the initial state\./);
+    assert.match(section(h.llm.requests[4]!.messages, "Task Context")!, /- \[x\] 1\. Collect a log/);
+    assert.match(h.llm.requests[3]!.messages[0]!.content!, /Objective: Collect another log/);
+    assert.match(h.llm.requests[3]!.messages[0]!.content!, /Step 1 reported success: One log collected/);
+    assert.doesNotMatch(h.llm.requests[3]!.messages[0]!.content!, /dig-1|planVersion|"outcomes"/);
     const instruction = h.actionInstructions[0]!;
     assert.equal(instruction.step.step, 1);
     assert.equal(instruction.userObjective, "Collect another log.");
     assert.match(instruction.checklist, /1\. Collect a log/);
+    assert.deepEqual(instruction.reports, []);
     assert.equal("world" in instruction, false); // The action agent receives a fresh World Context instead.
     assert.equal("planVersion" in instruction, false);
     const reportContext = JSON.parse(h.llm.requests[3]!.messages.at(-1)!.content!).value.report;
     assert.equal(reportContext.outcomes[0].capability, "dig");
     assert.equal(reportContext.outcomes[0].task, undefined);
-    assert.deepEqual(reportContext.outcomes[0].result, h.agent.task.lastReport!.report.outcomes[0]!.result);
+    assert.deepEqual(reportContext.outcomes[0].result, h.agent.task.reports[1]!.report.outcomes[0]!.result);
     assert.equal(h.agent.task.steps[0]?.status, "done");
     const contents = await readFile(h.summary.path, "utf8");
     assert.match(contents, /- \[x\] 1\. Collect a log/);
     assert.match(contents, /Collected one additional oak log/);
+    assert.match(contents, /Step 1 reported success: One log collected/);
     assert.deepEqual(h.replies, ["Done."]);
     assert.equal(h.llm.maxConcurrentRequests, 1);
+  } finally { await h.close(); }
+});
+
+test("steps can be checked after later delegations without losing their reports", async () => {
+  for (const replay of ["native", "compact"] as const) {
+    const h = await harness(0, replay);
+    try {
+      tool(h.llm, "ask_planner", { instruction: "Plan the collection." });
+      json(h.llm, { steps: [
+        { title: "Find a tree", successCriteria: "A log position is known." },
+        { title: "Break the log", successCriteria: "The target block is gone." },
+        { title: "Collect the drop", successCriteria: "One new log is in inventory." },
+      ] });
+      for (const step of [1, 2, 3]) tool(h.llm, "run_step", { step, instruction: `Perform step ${step}.` });
+      for (const step of [1, 2, 3]) tool(h.llm, "complete_step", { step });
+      tool(h.llm, "reply", { outcome: "success", message: "Collected." });
+      const reports = ["Found a log at (3, -60, 0).", "The log block is gone.", "Inventory increased from 0 to 1 log."]
+        .map((message) => ({ ...actionSuccess(), message }));
+      h.actions.push(...reports);
+      h.agent.submitUserMessage("owner", "Collect one new log.");
+      await idle(h.agent);
+
+      assert.deepEqual(h.replies, ["Collected."]);
+      assert.ok(h.agent.task.steps.every((step) => step.status === "done"));
+      assert.equal(h.agent.task.currentStep, null);
+      assert.deepEqual(Object.values(h.agent.task.reports).map((entry) => entry.report), reports);
+      assert.deepEqual(h.actionInstructions[1]!.reports, [{ step: 1, status: "success", message: reports[0]!.message }]);
+      assert.equal(h.actionInstructions[2]!.reports.length, 2);
+      assert.match(h.actionInstructions[2]!.checklist, /1\. Find a tree[\s\S]*2\. Break the log[\s\S]*3\. Collect the drop/);
+
+      const afterActions = section(h.llm.requests[5]!.messages, "Task Context")!;
+      assert.match(afterActions, /Current step 3: Collect the drop/);
+      for (const step of [1, 2, 3]) {
+        assert.ok(afterActions.includes(`- [ ] ${step}.`)); // A claim never checks its own box.
+        assert.ok(afterActions.includes(`Step ${step} reported success: ${reports[step - 1]!.message}`));
+      }
+      assert.doesNotMatch(afterActions, /dig-1|createdAt|"outcomes"|planVersion/);
+      const afterFirstCheck = section(h.llm.requests[6]!.messages, "Task Context")!;
+      assert.match(afterFirstCheck, /Current step 3: Collect the drop/);
+      assert.match(afterFirstCheck, /- \[x\] 1\. Find a tree/);
+      const contents = await readFile(h.summary.path, "utf8");
+      assert.match(contents, /Step 1 reported success:[\s\S]*Step 3 reported success:/);
+
+      // Stored reports own their data; changing a runner's returned object cannot rewrite the evidence.
+      reports[0]!.message = "Changed runner object";
+      assert.equal(h.agent.task.reports[1]!.report.message, "Found a log at (3, -60, 0).");
+      tool(h.llm, "reply", { outcome: "answer", message: "Hello." });
+      h.agent.submitUserMessage("owner", "Hello again.");
+      await idle(h.agent);
+      assert.deepEqual(h.agent.task.reports, {});
+      assert.equal(h.agent.task.currentStep, null);
+      assert.equal(section(h.llm.requests.at(-1)!.messages, "Task Context"), "No plan yet.");
+    } finally { await h.close(); }
+  }
+});
+
+test("a retry sees previous reports but its failure replaces only that step's earlier success", async () => {
+  const h = await harness();
+  try {
+    tool(h.llm, "ask_planner", { instruction: "Plan two steps." });
+    json(h.llm, { steps: [
+      { title: "Collect wood", successCriteria: "One new log." },
+      { title: "Locate stone", successCriteria: "A stone position is known." },
+    ] });
+    for (const step of [1, 2, 1]) tool(h.llm, "run_step", { step, instruction: "Inspect and perform the step." });
+    tool(h.llm, "complete_step", { step: 1 });
+    tool(h.llm, "complete_step", { step: 2 });
+    tool(h.llm, "reply", { outcome: "failure", message: "Wood collection could not be confirmed." });
+    h.actions.push(actionSuccess(), { ...actionSuccess(), message: "Located stone." }, { status: "failure", message: "The drop is gone.", outcomes: [] });
+    h.agent.submitUserMessage("owner", "Collect wood and locate stone.");
+    await idle(h.agent);
+    assert.equal(h.actionInstructions[2]!.reports.length, 2);
+    assert.equal(h.actionInstructions[2]!.reports[0]!.status, "success");
+    assert.equal(h.agent.task.reports[1]!.report.status, "failure");
+    assert.equal(h.agent.task.reports[2]!.report.message, "Located stone.");
+    assert.equal(h.agent.task.steps[0]!.status, "blocked");
+    assert.equal(h.agent.task.steps[1]!.status, "done");
+    assert.equal(h.agent.task.currentStep, 1);
+    assert.match(h.llm.requests[6]!.messages.at(-1)!.content!, /matching successful report/);
+    const context = section(h.llm.requests.at(-1)!.messages, "Task Context")!;
+    assert.match(context, /Step 1 reported failure: The drop is gone/);
+    assert.doesNotMatch(context, /One log collected/);
+  } finally { await h.close(); }
+});
+
+test("a delegation that throws invalidates its old successful report", async () => {
+  const h = await harness();
+  try {
+    plan(h.llm);
+    tool(h.llm, "run_step", { step: 1, instruction: "Collect the log." });
+    tool(h.llm, "run_step", { step: 1, instruction: "Check after the world changed." });
+    tool(h.llm, "complete_step", { step: 1 });
+    tool(h.llm, "reply", { outcome: "failure", message: "Cannot confirm." });
+    h.actions.push(actionSuccess()); // The second delegation throws: no scripted report.
+    h.agent.submitUserMessage("owner", "Collect a log.");
+    await idle(h.agent);
+    assert.deepEqual(h.agent.task.reports, {});
+    assert.equal(h.agent.task.steps[0]!.status, "blocked");
+    assert.match(h.llm.requests[4]!.messages.at(-1)!.content!, /No scripted report/);
+    assert.match(h.llm.requests.at(-1)!.messages.at(-1)!.content!, /matching successful report/);
   } finally { await h.close(); }
 });
 
@@ -260,7 +364,9 @@ test("failed reports and stale reports after replanning cannot check off a step"
       const currentPlan = section(h.llm.requests.at(-1)!.messages, "Task Context")!;
       if (replan) {
         assert.match(currentPlan, /1\. New step/);
-        assert.doesNotMatch(currentPlan, /Collect a log|\[blocked\]/);
+        assert.doesNotMatch(currentPlan, /1\. Collect a log|\[blocked\]|One log collected/);
+        assert.deepEqual(h.agent.task.reports, {});
+        assert.equal(h.agent.task.currentStep, null);
       } else {
         assert.match(currentPlan, /1\. Collect a log.*\[blocked\]/);
       }
@@ -309,7 +415,8 @@ test("coordinator retains the active request and atomic exchanges beyond 20 mess
     for (const request of h.llm.requests) { assertProtocol(request.messages); }
     const last = h.llm.requests.at(-1)!.messages;
     assert.match(section(last, "Task Context")!, /1\. Collect a log/);
-    assert.doesNotMatch(last[0]!.content!, /Keep this objective|historyOmitted|source|planVersion/);
+    assert.match(last[0]!.content!, /Objective: Keep this objective/);
+    assert.doesNotMatch(last[0]!.content!, /historyOmitted|source|planVersion/);
     assert.equal(last.find((m) => m.role === "user")?.content, "Keep this objective.");
   } finally { await h.close(); }
 });

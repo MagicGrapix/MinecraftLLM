@@ -67,7 +67,7 @@ test("queries and direct actions share one conversation; operational notes survi
     protocolValid(request.messages);
   }
   assert.match(JSON.stringify(h.llm.requests[3]!.messages), /Approach the observed log/);
-  assert.match(h.llm.requests[2]!.messages[0]!.content!, /NO_PATH/);
+  assert.doesNotMatch(h.llm.requests[2]!.messages[0]!.content!, /NO_PATH/); // The result is in tool history, not duplicated in system.
   assert.match(JSON.stringify(h.llm.requests[5]!.messages), /Use the newly observed reachable block/);
   const result = JSON.parse(h.llm.requests[2]!.messages.at(-1)!.content!);
   assert.equal(result.ok, false);
@@ -147,7 +147,8 @@ test("history keeps notes and the instruction until compression, and resets afte
       protocolValid(request.messages);
     }
     const last = h.llm.requests.at(-1)!;
-    assert.match(last.messages[0]!.content!, /observed_13/);
+    assert.doesNotMatch(last.messages[0]!.content!, /observed_13/);
+    assert.match(last.messages.at(-1)!.content!, /observed_13/);
     assert.match(JSON.stringify(last.messages), /Revised approach/);
     if (mode === "compact") assert.ok(last.messages.some((m) => m.role === "assistant" && m.content?.includes("tool: dig")));
     const beforeSecond = h.llm.requests.length;
@@ -365,7 +366,7 @@ test("real workflow delegates direct actions and still verifies the report befor
   assert.equal(report.outcomes[0].capability, "dig");
   assert.equal(report.outcomes[0].result.ok, true);
   assert.equal(report.outcomes[0].task, undefined);
-  assert.ok(workflow.agent.task.lastReport!.report.outcomes[0]!.task.id);
+  assert.ok(workflow.agent.task.reports[1]!.report.outcomes[0]!.task.id);
   assert.equal(h.llm.maxConcurrentRequests, 1);
   await workflow.agent.shutdown();
 });
@@ -384,8 +385,8 @@ test("real workflow stop during a capability returns the interrupted report with
   physical.resolve(failure("INTERRUPTED", "Cancelled dig."));
   await stop;
   assert.equal((workflow.agent.state() as { mode: string }).mode, "stopped");
-  assert.equal(workflow.agent.task.lastReport!.report.status, "interrupted");
-  assert.equal(workflow.agent.task.lastReport!.report.outcomes.length, 1);
+  assert.equal(workflow.agent.task.reports[1]!.report.status, "interrupted");
+  assert.equal(workflow.agent.task.reports[1]!.report.outcomes.length, 1);
   assert.equal(workflow.agent.task.steps[0]!.status, "blocked");
   assert.equal(h.executor.started.length, 1);
   assert.equal(h.llm.requests.length, 4);
@@ -406,7 +407,7 @@ test("coordinator report projection retains observations and errors without task
 });
 
 function delegation(userObjective = "Collect one more log"): ActionDelegation {
-  return { step: { step: 1, title: "Collect a log", successCriteria: "Bot inventory increases by one log." }, instruction: "Collect a new log, then verify the inventory.", userObjective, checklist: "- [ ] 1. Collect a log", projectSummary: "" };
+  return { step: { step: 1, title: "Collect a log", successCriteria: "Bot inventory increases by one log." }, instruction: "Collect a new log, then verify the inventory.", userObjective, checklist: "- [ ] 1. Collect a log", projectSummary: "", reports: [] };
 }
 
 test("actioner retries malformed transport responses before invoking any action", async () => {

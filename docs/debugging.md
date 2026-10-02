@@ -12,7 +12,7 @@ pas les fichiers sur disque. Il est refusé lorsqu'un call est en cours.
 
 - `logs/log_<session>.log` : journal console lisible.
 - `logs/trace_<session>.jsonl` : requêtes exactes, réponses brutes avant parsing, erreurs et rounds finalisés.
-- `logs/agent_summary_<session>.md` : dernière checklist et résumé factuel de tâche.
+- `logs/agent_summary_<session>.md` : dernière checklist, étape sélectionnée, rapports compacts et résumé factuel de tâche.
 
 Ces fichiers partagent le même identifiant de session. Chaque ligne JSONL est un événement JSON
 avec `timestamp`, `event` et `data`. Événements utiles :

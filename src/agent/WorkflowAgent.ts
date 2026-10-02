@@ -13,6 +13,7 @@ import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
 import { MessageHistory, type ToolReplayMode } from "./MessageHistory";
 import { ContextCompactor, type ContextBudget } from "./ContextCompactor";
 import { formatWorldContext, type WorldContextSnapshot } from "./WorldContextFormatter";
+import { formatTaskContext } from "./TaskContextFormatter";
 import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRoleCall";
 import {
   PlannerResultSchema,
@@ -195,7 +196,12 @@ export class WorkflowAgent {
       history: this.transcript,
       render: (messages, summary) => {
         context = this.commonContext();
-        return this.roleInput(this.options.prompts.coordinator, context, { messages }, summary).messages;
+        return this.roleInput(this.options.prompts.coordinator, context, { messages }, summary, formatTaskContext({
+          objective: context.task.objective,
+          checklist: context.task.checklist,
+          currentStep: context.task.steps.find((step) => step.step === context.task.currentStep),
+          reports: this.task.reportSummaries(),
+        })).messages;
       },
       tools: this.tools.catalog(), generationId: this.generationId, reflection, signal, requestTitle: this.task.objective,
     });
@@ -245,7 +251,8 @@ export class WorkflowAgent {
     task: ReturnType<WorkflowState["snapshot"]>;
     world: WorldContextSnapshot;
     instruction?: string;
-  }, history: { messages: readonly LLMMessage[] }, summary = this.transcript.summary): {
+  }, history: { messages: readonly LLMMessage[] }, summary = this.transcript.summary,
+    taskContext = currentContext.task.checklist || "No plan yet."): {
     readonly context: Record<string, unknown>;
     readonly messages: readonly LLMMessage[];
   } {
@@ -255,7 +262,7 @@ export class WorkflowAgent {
     const { task, world, instruction } = currentContext;
     const messages: LLMMessage[] = [
       { role: "system", content: prompt.render({
-        task_context: task.checklist || "No plan yet.",
+        task_context: taskContext,
         task_summary_section: task.summary ? `## Task Summary\n\n${task.summary}` : "",
         instruction: instruction ?? "",
         world_context: formatWorldContext(world),
@@ -306,26 +313,37 @@ export class WorkflowAgent {
         const step = this.task.steps[call.input.step - 1];
         if (!step || step.status === "done") throw new Error("Select an unfinished step index from the CURRENT plan, or ask the planner first.");
         this.plansWithoutAction = 0;
-        this.task.lastReport = null;
+        const planVersion = this.task.planVersion;
+        const reports = this.task.reportSummaries();
+        // Show the prior attempt to the actioner, but only this new attempt may authorize completion.
+        delete this.task.reports[step.step];
+        this.task.currentStep = step.step;
         step.status = "active";
         this.mode = "executing";
         const report = await this.options.actionAgent.runDelegatedStep({
-          step, instruction: call.input.instruction, userObjective: this.task.objective,
+          step: structuredClone(step), instruction: call.input.instruction, userObjective: this.task.objective,
           checklist: this.task.checklist(),
           projectSummary: this.task.summary,
-        }, { generationId: this.generationId, delegation: ++this.delegation });
-        this.task.lastReport = { step: step.step, planVersion: this.task.planVersion, report };
+          reports,
+        }, { generationId: this.generationId, delegation: ++this.delegation }).catch((error: unknown) => {
+          if (this.task.planVersion === planVersion) step.status = "blocked";
+          throw error;
+        });
+        if (this.task.planVersion !== planVersion) throw new Error("Discarded a report for a replaced plan.");
+        const recorded = { step: step.step, planVersion, report: structuredClone(report) };
+        this.task.reports[step.step] = recorded;
         step.status = report.status === "success" ? "active" : "blocked";
         if (report.status === "interrupted") this.stopRequested = true;
-        return { value: { ...this.task.lastReport, report: actionReportForContext(report) } };
+        return { value: { ...recorded, report: actionReportForContext(report) } };
       }
       case "complete_step": {
         const step = this.task.steps[call.input.step - 1];
-        const latest = this.task.lastReport;
+        const latest = this.task.reports[call.input.step];
         if (!step || !latest || latest.step !== step.step || latest.planVersion !== this.task.planVersion || latest.report.status !== "success") {
           throw new Error("Completion requires a matching successful report for this step in the current plan.");
         }
         step.status = "done";
+        if (this.task.currentStep === step.step) this.task.currentStep = null;
         return { value: { step: step.step, status: step.status, planVersion: this.task.planVersion } };
       }
       case "refresh_summary": {

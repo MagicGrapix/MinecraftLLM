@@ -1,7 +1,8 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import type { DelegatedActionReport } from "./ActionTypes";
+import type { DelegatedActionReport, StepReportSummary } from "./ActionTypes";
+import { formatStepReports } from "./TaskContextFormatter";
 
 export const PlanStepSchema = z.object({
   title: z.string().trim().min(1).max(160),
@@ -19,25 +20,41 @@ export interface WorkflowStep extends PlanStep {
   status: "pending" | "active" | "done" | "blocked";
 }
 
+export interface WorkflowStepReport {
+  readonly step: number;
+  readonly planVersion: number;
+  readonly report: DelegatedActionReport;
+}
+
 export class WorkflowState {
   objective = "";
   summary = "";
   summaryVersion = 0;
   planVersion = 0;
   steps: WorkflowStep[] = [];
-  lastReport: { step: number; planVersion: number; report: DelegatedActionReport } | null = null;
+  currentStep: number | null = null;
+  reports: Record<number, WorkflowStepReport> = {};
 
   start(objective: string): void {
     this.objective = objective;
     this.steps = [];
-    this.lastReport = null;
+    this.currentStep = null;
+    this.reports = {};
     this.planVersion += 1;
   }
 
   applyPlan(steps: readonly PlanStep[]): void {
     this.planVersion += 1;
     this.steps = steps.map((step, index) => ({ ...step, step: index + 1, status: "pending" }));
-    this.lastReport = null;
+    this.currentStep = null;
+    this.reports = {};
+  }
+
+  reportSummaries(): StepReportSummary[] {
+    return Object.values(this.reports)
+      .filter((entry) => entry.planVersion === this.planVersion)
+      .sort((a, b) => a.step - b.step)
+      .map(({ step, report }) => ({ step, status: report.status, message: report.message }));
   }
 
   checklist(): string {
@@ -54,7 +71,8 @@ export class WorkflowState {
       planVersion: this.planVersion,
       steps: structuredClone(this.steps),
       checklist: this.checklist(),
-      lastReport: this.lastReport ? structuredClone(this.lastReport) : null,
+      currentStep: this.currentStep,
+      reports: structuredClone(this.reports),
     };
   }
 }
@@ -76,6 +94,12 @@ export class WorkflowSummaryFile {
       "## Steps",
       "",
       state.checklist() || "No steps yet.",
+      "",
+      `Current step: ${state.currentStep ?? "none selected"}`,
+      "",
+      "## Step reports (claims, not checklist verification)",
+      "",
+      formatStepReports(state.reportSummaries()),
       "",
       "## What happened",
       "",

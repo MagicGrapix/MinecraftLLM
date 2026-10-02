@@ -11,8 +11,11 @@
   Il ne prouve pas que la ressource est entrée dans l'inventaire.
 - `get_dropped_items` décrit les stacks observées au sol. `get_inventory` décrit l'inventaire actuel
   du bot. Un item présent ne prouve pas un gain : comparer avec l'observation initiale.
-- `finish_step` rend un rapport. `complete_step` exige un rapport réussi correspondant à l'étape
-  et à la version courante du plan, puis met à jour la checklist. La vérification du critère reste
+- `finish_step` rend un rapport sans cocher de case. `complete_step` exige le dernier rapport réussi
+  de l'étape et de la version courante du plan, puis met à jour la checklist. Les rapports sont conservés
+  par étape : une délégation suivante n'empêche pas de vérifier une étape précédente. Retenter une étape
+  invalide son ancien rapport pour la complétion, y compris si la nouvelle tentative échoue sans rapport.
+  Un nouveau plan ou une nouvelle demande joueur efface ces rapports. La vérification du critère reste
   sémantique ; aucun moteur de prédicats déterministes n'est encore implémenté.
 
 ## Annuler une capability

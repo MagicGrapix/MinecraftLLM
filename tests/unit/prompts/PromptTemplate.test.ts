@@ -31,7 +31,7 @@ test("all runtime agent prompts load from Markdown and render", async () => {
 
   const system = prompts.actioner.render({
     task_context: "Delegated step 1: collect wood.",
-    last_action: "No action yet.",
+    task_summary_section: "",
     world_context: "Inventory: empty.",
   });
   assert.ok(system.length > 0);
@@ -39,7 +39,7 @@ test("all runtime agent prompts load from Markdown and render", async () => {
   assert.doesNotMatch(system, /finish_run/);
   assert.match(system, /Delegated step 1: collect wood/);
   assert.doesNotMatch(system, /{{\s*\w+\s*}}/); // Editable prose is not an exact-string contract.
-  assert.doesNotMatch(system, /## Local Plan|## Available Capabilities|set_plan|continue_plan|get_capability_schemas/);
+  assert.doesNotMatch(system, /## Last Action Result|## Local Plan|## Available Capabilities|set_plan|continue_plan|get_capability_schemas/);
   const values = { task_context: "No plan yet.", task_summary_section: "", world_context: "Inventory: empty." };
   const coordinator = prompts.coordinator.render(values);
   assert.match(coordinator, /ONE native tool call/);

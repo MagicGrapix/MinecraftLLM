@@ -24,9 +24,12 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `src/bootstrap/createAgentRuntime.ts` assemble clients, queries, capabilities, agents, chat et inspecteur.
 - `WorkflowAgent.ts` dirige les délégations et garde `WorkflowState`. `ActionRunner` dans `ActionTypes.ts`
   est sa frontière avec l'actionneur : un changement d'implémentation ne demande pas de réécrire le coordinateur.
+  `WorkflowState` conserve le plan, l'étape sélectionnée et le dernier rapport de chaque étape du plan courant.
 - `CoordinatorTools.ts` et `ToolCatalogBuilder.ts` définissent les catalogues propres à chaque rôle.
   Le coordinateur possède les outils de workflow et les lectures du monde, pas les capacités physiques.
 - `ActionContextBuilder.ts` et `WorldContextFormatter.ts` préparent les données lisibles.
+  `TaskContextFormatter.ts` partage la vue objectif/plan/étape/rapports entre coordinateur et actionneur.
+  Les rapports y sont compacts ; leurs TaskResults complets restent dans l'état et les traces.
 - `MessageHistory.ts` conserve les échanges complets et la demande active ;
   `ContextCompactor.ts` décide quand faire un résumé. Voir [les règles de contexte](agent-workflow.md).
 - `Executor.ts` valide les entrées, applique timeout/annulation et garde le verrou physique.

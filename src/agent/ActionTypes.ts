@@ -19,12 +19,20 @@ export interface ActionDelegation {
   readonly userObjective: string;
   readonly checklist: string;
   readonly projectSummary: string;
+  readonly reports: readonly StepReportSummary[];
 }
 
 export interface DelegatedActionReport {
   readonly status: ActionFinishStatus | "interrupted";
   readonly message: string;
   readonly outcomes: readonly ActionTaskOutcome[];
+}
+
+/** Compact historical claims for prompts; actual TaskResults stay in the workflow. */
+export interface StepReportSummary {
+  readonly step: number;
+  readonly status: DelegatedActionReport["status"];
+  readonly message: string;
 }
 
 export interface DelegatedTraceContext {

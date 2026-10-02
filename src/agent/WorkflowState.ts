@@ -1,7 +1,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import type { DelegatedActionReport } from "./SequentialAgent";
+import type { DelegatedActionReport } from "./ActionTypes";
 
 export const PlanStepSchema = z.object({
   title: z.string().trim().min(1).max(160),

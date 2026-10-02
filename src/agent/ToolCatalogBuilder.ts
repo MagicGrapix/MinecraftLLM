@@ -4,7 +4,6 @@ import type { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import type { LLMTool } from "../llm/LLMClient";
 import type { SkillRegistry } from "../skills/SkillRegistry";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
-import type { AgentPermissionMode } from "./AgentToolBridge";
 
 const EmptySchema = z.object({}).strict();
 const CapabilitySchemaNamesSchema = z
@@ -27,7 +26,7 @@ export const fixedToolSchemas = {
     .strict(),
   list_landmarks: EmptySchema,
   set_plan: z
-    .object({ tasks: z.array(TaskEnvelopeSchema).min(1) })
+    .object({ description: z.string().trim().min(1).max(500), tasks: z.array(TaskEnvelopeSchema).min(1) })
     .strict(),
   continue_plan: EmptySchema,
   finish_step: z
@@ -46,19 +45,12 @@ const fixedDescriptions: Record<keyof typeof fixedToolSchemas, string> = {
     "Load exact input schemas for one to four capabilities before creating TaskSpecs.",
   list_landmarks: "List remembered important places and their status.",
   set_plan:
-    "Create or replace remaining TaskSpecs. This saves a plan but never starts an action.",
+    "Save a short operational description and create or replace remaining TaskSpecs. This never starts an action.",
   continue_plan:
     "Authorize exactly the next existing TaskSpec after reviewing current state.",
   finish_step:
     "Finish the delegated step, clear its remaining tasks, and return a report to the coordinator. This does not complete the checklist or the overall user request.",
 };
-
-const readToolNames = new Set([
-  "list_skills",
-  "load_skill",
-  "get_capability_schemas",
-  "list_landmarks",
-]);
 
 export const decisionToolNames = new Set([
   "set_plan",
@@ -97,15 +89,8 @@ export class ToolCatalogBuilder {
     );
   }
 
-  build(mode: AgentPermissionMode): readonly LLMTool[] {
-    return [
-      ...this.queryTools,
-      ...[...this.fixedTools.values()].filter(
-        (tool) =>
-          readToolNames.has(tool.name) ||
-          (mode === "action" && decisionToolNames.has(tool.name)),
-      ),
-    ];
+  build(): readonly LLMTool[] {
+    return [...this.queryTools, ...this.fixedTools.values()];
   }
 
   capabilitySummaries(): readonly {

@@ -30,13 +30,17 @@ test("all runtime agent prompts load from Markdown and render", async () => {
   const prompts = await loadWorkflowPrompts(resolve(process.cwd(), "prompts"));
 
   const system = prompts.actioner.render({
-    current_context: '{"mode":"idle"}',
+    task_context: "Delegated step 1: collect wood.",
+    local_plan: "No local plan yet.",
+    last_action: "No action yet.",
+    capabilities: "dig: Break one block.",
     world_context: "Inventory: empty.",
   });
   assert.match(system, /Minecraft Action Agent/);
   assert.match(system, /finish_step/);
   assert.doesNotMatch(system, /finish_run/);
-  assert.match(system, /"mode":"idle"/);
+  assert.match(system, /Delegated step 1: collect wood/);
+  assert.match(system, /## Local Plan\s+This is your latest saved operational plan/);
   const values = { task_context: "No plan yet.", task_summary_section: "", world_context: "Inventory: empty." };
   const coordinator = prompts.coordinator.render(values);
   assert.match(coordinator, /ONE native tool call/);

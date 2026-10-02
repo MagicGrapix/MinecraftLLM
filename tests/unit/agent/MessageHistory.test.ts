@@ -3,6 +3,19 @@ import test from "node:test";
 import { parse } from "yaml";
 import { MessageHistory, withValidationFeedback } from "../../../src/agent/MessageHistory";
 
+test("actioner history can reserve a third pinned instruction without changing coordinator defaults", () => {
+  const action = new MessageHistory(5, 30_000, "native", 3);
+  const coordinator = new MessageHistory(5);
+  for (const history of [action, coordinator]) {
+    history.append({ role: "assistant", content: "old" });
+    history.appendExchange({ role: "assistant", content: null, toolCalls: [{ id: "a", name: "read", arguments: "{}" }] },
+      [{ role: "tool", toolCallId: "a", content: "{}" }]);
+  }
+  assert.equal(action.snapshot().messages.length, 2);
+  assert.equal(coordinator.snapshot().messages.length, 3);
+  assert.throws(() => new MessageHistory(4, 30_000, "native", 3));
+});
+
 test("history evicts whole multi-tool exchanges and reserves system and summary slots", () => {
   const history = new MessageHistory(6);
   history.append({ role: "user", content: "initial" });

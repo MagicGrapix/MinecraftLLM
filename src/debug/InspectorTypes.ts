@@ -32,7 +32,7 @@ export interface InspectorRound extends InspectorPresentation {
   readonly sequence: number;
   readonly callIndex: number;
   readonly generationId: number;
-  readonly phase: "intent" | "question" | "planning" | "review" | "memory" | "summary" | "coordinator" | "planner" | "actioner_planning" | "actioner_review";
+  readonly phase: "intent" | "question" | "planning" | "review" | "memory" | "summary" | "coordinator" | "planner" | "actioner" | "actioner_planning" | "actioner_review";
   readonly reflection: number;
   readonly round: number;
   readonly attempt: number;

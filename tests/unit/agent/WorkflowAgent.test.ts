@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { DelegatedActionReport, SequentialAgent } from "../../../src/agent/SequentialAgent";
+import type { ActionAgent } from "../../../src/agent/ActionAgent";
+import type { ActionDelegation, DelegatedActionReport } from "../../../src/agent/ActionTypes";
 import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
 import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
 import { AgentInspector } from "../../../src/debug/AgentInspector";
@@ -144,11 +145,16 @@ test("planner creates indices, actioner gets context, completion and summary are
     assert.equal(section(h.llm.requests[2]!.messages, "Task Context"), "- [ ] 1. Collect a log — Inventory increases by one log relative to the initial state.");
     assert.equal(section(h.llm.requests[4]!.messages, "Task Context"), "- [x] 1. Collect a log — Inventory increases by one log relative to the initial state.");
     assert.doesNotMatch(h.llm.requests[3]!.messages[0]!.content!, /One log collected|dig-1|planVersion|Collect another log/);
-    const instruction = JSON.parse(h.actionInstructions[0]!);
+    const instruction = h.actionInstructions[0]!;
     assert.equal(instruction.step.step, 1);
     assert.equal(instruction.userObjective, "Collect another log.");
     assert.match(instruction.checklist, /1\. Collect a log/);
-    assert.equal(instruction.world, undefined); // The action agent receives a fresh World Context instead.
+    assert.equal("world" in instruction, false); // The action agent receives a fresh World Context instead.
+    assert.equal("planVersion" in instruction, false);
+    const reportContext = JSON.parse(h.llm.requests[3]!.messages.at(-1)!.content!).value.report;
+    assert.equal(reportContext.outcomes[0].capability, "dig");
+    assert.equal(reportContext.outcomes[0].task, undefined);
+    assert.deepEqual(reportContext.outcomes[0].result, h.agent.task.lastReport!.report.outcomes[0]!.result);
     assert.equal(h.agent.task.steps[0]?.status, "done");
     const contents = await readFile(h.summary.path, "utf8");
     assert.match(contents, /- \[x\] 1\. Collect a log/);
@@ -402,17 +408,17 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
   const root = await mkdtemp(join(tmpdir(), "minecraft-workflow-test-"));
   const llm = new FakeLLMClient();
   const inspector = new AgentInspector(100);
-  const replies: string[] = [], actions: DelegatedActionReport[] = [], actionInstructions: string[] = [];
+  const replies: string[] = [], actions: DelegatedActionReport[] = [], actionInstructions: ActionDelegation[] = [];
   const actionAgent = {
     state: () => ({ mode: "idle" }),
-    runDelegatedStep: async (instruction: string) => {
+    runDelegatedStep: async (instruction: ActionDelegation) => {
       actionInstructions.push(instruction);
       const report = actions.shift();
       if (!report) throw new Error("No scripted report.");
       return report;
     },
     requestStop: async () => undefined, shutdown: async () => undefined,
-  } as unknown as SequentialAgent;
+  } as unknown as ActionAgent;
   const world = {
     getSelf: () => ({ position: { x: 0, y: 0, z: 0 }, facing: "north", health: 20, food: 20, foodSaturation: 5, oxygenLevel: 20, onGround: true }),
     getInventory: () => ({ items: [], selectedItem: null }),
@@ -424,7 +430,7 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
     prompts: {
       coordinator: PromptTemplate.fromString("coordinator", "Coordinator\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## World Context\n{{world_context}}"),
       planner: PromptTemplate.fromString("planner", "Planner\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## Instruction\n{{instruction}}\n## World Context\n{{world_context}}"),
-      actioner: PromptTemplate.fromString("actioner", "Actioner {{current_context}}"),
+      actioner: PromptTemplate.fromString("actioner", "Actioner {{task_context}}"),
       summary: PromptTemplate.fromString("summary", "Summary limit {{max_chars}}\n{{summary_input}}"),
       conversationSummary: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: empty. No earlier conversation has been compacted yet."),
     },

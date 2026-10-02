@@ -10,9 +10,10 @@ export class MessageHistory {
   private groups: LLMMessage[][] = [];
   private omitted = 0;
 
-  constructor(readonly maxMessages = 20, readonly maxChars = 30_000, readonly toolReplayMode: ToolReplayMode = "native") {
-    if (!Number.isInteger(maxMessages) || maxMessages < PINNED_MESSAGE_COUNT + 2 || maxChars < 1) {
-      throw new Error("History requires two pinned messages, a tool exchange, and a positive character budget.");
+  constructor(readonly maxMessages = 20, readonly maxChars = 30_000, readonly toolReplayMode: ToolReplayMode = "native", readonly pinnedMessageCount = PINNED_MESSAGE_COUNT) {
+    if (!Number.isInteger(pinnedMessageCount) || pinnedMessageCount < 1 ||
+      !Number.isInteger(maxMessages) || maxMessages < pinnedMessageCount + 2 || maxChars < 1) {
+      throw new Error("History requires pinned context, a tool exchange, and a positive character budget.");
     }
   }
 
@@ -57,8 +58,8 @@ export class MessageHistory {
       }
     }
     this.groups.push(structuredClone(group));
-    // Reserve the system and previous-conversation summary. Never slice JSON or tool pairs.
-    while (this.groups.length > 0 && (this.groups.flat().length > this.maxMessages - PINNED_MESSAGE_COUNT ||
+    // Reserve pinned context. Never slice JSON or tool pairs.
+    while (this.groups.length > 0 && (this.groups.flat().length > this.maxMessages - this.pinnedMessageCount ||
       JSON.stringify(this.groups.flat()).length > this.maxChars)) {
       this.omitted += this.groups.shift()!.length;
     }

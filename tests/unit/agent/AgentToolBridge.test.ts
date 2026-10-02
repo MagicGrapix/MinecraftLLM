@@ -56,11 +56,11 @@ test("bridge allows queries and validated decisions without queue revisions", as
           id: "plan",
           name: "set_plan",
           arguments: JSON.stringify({
+            description: "Perform one test action.",
             tasks: [{ capability: "test_action", input: { value: 3 } }],
           }),
         },
       ],
-      "action",
     );
     assert.equal(decision.kind, "decision");
     if (decision.kind === "decision") {
@@ -75,27 +75,11 @@ test("bridge allows queries and validated decisions without queue revisions", as
               id: "plan",
               name: "set_plan",
               arguments: JSON.stringify({
-                tasks: [{ capability: "test_action", input: { value: 3 } }],
-              }),
-            },
-          ],
-          "readonly",
-        ),
-      ModelResponseError,
-    );
-    assert.throws(
-      () =>
-        bridge.validateResponseCalls(
-          [
-            {
-              id: "plan",
-              name: "set_plan",
-              arguments: JSON.stringify({
+                description: "Perform an unknown action.",
                 tasks: [{ capability: "missing", input: {} }],
               }),
             },
           ],
-          "action",
         ),
       /unknown/i,
     );
@@ -104,20 +88,18 @@ test("bridge allows queries and validated decisions without queue revisions", as
   }
 });
 
-test("readonly catalog hides terminal decisions", async () => {
+test("single actioner catalog includes queries and decisions, never direct capabilities", async () => {
   const root = await mkdtemp(join(tmpdir(), "minecraft-agent-catalog-"));
   try {
     const bridge = await createBridge(root);
-    const readonlyTools = bridge.catalog.build("readonly").map((tool) => tool.name);
-    const actionTools = bridge.catalog.build("action").map((tool) => tool.name);
-    assert.equal(readonlyTools.includes("get_voxel_view"), true);
-    assert.equal(readonlyTools.includes("set_plan"), false);
+    const actionTools = bridge.catalog.build().map((tool) => tool.name);
+    assert.equal(actionTools.includes("get_voxel_view"), true);
+    assert.equal(actionTools.includes("test_action"), false);
     assert.equal(actionTools.includes("set_plan"), true);
     assert.equal(actionTools.includes("continue_plan"), true);
     assert.equal(actionTools.includes("finish_step"), true);
     assert.equal(actionTools.includes("finish_run"), false);
-    assert.equal(readonlyTools.includes("finish_step"), false);
-    const finished = bridge.validateResponseCalls([{ id: "finish", name: "finish_step", arguments: '{"status":"success","message":"Step verified."}' }], "action");
+    const finished = bridge.validateResponseCalls([{ id: "finish", name: "finish_step", arguments: '{"status":"success","message":"Step verified."}' }]);
     assert.deepEqual(finished, { kind: "decision", decision: { type: "finish_step", status: "success", message: "Step verified." } });
     assert.throws(() => bridge.parseDecision({ id: "old", name: "finish_run", arguments: '{"status":"success","message":"Old name."}' }), ModelResponseError);
   } finally {

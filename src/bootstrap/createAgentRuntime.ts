@@ -1,9 +1,8 @@
 import { resolve } from "node:path";
 import type { AgentConfig } from "../agent/AgentConfig";
-import { AgentContextBuilder } from "../agent/AgentContextBuilder";
+import { ActionContextBuilder } from "../agent/ActionContextBuilder";
 import { AgentToolBridge } from "../agent/AgentToolBridge";
-import { SequentialAgent } from "../agent/SequentialAgent";
-import { WorkingMemory } from "../agent/WorkingMemory";
+import { ActionAgent } from "../agent/ActionAgent";
 import { WorkflowAgent } from "../agent/WorkflowAgent";
 import { WorkflowSummaryFile } from "../agent/WorkflowState";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
@@ -66,7 +65,6 @@ export async function createAgentRuntime(
     world,
   });
   const runner = new SequentialPlanRunner(executor);
-  const workingMemory = new WorkingMemory(Math.max(config.memoryMaxChars, 2_000));
   const inspector = config.inspectorEnabled
     ? new AgentInspector(config.inspectorMaxRounds)
     : null;
@@ -88,7 +86,7 @@ export async function createAgentRuntime(
     isPositionLoaded: (position) =>
       runtime.bot.world.getColumnAt(toVec3(position)) !== undefined,
   });
-  const contextBuilder = new AgentContextBuilder({
+  const contextBuilder = new ActionContextBuilder({
     world,
     landmarks,
     capabilities,
@@ -97,12 +95,11 @@ export async function createAgentRuntime(
   });
 
   let chat: MinecraftChatAdapter | null = null;
-  const actionAgent = new SequentialAgent({
+  const actionAgent = new ActionAgent({
     llm,
     contextBuilder,
     toolBridge: bridge,
     runner,
-    workingMemory,
     maxToolRounds: config.llmMaxToolRounds,
     maxResponseRetries: config.responseMaxRetries,
     temperature: config.llmTemperature,
@@ -112,7 +109,7 @@ export async function createAgentRuntime(
     historyMaxChars: config.llmContextBudgetChars,
     toolReplayMode: TOOL_REPLAY_MODE,
     ...(inspector ? { inspector } : {}),
-    respond: async (message) => { console.warn("Action agent:", message); },
+    onRetry: async (message) => { console.warn("Action agent:", message); },
   });
   const summaryFile = new WorkflowSummaryFile(inspector?.sessionId ?? `${Date.now()}_${process.pid}`);
   const agent = new WorkflowAgent({

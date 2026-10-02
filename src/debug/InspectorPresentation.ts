@@ -10,7 +10,7 @@ const failureStatuses = new Set(["error", "invalid_response", "token_limit_disca
 /** Read-only display projection: never changes prompts, tool arguments, or results. */
 export function describeInspectorRound(round: PresentationInput): InspectorPresentation {
   const context = record(round.contextSnapshot);
-  const delegation = parseObject(context.objective);
+  const delegation = record(context.delegation ?? parseObject(context.objective));
   const task = record(context.task);
   const decision = record(round.decision);
   const calls = round.response?.toolCalls.map(record) ?? [];

@@ -5,7 +5,8 @@ import type { LandmarkMemory } from "../memory/LandmarkMemory";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { WorkflowPrompts } from "../prompts/WorkflowPrompts";
 import type { WorldQueries } from "../world/WorldQueries";
-import type { SequentialAgent } from "./SequentialAgent";
+import type { ActionAgent } from "./ActionAgent";
+import { actionReportForContext } from "./ActionReportFormatter";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
 import { callCoordinator } from "./CoordinatorCall";
 import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
@@ -23,7 +24,7 @@ export type WorkflowMode = "idle" | "thinking" | "planning" | "executing" | "sto
 
 export interface WorkflowAgentOptions {
   readonly llm: LLMClient;
-  readonly actionAgent: SequentialAgent;
+  readonly actionAgent: ActionAgent;
   readonly world: WorldQueries;
   readonly landmarks: LandmarkMemory;
   readonly queries: WorldQueryRegistry;
@@ -314,15 +315,15 @@ export class WorkflowAgent {
         this.task.lastReport = null;
         step.status = "active";
         this.mode = "executing";
-        const report = await this.options.actionAgent.runDelegatedStep(JSON.stringify({
+        const report = await this.options.actionAgent.runDelegatedStep({
           step, instruction: call.input.instruction, userObjective: this.task.objective,
-          checklist: this.task.checklist(), planVersion: this.task.planVersion,
+          checklist: this.task.checklist(),
           projectSummary: this.task.summary,
-        }), { generationId: this.generationId, delegation: ++this.delegation });
+        }, { generationId: this.generationId, delegation: ++this.delegation });
         this.task.lastReport = { step: step.step, planVersion: this.task.planVersion, report };
         step.status = report.status === "success" ? "active" : "blocked";
         if (report.status === "interrupted") this.stopRequested = true;
-        return { value: this.task.lastReport };
+        return { value: { ...this.task.lastReport, report: actionReportForContext(report) } };
       }
       case "complete_step": {
         const step = this.task.steps[call.input.step - 1];

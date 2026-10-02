@@ -15,8 +15,6 @@ import {
   ToolCatalogBuilder,
 } from "./ToolCatalogBuilder";
 
-export type AgentPermissionMode = "readonly" | "action";
-
 export interface AgentToolResult {
   readonly toolCallId: string;
   readonly name: string;
@@ -75,7 +73,7 @@ export class AgentToolBridge {
     switch (call.name) {
       case "set_plan": {
         const tasks = this.validateTasks(input.tasks);
-        return { type: "set_plan", tasks };
+        return { type: "set_plan", description: input.description as string, tasks };
       }
       case "continue_plan":
         return { type: "continue_plan" };
@@ -127,24 +125,16 @@ export class AgentToolBridge {
 
   validateResponseCalls(
     calls: readonly LLMToolCall[],
-    mode: AgentPermissionMode,
   ):
     | { readonly kind: "reads"; readonly calls: readonly LLMToolCall[] }
     | { readonly kind: "decision"; readonly decision: AgentDecision } {
     if (calls.length === 0) {
       throw new ModelResponseError(
-        mode === "action"
-          ? "Action reflection must return one decision tool call."
-          : "Readonly reflection must return JSON content.",
+        "Action agent must return query tool calls or exactly one decision tool call.",
       );
     }
     const decisions = calls.filter((call) => this.isDecision(call.name));
     if (decisions.length > 0) {
-      if (mode !== "action") {
-        throw new ModelResponseError(
-          "Readonly reflection cannot return an action decision.",
-        );
-      }
       if (calls.length !== 1 || decisions.length !== 1) {
         throw new ModelResponseError(
           "A decision must be the only tool call in its response.",

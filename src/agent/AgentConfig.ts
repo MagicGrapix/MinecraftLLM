@@ -20,7 +20,7 @@ const EnvironmentSchema = z.object({
   AGENT_INSPECTOR_PORT: integerEnvironment(3_001, 1, 65_535),
   AGENT_INSPECTOR_MAX_ROUNDS: integerEnvironment(30, 1, 1_000),
   AGENT_MEMORY_MAX_CHARS: integerEnvironment(500, 1, 100_000),
-  AGENT_HISTORY_MAX_MESSAGES: integerEnvironment(20, 4, 100),
+  AGENT_HISTORY_MAX_MESSAGES: integerEnvironment(20, 5, 100),
   AGENT_RESPONSE_MAX_RETRIES: integerEnvironment(8, 0, 32),
 });
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Bot } from "mineflayer";
-import type { SequentialAgent } from "../../../src/agent/SequentialAgent";
+import type { ChatControlledAgent } from "../../../src/chat/MinecraftChatAdapter";
 import { FakeLLMClient } from "../../../src/llm/FakeLLMClient";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 import { ChatIntentRouter } from "../../../src/chat/ChatIntentRouter";
@@ -104,7 +104,7 @@ test("chat adapter passes messages and controls from any player", async () => {
     ) => {
       received.push({ username, text });
     },
-  } as unknown as SequentialAgent;
+  } as unknown as ChatControlledAgent;
   const adapter = new MinecraftChatAdapter({
     bot,
     agent,
@@ -147,7 +147,7 @@ test("all outgoing chat messages share the same rate limit", async () => {
   } as unknown as Bot;
   const adapter = new MinecraftChatAdapter({
     bot,
-    agent: {} as SequentialAgent,
+    agent: {} as ChatControlledAgent,
     maxChunkLength: 5,
     minMessageIntervalMs: 30,
   });

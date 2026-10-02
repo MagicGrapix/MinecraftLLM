@@ -136,3 +136,19 @@ function createContext(bot: Bot): ExecutionContext {
     deferCancellationUntil: () => undefined,
   };
 }
+
+test("an unobservable cell after digging is unknown, not successful removal", async () => {
+  let current: FakeBlock | null = oakLog;
+  const bot = {
+    entity: { onGround: true }, heldItem: null, targetDigBlock: null,
+    blockAt: () => current, canDigBlock: () => true, digTime: () => 3000,
+    waitForTicks: async () => undefined,
+    dig: async () => { current = null; }, stopDigging: () => undefined,
+  } as unknown as Bot;
+  const result = await new DigCapability().execute({ position: { x: 3, y: -60, z: 0 } }, createContext(bot));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "WORLD_CHANGED");
+    assert.equal(result.error.facts?.verification, "unknown");
+  }
+});

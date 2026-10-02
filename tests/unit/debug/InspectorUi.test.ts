@@ -1,0 +1,67 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import test from "node:test";
+import { runInNewContext } from "node:vm";
+
+async function harness() {
+  const source = await readFile(resolve("src/debug/ui/inspector.js"), "utf8");
+  const pending: Array<{ path: string; resolve: (value: unknown) => void }> = [];
+  const elements = new Map<string, ReturnType<typeof element>>();
+  function element() {
+    return { innerHTML: "", textContent: "", scrollTop: 17, disabled: false, dataset: {},
+      classList: { toggle() {}, add() {}, remove() {} },
+      addEventListener() {}, querySelectorAll: () => [], appendChild() {} };
+  }
+  const context = {
+    document: { getElementById: (id: string) => {
+      if (!elements.has(id)) elements.set(id, element());
+      return elements.get(id);
+    }, createElement: element },
+    fetch: (path: string) => new Promise((resolve) => { pending.push({ path, resolve }); }),
+    setInterval() {}, setTimeout, navigator: {},
+    testing: undefined as unknown as {
+      state: { selectedId: string | null; selectedSnapshot: unknown; live: boolean; sessionId: string | null };
+      selectRound(id: string, manual: boolean): Promise<void>;
+      refreshList(poll: boolean): Promise<void>;
+      setLive(value: boolean): void;
+    },
+  };
+  runInNewContext(source.replace("void bootstrap();", "globalThis.testing = { state, selectRound, refreshList, setLive };"), context);
+  function reply(path: string, value: unknown) {
+    const index = pending.findIndex((request) => request.path === path);
+    assert.ok(index >= 0, "Pending request: " + path);
+    pending.splice(index, 1)[0]!.resolve({ ok: true, json: async () => value });
+  }
+  return { ...context.testing, reply, pending, elements };
+}
+test("slow old detail responses cannot overwrite a newer manual selection", async () => {
+  const h = await harness();
+  const old = h.selectRound("old", false);
+  const latest = h.selectRound("new", true);
+  h.reply("/api/rounds/new", { id: "new", generationId: 2, requestTitle: "New" });
+  await latest;
+  h.reply("/api/rounds/old", { id: "old", generationId: 1, requestTitle: "Old" });
+  await old;
+  assert.equal(h.state.selectedId, "new");
+  assert.equal(h.state.live, false);
+  assert.equal(h.elements.get("detailTitle")!.textContent, "New");
+  assert.equal(h.elements.get("detailBody")!.scrollTop, 17);
+});
+test("pause invalidates pending automatic selection and polling is single-flight", async () => {
+  const h = await harness();
+  const old = h.selectRound("old", false);
+  h.setLive(false);
+  h.reply("/api/rounds/old", { id: "old" });
+  await old;
+  assert.equal(h.state.selectedSnapshot, null);
+  h.state.sessionId = "session";
+  const first = h.refreshList(true);
+  await h.refreshList(true);
+  assert.equal(h.pending.length, 1);
+  h.reply("/api/status", { sessionId: "session", finalizedCount: 0, maxRounds: 30 });
+  await new Promise((resolve) => setImmediate(resolve));
+  h.reply("/api/rounds", { rounds: [] });
+  await first;
+  assert.equal(h.pending.length, 0);
+});

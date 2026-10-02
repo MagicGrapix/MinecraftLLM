@@ -115,12 +115,14 @@ export class WorldControllerRuntime {
     const centerZ = Math.floor(
       (this.config.arena.min.z + this.config.arena.max.z) / 2,
     );
-    await transport.send(
+    const spectator = await transport.send(
       `gamemode spectator ${this.config.controllerUsername}`,
     );
-    await transport.send(
+    if (spectator.error) throw new Error(spectator.error);
+    const parked = await transport.send(
       `tp ${this.config.controllerUsername} ${centerX} ${this.config.controllerParkY} ${centerZ}`,
     );
+    if (parked.error) throw new Error(parked.error);
     await this.waitForArenaChunks(5_000);
     this.commandTransport = transport;
   }
@@ -137,7 +139,9 @@ export class WorldControllerRuntime {
     if (!/^[A-Za-z0-9_]{1,16}$/.test(this.config.agentUsername)) {
       throw new Error("Configured agent username is not a valid command target.");
     }
-    return this.commandTransport.send(`clear ${this.config.agentUsername}`);
+    const result = await this.commandTransport.send(`clear ${this.config.agentUsername}`);
+    if (result.error) throw new Error(result.error);
+    return result;
   }
 
   getAgentPosition(): Position | null {

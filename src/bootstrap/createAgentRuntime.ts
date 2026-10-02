@@ -6,6 +6,7 @@ import { ActionAgent } from "../agent/ActionAgent";
 import type { ActionTaskOutcome } from "../agent/ActionTypes";
 import { WorkflowAgent } from "../agent/WorkflowAgent";
 import { WorkflowSummaryFile } from "../agent/WorkflowState";
+import { SESSION_ID } from "../TraceLog";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
 import { TOOL_REPLAY_MODE } from "../config";
 import { AgentInspector } from "../debug/AgentInspector";
@@ -98,8 +99,7 @@ export async function createAgentRuntime(
     temperature: config.llmTemperature,
     reasoningEffort: config.llmReasoningEffort,
     maxTokens: config.llmMaxTokens,
-    historyMaxMessages: config.historyMaxMessages,
-    historyMaxChars: config.llmContextBudgetChars,
+    contextSummaryPrompt: prompts.contextSummary,
     toolReplayMode: TOOL_REPLAY_MODE,
     ...(inspector ? { inspector } : {}),
     onRetry: async (message) => { console.warn("Action agent:", message); },
@@ -107,7 +107,7 @@ export async function createAgentRuntime(
       await refreshLandmarksFromTask(outcome, runtime.bot.game.dimension, landmarks);
     },
   });
-  const summaryFile = new WorkflowSummaryFile(inspector?.sessionId ?? `${Date.now()}_${process.pid}`);
+  const summaryFile = new WorkflowSummaryFile(SESSION_ID);
   const agent = new WorkflowAgent({
     llm,
     actionAgent,
@@ -120,8 +120,6 @@ export async function createAgentRuntime(
     reasoningEffort: config.llmReasoningEffort,
     maxTokens: config.llmMaxTokens,
     maxRetries: config.responseMaxRetries,
-    historyMaxChars: config.llmContextBudgetChars,
-    historyMaxMessages: config.historyMaxMessages,
     toolReplayMode: TOOL_REPLAY_MODE,
     summaryMaxChars: config.memoryMaxChars,
     summaryFile,

@@ -12,6 +12,7 @@ export interface ExecutorOptions {
   runtime: MinecraftRuntime;
   world: WorldQueries;
   defaultTimeoutMs?: number;
+  cancellationGraceMs?: number;
 }
 
 type TaskCancellation =
@@ -29,6 +30,7 @@ export class Executor {
   private readonly runtime: MinecraftRuntime;
   private readonly world: WorldQueries;
   private readonly defaultTimeoutMs: number;
+  private readonly cancellationGraceMs: number;
 
   private currentExecution: CurrentExecution | null = null;
 
@@ -38,6 +40,10 @@ export class Executor {
     this.world = options.world;
     this.defaultTimeoutMs =
       options.defaultTimeoutMs ?? DEFAULT_TASK_TIMEOUT_MS;
+    this.cancellationGraceMs = options.cancellationGraceMs ?? 1_000;
+    if (!Number.isFinite(this.cancellationGraceMs) || this.cancellationGraceMs < 0) {
+      throw new Error("Cancellation grace must be a non-negative duration.");
+    }
   }
 
   get currentTask(): Task | null {
@@ -120,29 +126,42 @@ export class Executor {
       },
     };
 
+    let settled = true;
+    let settlement: Promise<void> = Promise.resolve();
     try {
-      return await runWithCancellation(
-        capability.execute(parsed.data, context),
+      const operation = (async () => capability.execute(parsed.data, context))();
+      settled = false;
+      // A timeout cancels our wait, not the underlying Minecraft promise.
+      // Keep the physical lock until the capability AND its registered work settle.
+      settlement = operation.then(() => undefined, () => undefined)
+        .then(() => waitForCancellationBarriers(cancellationBarriers))
+        .then(() => {
+          settled = true;
+          if (this.currentExecution === execution) this.currentExecution = null;
+        });
+      const result = await runWithCancellation(
+        operation.then(async (result) => { await settlement; return result; }),
         execution.controller.signal,
         timeoutMs,
         () => {
           this.cancelForTimeout(execution, timeoutMs);
         },
       );
+      return result;
     } catch (error: unknown) {
       if (execution.cancellation?.kind === "timeout") {
-        await waitForCancellationBarriers(cancellationBarriers);
+        await waitForSettlement(settlement, this.cancellationGraceMs);
         return failure("TIMEOUT", execution.cancellation.reason, {
           retryable: true,
-          facts: { taskId: task.id, timeoutMs },
+          facts: { taskId: task.id, timeoutMs, stillSettling: !settled },
         });
       }
 
       if (execution.cancellation?.kind === "interrupted") {
-        await waitForCancellationBarriers(cancellationBarriers);
+        await waitForSettlement(settlement, this.cancellationGraceMs);
         return failure("INTERRUPTED", execution.cancellation.reason, {
           retryable: true,
-          facts: { taskId: task.id },
+          facts: { taskId: task.id, stillSettling: !settled },
         });
       }
 
@@ -151,7 +170,7 @@ export class Executor {
         facts: { taskId: task.id, capability: task.capability },
       });
     } finally {
-      if (this.currentExecution === execution) {
+      if (settled && this.currentExecution === execution) {
         this.currentExecution = null;
       }
     }
@@ -168,6 +187,15 @@ export class Executor {
       reason: `Task timed out after ${timeoutMs} ms.`,
     };
     execution.controller.abort(execution.cancellation);
+  }
+}
+
+async function waitForSettlement(operation: Promise<void>, graceMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([operation, new Promise<void>((resolve) => { timer = setTimeout(resolve, graceMs); })]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

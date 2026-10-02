@@ -18,6 +18,15 @@ const arena = createArenaBounds(
   { x: 48, y: -30, z: 48 },
 );
 
+test("default arena remains within vanilla overworld build height", () => {
+  const config = loadWorldBuilderConfig({});
+  assert.equal(config.arena.min.y, -64);
+  assert.throws(() => loadWorldBuilderConfig({ WORLD_ARENA_MIN_Y: "-96" }));
+  assert.throws(() => loadWorldBuilderConfig({ WORLD_ARENA_MAX_Y: "320" }));
+  const reset = new ResetArenaGenerator({ arena: config.arena, surfaceY: config.surfaceY, agentUsername: "bot", fill: new FillCommandGenerator(32768) });
+  assert.ok(reset.generateReset().every((command) => !command.affectedBounds || command.affectedBounds.min.y >= -64));
+});
+
 test("arena bounds use inclusive volume and safe unions", () => {
   const first = createArenaBounds(
     { x: 0, y: 0, z: 0 },

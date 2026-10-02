@@ -185,7 +185,13 @@ export class CommandExecutor {
           command: command.text,
           sentAt: response.sentAt,
           responses: [...response.responses],
+          ...(response.error ? { error: response.error } : {}),
         });
+        if (response.error) {
+          status = "failed";
+          errorMessage = response.error;
+          break;
+        }
       } catch (error: unknown) {
         errorMessage =
           error instanceof Error ? error.message : String(error);

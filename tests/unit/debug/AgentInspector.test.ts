@@ -41,7 +41,7 @@ test("request, response, and tool results associate on the same round", () => {
   const inspector = new AgentInspector(5, "session");
   const current = trace({
     generationId: 2,
-    phase: "planning",
+    phase: "actioner",
     reflection: 1,
     round: 1,
   });
@@ -78,20 +78,16 @@ test("request, response, and tool results associate on the same round", () => {
     ok: true,
   });
   inspector.annotate(current, {
-    memoryBefore: "old",
-    memoryAfter: "new",
     decision: { type: "set_plan" },
   });
   const snapshot = inspector.finalizeRound(current, "completed");
-  assert.equal(snapshot?.memoryBefore, "old");
-  assert.equal(snapshot?.memoryAfter, "new");
   assert.equal(snapshot?.toolExecutions[0]?.ok, true);
 });
 
 test("old finalized snapshots stay unchanged when newer rounds arrive", () => {
   const inspector = new AgentInspector(2, "session");
   for (const generationId of [1, 2, 3]) {
-    const current = trace({ generationId, phase: "review" });
+    const current = trace({ generationId, phase: "actioner" });
     inspector.beginRound(current);
     inspector.recordRequest(current, {
       model: "qwen",
@@ -174,7 +170,7 @@ function trace(
 ): LLMRequestTrace {
   return {
     generationId: 1,
-    phase: "planning",
+    phase: "actioner",
     reflection: 0,
     round: 0,
     attempt: 0,

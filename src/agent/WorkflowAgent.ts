@@ -5,16 +5,16 @@ import type { LandmarkMemory } from "../memory/LandmarkMemory";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { WorkflowPrompts } from "../prompts/WorkflowPrompts";
 import type { WorldQueries } from "../world/WorldQueries";
-import type { ActionAgent } from "./ActionAgent";
+import type { ActionRunner } from "./ActionTypes";
 import { actionReportForContext } from "./ActionReportFormatter";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
 import { callCoordinator } from "./CoordinatorCall";
 import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
-import { MessageHistory, PINNED_MESSAGE_COUNT, type ToolReplayMode } from "./MessageHistory";
+import { MessageHistory, type ToolReplayMode } from "./MessageHistory";
+import { ContextCompactor, type ContextBudget } from "./ContextCompactor";
 import { formatWorldContext, type WorldContextSnapshot } from "./WorldContextFormatter";
 import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRoleCall";
 import {
-  ConversationHistory,
   PlannerResultSchema,
   WorkflowState,
   WorkflowSummaryFile,
@@ -24,7 +24,7 @@ export type WorkflowMode = "idle" | "thinking" | "planning" | "executing" | "sto
 
 export interface WorkflowAgentOptions {
   readonly llm: LLMClient;
-  readonly actionAgent: ActionAgent;
+  readonly actionAgent: ActionRunner;
   readonly world: WorldQueries;
   readonly landmarks: LandmarkMemory;
   readonly queries: WorldQueryRegistry;
@@ -34,8 +34,7 @@ export interface WorkflowAgentOptions {
   readonly reasoningEffort?: StructuredRoleOptions["reasoningEffort"];
   readonly maxTokens: number;
   readonly maxRetries: number;
-  readonly historyMaxChars: number;
-  readonly historyMaxMessages?: number;
+  readonly contextBudget?: ContextBudget;
   readonly toolReplayMode?: ToolReplayMode;
   readonly summaryMaxChars?: number;
   readonly summaryFile: WorkflowSummaryFile;
@@ -43,7 +42,6 @@ export interface WorkflowAgentOptions {
 }
 
 export class WorkflowAgent {
-  readonly history: ConversationHistory;
   readonly task = new WorkflowState();
   private readonly transcript: MessageHistory;
   private readonly tools: CoordinatorTools;
@@ -59,8 +57,7 @@ export class WorkflowAgent {
   private processing: Promise<void> | null = null;
 
   constructor(private readonly options: WorkflowAgentOptions) {
-    this.history = new ConversationHistory((options.historyMaxMessages ?? 20) - PINNED_MESSAGE_COUNT);
-    this.transcript = new MessageHistory(options.historyMaxMessages ?? 20, options.historyMaxChars, options.toolReplayMode);
+    this.transcript = new MessageHistory(options.toolReplayMode);
     this.tools = new CoordinatorTools(options.queries);
   }
 
@@ -87,7 +84,6 @@ export class WorkflowAgent {
     this.plansWithoutAction = 0;
     this.activeUsername = username;
     this.task.start(text.trim());
-    this.history.append("user", text.trim());
     this.transcript.append({ role: "user", content: text.trim() });
     this.stopRequested = false;
     this.mode = "thinking";
@@ -164,9 +160,7 @@ export class WorkflowAgent {
           result = { ok: false, error: { message: error instanceof Error ? error.message : String(error) } };
         }
         const rawContent = JSON.stringify(result);
-        const content = rawContent.length <= this.options.historyMaxChars / 2
-          ? rawContent
-          : JSON.stringify({ ok: result.ok, resultOmitted: true, reason: "Result exceeds transcript budget. Use fresh focused queries and current task state." });
+        const content = rawContent;
         // Even aborted tools get a result: resume must never replay an orphan call.
         this.transcript.appendExchange(message, [{ role: "tool", toolCallId: call.id, content }]);
         this.options.inspector?.recordToolCompleted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments, result: rawContent, ok: result.ok });
@@ -195,16 +189,21 @@ export class WorkflowAgent {
   }
 
   private async askCoordinator(signal: AbortSignal) {
-    const { context, messages } = this.roleInput(
-      this.options.prompts.coordinator,
-      this.commonContext(),
-      this.transcript.snapshot(),
-    );
+    let context = this.commonContext();
+    const reflection = ++this.reflection;
+    const messages = await new ContextCompactor(this.roleOptions(), this.options.prompts.contextSummary, this.options.contextBudget).prepare({
+      history: this.transcript,
+      render: (messages, summary) => {
+        context = this.commonContext();
+        return this.roleInput(this.options.prompts.coordinator, context, { messages }, summary).messages;
+      },
+      tools: this.tools.catalog(), generationId: this.generationId, reflection, signal, requestTitle: this.task.objective,
+    });
     return callCoordinator({
       options: this.roleOptions(),
       tools: this.tools,
       generationId: this.generationId,
-      reflection: ++this.reflection,
+      reflection,
       messages,
       context,
       signal,
@@ -215,7 +214,7 @@ export class WorkflowAgent {
     const { context, messages } = this.roleInput(
       this.options.prompts.planner,
       { ...this.commonContext(), instruction },
-      this.chatTranscript(),
+      this.transcript.conversation(),
     );
     const result = await callStructuredRole({
       options: this.roleOptions(),
@@ -246,7 +245,7 @@ export class WorkflowAgent {
     task: ReturnType<WorkflowState["snapshot"]>;
     world: WorldContextSnapshot;
     instruction?: string;
-  }, history: { messages: readonly LLMMessage[] }): {
+  }, history: { messages: readonly LLMMessage[] }, summary = this.transcript.summary): {
     readonly context: Record<string, unknown>;
     readonly messages: readonly LLMMessage[];
   } {
@@ -261,7 +260,7 @@ export class WorkflowAgent {
         instruction: instruction ?? "",
         world_context: formatWorldContext(world),
       }) },
-      { role: "assistant", content: this.options.prompts.conversationSummary.render() },
+      { role: "assistant", content: this.options.prompts.conversationSummary.render({ summary: summary || "empty. No earlier conversation has been compacted yet." }) },
       ...history.messages,
     ];
     return { context, messages };
@@ -279,11 +278,6 @@ export class WorkflowAgent {
         await this.options.respond(`[Bot] Invalid ${phase} response. Retrying (${attempt}/${this.options.maxRetries}).`, this.activeUsername ?? undefined);
       },
     };
-  }
-
-  private chatTranscript() {
-    const history = this.history.forPrompt(this.options.historyMaxChars, (this.options.historyMaxMessages ?? 20) - PINNED_MESSAGE_COUNT, false);
-    return { messages: history.entries.map((entry) => ({ role: entry.role, content: entry.text })), omitted: history.omitted };
   }
 
   private async executeTool(call: CoordinatorCall, signal: AbortSignal): Promise<{ value: unknown; terminal?: boolean }> {
@@ -336,7 +330,7 @@ export class WorkflowAgent {
       }
       case "refresh_summary": {
         const maxChars = this.options.summaryMaxChars ?? 500;
-        const context = { ...this.commonContext(), maxChars, recentActivity: this.transcript.snapshot().messages };
+        const context = { ...this.commonContext(), maxChars, conversationSummary: this.transcript.summary, recentActivity: this.transcript.snapshot().messages };
         const { summary } = await callStructuredRole({
           options: this.roleOptions(), schema: z.object({ summary: z.string().trim().max(maxChars) }).strict(),
           phase: "summary", generationId: this.generationId, reflection: ++this.reflection,
@@ -353,7 +347,6 @@ export class WorkflowAgent {
 
   private async reply(message: string): Promise<void> {
     await this.options.respond(message, this.activeUsername ?? undefined);
-    this.history.append("assistant", message);
   }
 
   private finish(): void {

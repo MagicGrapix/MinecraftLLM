@@ -3,80 +3,10 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Bot } from "mineflayer";
 import type { ChatControlledAgent } from "../../../src/chat/MinecraftChatAdapter";
-import { FakeLLMClient } from "../../../src/llm/FakeLLMClient";
-import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
-import { ChatIntentRouter } from "../../../src/chat/ChatIntentRouter";
 import {
   MinecraftChatAdapter,
   splitChatMessage,
 } from "../../../src/chat/MinecraftChatAdapter";
-
-const TEST_INTENT_PROMPT = PromptTemplate.fromString(
-  "intent-test",
-  "Classify the message as JSON.",
-);
-
-test("intent router uses the LLM for question and action cases", async () => {
-  const llm = new FakeLLMClient();
-  const router = new ChatIntentRouter(llm, TEST_INTENT_PROMPT);
-  const cases = [
-    ["construis une table de craft", "action_request"],
-    [
-      "comment tu penses construire une table de craft ?",
-      "readonly_question",
-    ],
-    ["est-ce que tu peux construire une table ?", "action_request"],
-    [
-      "Peux-tu m'expliquer comment construire une table ?",
-      "readonly_question",
-    ],
-    ["Can you explain how to build a chest?", "readonly_question"],
-    ["où est le coffre ?", "readonly_question"],
-    ["attends", "unclear"],
-  ] as const;
-
-  for (const [message, expectedKind] of cases) {
-    enqueueIntent(llm, expectedKind, expectedKind === "unclear" ? 4 : 5);
-    assert.equal((await router.route(message)).kind, expectedKind);
-  }
-
-  assert.equal(llm.requests.length, cases.length);
-  assert.equal(
-    llm.requests.every(
-      (request) => request.responseFormat === "json_object",
-    ),
-    true,
-  );
-  assert.equal(
-    llm.requests.every((request) => request.reasoningEffort === "none"),
-    true,
-  );
-});
-
-test("invalid classifier output becomes unclear", async () => {
-  const llm = new FakeLLMClient();
-  llm.enqueue({
-    message: { role: "assistant", content: "not-json" },
-    finishReason: "stop",
-  });
-  const intent = await new ChatIntentRouter(
-    llm,
-    TEST_INTENT_PROMPT,
-  ).route("ce truc là peut-être");
-  assert.deepEqual(intent, { kind: "unclear", confidence: 1 });
-});
-
-test("low classifier confidence becomes unclear on the five-point scale", async () => {
-  const llm = new FakeLLMClient();
-  enqueueIntent(llm, "action_request", 2);
-
-  const intent = await new ChatIntentRouter(
-    llm,
-    TEST_INTENT_PROMPT,
-  ).route("peut-être fais quelque chose");
-
-  assert.deepEqual(intent, { kind: "unclear", confidence: 2 });
-});
 
 test("chat adapter passes messages and controls from any player", async () => {
   const emitter = new EventEmitter();
@@ -158,21 +88,3 @@ test("all outgoing chat messages share the same rate limit", async () => {
   assert.ok(sentAt[1]! - sentAt[0]! >= 25);
   assert.ok(sentAt[2]! - sentAt[1]! >= 25);
 });
-
-function enqueueIntent(
-  llm: FakeLLMClient,
-  kind:
-    | "readonly_question"
-    | "action_request"
-    | "conversation"
-    | "unclear",
-  confidence: number,
-): void {
-  llm.enqueue({
-    message: {
-      role: "assistant",
-      content: JSON.stringify({ kind, confidence }),
-    },
-    finishReason: "stop",
-  });
-}

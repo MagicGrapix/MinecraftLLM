@@ -17,7 +17,7 @@ const inputSchema = z.object({
 /** Read-only projection of the existing entity API; no pickup or movement. */
 export const getDroppedItemsQuery: WorldQuery<z.infer<typeof inputSchema>, DroppedItemInfo[]> = {
   name: "get_dropped_items",
-  description: "Find nearby loose/dropped item entities known to the bot, not placed blocks, mobs or players. Returns id, item name, count, position and distance, nearest first. Optional names filters known item stacks; without it, unidentified drops have null item/count. This only observes, does not guarantee reachability or collect anything: move to the drop and verify pickup with get_inventory.",
+  description: "Does: Find nearby loose item entities.\nReturns: Observed positions and stack quantities.\nLimits: Does not prove reachability or pickup.\nNotes: count limits entities, not item quantity. Name filters exclude unidentified drops.",
   inputSchema,
   execute: async (input, world) => {
     const maxDistance = input.maxDistance ?? 32;

@@ -242,7 +242,7 @@ function inspectorTrace(
 ): LLMRequestTrace {
   return {
     generationId: 1,
-    phase: "planning",
+    phase: "actioner",
     reflection: 0,
     round: 0,
     attempt: 0,
@@ -251,3 +251,14 @@ function inspectorTrace(
     ...overrides,
   };
 }
+
+test("malformed null responses preserve raw finish reason and usage in the inspector", async () => {
+  const inspector = new AgentInspector(5, "malformed");
+  const raw = { choices: [{ message: { role: "assistant", content: null }, finish_reason: "length" }], usage: { completion_tokens: 4096 } };
+  const client = new OpenAICompatibleLLMClient({ ...options, inspector }, { create: async () => raw });
+  const trace = inspectorTrace();
+  await assert.rejects(client.complete({ messages: [{ role: "user", content: "test" }], trace }), (error: unknown) => error instanceof Error && "code" in error && error.code === "INVALID_RESPONSE");
+  const snapshot = inspector.finalizeRound(trace, "invalid_response");
+  assert.deepEqual(snapshot?.rawResponse, raw);
+  assert.match(snapshot?.error ?? "", /neither text nor function/);
+});

@@ -17,7 +17,7 @@ const descriptions: Record<keyof typeof schemas, string> = {
   reply: "Send a concise player-facing reply and end this request. Success requires a verified completed checklist.",
   ask_planner: "Ask the single-shot planner to replace the current checklist. The returned step numbers are 1-based indices of this new plan. This is the only way to create steps.",
   run_step: "Delegate one existing step of the CURRENT plan to the action agent. Wait for its report; this does not check off the step.",
-  complete_step: "Check off one step of the CURRENT plan after comparing its matching successful action report with actual results and fresh state.",
+  complete_step: "Does: Mark one step of the current plan complete.\nSuccess: The checklist was updated.\nLimits: Performs no independent world verification.\nNotes: Verify the success criterion using the matching report and observations before calling.",
   refresh_summary: "Generate and store a concise factual replacement summary in a separate LLM call. Returns an acknowledgement, not the summary text; the latest summary appears in the next system context.",
 };
 

@@ -2,7 +2,7 @@ import type {
   LLMClient,
   LLMRequest,
   LLMResponse,
-} from "./LLMClient";
+} from "../../src/llm/LLMClient";
 
 export type FakeLLMHandler = (
   request: LLMRequest,

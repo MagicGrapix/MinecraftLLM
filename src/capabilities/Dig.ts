@@ -112,7 +112,13 @@ export class DigCapability implements Capability<DigInput, DigOutput> {
       await waitForTicks(bot, 2, context.signal);
       const blockAfterDig = bot.blockAt(targetPosition);
 
-      if (blockAfterDig && blockAfterDig.boundingBox !== "empty") {
+      if (!blockAfterDig) {
+        return failure("WORLD_CHANGED", "Dig finished, but the target cell is no longer observable.", {
+          retryable: true, facts: { position: input.position, verification: "unknown" },
+        });
+      }
+
+      if (blockAfterDig.boundingBox !== "empty") {
         const sameBlock = blockAfterDig.name === expectedBlock.name;
         return failure(
           sameBlock ? "BLOCKED" : "WORLD_CHANGED",

@@ -19,46 +19,6 @@ export interface WorkflowStep extends PlanStep {
   status: "pending" | "active" | "done" | "blocked";
 }
 
-export interface ConversationEntry {
-  readonly role: "user" | "assistant";
-  readonly text: string;
-  readonly at: number;
-}
-
-export class ConversationHistory {
-  private readonly entries: ConversationEntry[] = [];
-  private evicted = 0;
-
-  constructor(private readonly maxEntries = 18) {}
-
-  append(role: ConversationEntry["role"], text: string): void {
-    this.entries.push({ role, text, at: Date.now() });
-    if (this.entries.length > this.maxEntries) { this.entries.shift(); this.evicted += 1; }
-  }
-
-  all(): readonly ConversationEntry[] {
-    return structuredClone(this.entries);
-  }
-
-  forPrompt(
-    maxChars: number,
-    maxEntries: number,
-    excludeLatest: boolean,
-  ): { entries: readonly ConversationEntry[]; omitted: number } {
-    const selected: ConversationEntry[] = [];
-    let length = 0;
-    const available = Math.max(0, this.entries.length - (excludeLatest ? 1 : 0));
-    for (let index = available - 1; index >= 0 && selected.length < maxEntries; index -= 1) {
-      const entry = this.entries[index]!;
-      const size = JSON.stringify(entry).length;
-      if (length + size > maxChars) break;
-      selected.unshift(entry);
-      length += size;
-    }
-    return { entries: structuredClone(selected), omitted: this.evicted + available - selected.length };
-  }
-}
-
 export class WorkflowState {
   objective = "";
   summary = "";

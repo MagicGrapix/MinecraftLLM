@@ -15,6 +15,18 @@ const arena = createArenaBounds(
   { x: 48, y: -30, z: 48 },
 );
 
+test("ore pockets fit above -64 on the default shallow superflat without moving the grass surface", () => {
+  const shallow = createArenaBounds({ x: -48, y: -64, z: -48 }, { x: 48, y: -30, z: 48 });
+  for (const size of [1, 8, 32, 64]) {
+    const generator = new OreVeinGenerator({ arena: shallow, surfaceY: -61, maxVeinSize: 64, fill: new FillCommandGenerator(32768), random: new LcgRandom(999) });
+    const vein = generator.generate({ x: 0, y: -60, z: 0 }, "iron", size);
+    assert.equal(vein.positions.length, size);
+    assert.equal(new Set(vein.positions.map((p) => JSON.stringify(p))).size, size);
+    assert.equal(vein.bedrockBounds.min.y, -64);
+    assert.ok(vein.commands.every((command) => command.affectedBounds!.max.y < -61 && containsBounds(shallow, command.affectedBounds!)));
+  }
+});
+
 test("tree and forest positions are bounded, unique, and spaced", () => {
   const tree = new TreeGenerator({
     arena,

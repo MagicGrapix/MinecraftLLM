@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { inspect } from "node:util";
-import { setTraceSink } from "./TraceLog";
+import { setTraceSink, SESSION_ID } from "./TraceLog";
 
 type ConsoleMethod = "log" | "warn" | "error" | "info" | "debug";
 
@@ -9,9 +9,9 @@ type ConsoleMethod = "log" | "warn" | "error" | "info" | "debug";
 let debugEnabled = true;
 let fileLoggingFailed = false;
 const fullTraceEnabled =
-  process.env.LOG_FULL_TRACE?.trim().toLowerCase() === "true";
+  process.env.LOG_FULL_TRACE?.trim().toLowerCase() !== "false";
 const logDirectory = resolve(process.cwd(), process.env.LOG_DIR ?? "./logs");
-const runId = `${Date.now()}_${process.pid}`;
+const runId = SESSION_ID;
 const logFilePath = resolve(logDirectory, `log_${runId}.log`);
 const fullTraceFilePath = fullTraceEnabled
   ? resolve(logDirectory, `trace_${runId}.jsonl`)

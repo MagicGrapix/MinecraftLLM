@@ -16,7 +16,9 @@ import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { Executor } from "../../../src/execution/Executor";
 import type { Task, TaskSpec } from "../../../src/execution/Task";
 import { failure, success, type TaskResult } from "../../../src/execution/TaskResult";
-import { FakeLLMClient } from "../../../src/llm/FakeLLMClient";
+import { FakeLLMClient } from "../../support/FakeLLMClient";
+import { LLMError } from "../../../src/llm/LLMError";
+import type { ContextBudget } from "../../../src/agent/ContextCompactor";
 import type { LLMMessage, LLMResponse } from "../../../src/llm/LLMClient";
 import type { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { loadWorkflowPrompts } from "../../../src/prompts/WorkflowPrompts";
@@ -128,7 +130,7 @@ test("native capabilities execute through the real Executor and refresh observat
   assert.equal(report.outcomes[0]!.result.ok, true);
 });
 
-test("bounded history keeps notes, pins the instruction, evicts whole exchanges and resets after handoff", async () => {
+test("history keeps notes and the instruction until compression, and resets after handoff", async () => {
   for (const mode of ["native", "compact"] as const) {
     const h = await harness({ toolReplayMode: mode });
     for (let i = 0; i < 14; i++) {
@@ -139,7 +141,7 @@ test("bounded history keeps notes, pins the instruction, evicts whole exchanges 
     const report = await h.agent.runDelegatedStep(delegation("Distinct first request"));
     assert.equal(report.outcomes.length, 14);
     for (const request of h.llm.requests) {
-      assert.ok(request.messages.length <= 20);
+      assert.ok(request.messages.some((message) => message.role === "user"));
       assert.equal(request.messages[2]!.content, delegation().instruction);
       assert.equal(request.messages.filter((m) => m.content?.startsWith("Previous conversation summary:")).length, 1);
       protocolValid(request.messages);
@@ -406,6 +408,16 @@ test("coordinator report projection retains observations and errors without task
 function delegation(userObjective = "Collect one more log"): ActionDelegation {
   return { step: { step: 1, title: "Collect a log", successCriteria: "Bot inventory increases by one log." }, instruction: "Collect a new log, then verify the inventory.", userObjective, checklist: "- [ ] 1. Collect a log", projectSummary: "" };
 }
+
+test("actioner retries malformed transport responses before invoking any action", async () => {
+  const h = await harness({ maxResponseRetries: 1 });
+  h.llm.enqueue(() => { throw new LLMError("INVALID_RESPONSE", "Empty response"); });
+  call(h.llm, "finish_step", { status: "needs_user", message: "Nothing executed." });
+  const report = await h.agent.runDelegatedStep(delegation());
+  assert.equal(report.status, "needs_user");
+  assert.equal(h.executor.started.length, 0);
+  assert.equal(h.retries.length, 1);
+});
 function spec(capability: string, x: number): TaskSpec { return { capability, input: { position: { x, y: -60, z: 0 } } }; }
 let nextCall = 0;
 function response(name: string, input: unknown, content: string | null = null): LLMResponse {
@@ -426,6 +438,7 @@ async function until(check: () => boolean): Promise<void> {
   throw new Error("Expected state was not reached.");
 }
 async function harness(options: {
+  contextBudget?: ContextBudget;
   maxResponseRetries?: number; maxToolCalls?: number; toolReplayMode?: "native" | "compact";
   onTaskFinished?: (outcome: ActionTaskOutcome) => Promise<void>;
   execute?: (name: string, input: unknown, context: ExecutionContext) => Promise<TaskResult>;
@@ -454,7 +467,7 @@ async function harness(options: {
   const toolBridge = new AgentToolBridge({ capabilities, queries: createDefaultWorldQueryRegistry(world), skills, skillLoader: {} as SkillLoader, landmarks });
   const prompts = await loadWorkflowPrompts(resolve(process.cwd(), "prompts"));
   const agent = new ActionAgent({
-    llm, executor: physicalExecutor, inspector, toolBridge,
+    llm, executor: physicalExecutor, inspector, toolBridge, contextSummaryPrompt: prompts.contextSummary, contextBudget: options.contextBudget,
     contextBuilder: new ActionContextBuilder({ world, landmarks, systemPrompt: prompts.actioner, conversationSummaryPrompt: prompts.conversationSummary }),
     maxToolCalls: options.maxToolCalls, maxResponseRetries: options.maxResponseRetries ?? 0,
     toolReplayMode: options.toolReplayMode, onTaskFinished: options.onTaskFinished,
@@ -462,12 +475,35 @@ async function harness(options: {
   });
   return { agent, llm, executor, physicalExecutor, inspector, retries, world, toolBridge, prompts, landmarks };
 }
+
+test("actioner compresses its private history and keeps its delegation and latest outcome", async () => {
+  const h = await harness({ contextBudget: { charsPerToken: 3, compactAtTokens: 9000, targetTokens: 6000, summaryMaxChars: 300 } });
+  let actions = 0;
+  for (let i = 0; i < 40; i++) h.executor.enqueue(success({ observed: "oak_log", details: "x".repeat(1100) }));
+  for (let i = 0; i < 100; i++) h.llm.enqueue((request) => {
+    if (request.trace?.phase === "actioner_context_summary") {
+      return { message: { role: "assistant", content: '{"summary":"Several dig operations succeeded. Pickup still unverified."}' }, finishReason: "stop" };
+    }
+    if (actions++ < 40) return response("dig", spec("dig", 1).input);
+    return response("finish_step", { status: "needs_user", message: "Pickup still unverified." });
+  });
+  const report = await h.agent.runDelegatedStep(delegation("Distinct current objective"));
+  assert.equal(report.status, "needs_user");
+  assert.equal(report.outcomes.length, 40);
+  assert.ok(h.llm.requests.some((r) => r.trace?.phase === "actioner_context_summary"));
+  const last = h.llm.requests.at(-1)!;
+  assert.match(last.messages[0]!.content!, /Distinct current objective/);
+  assert.match(last.messages[1]!.content!, /Pickup still unverified/);
+  assert.equal(last.messages[2]!.content, delegation().instruction);
+  assert.equal(last.messages.at(-1)!.role, "tool");
+  protocolValid(last.messages);
+});
 function workflowHarness(h: Awaited<ReturnType<typeof harness>>) {
   const replies: string[] = [];
   const agent = new WorkflowAgent({
     llm: h.llm, actionAgent: h.agent, world: h.world, landmarks: h.landmarks,
     queries: createDefaultWorldQueryRegistry(h.world), prompts: h.prompts, inspector: h.inspector,
-    temperature: 0, maxTokens: 4096, maxRetries: 0, historyMaxChars: 30_000,
+    temperature: 0, maxTokens: 4096, maxRetries: 0,
     summaryFile: { path: "test-only", save: async () => undefined } as unknown as WorkflowSummaryFile,
     respond: async (message) => { replies.push(message); },
   });

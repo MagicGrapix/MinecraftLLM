@@ -12,7 +12,7 @@ async function smoke(): Promise<void> {
     model: config.llmModel,
     requestTimeoutMs: config.llmRequestTimeoutMs,
   });
-  const promptRoot = resolve(process.cwd(), config.promptsDirectory);
+  const promptRoot = resolve(__dirname, "../../tests/fixtures/prompts");
   const [systemPrompt, textPrompt, toolPrompt, replayPrompt, abortPrompt] =
     await Promise.all([
       PromptTemplate.load(resolve(promptRoot, "smoke-system.md")),

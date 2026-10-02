@@ -9,8 +9,10 @@ import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
 import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
 import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { success } from "../../../src/execution/TaskResult";
-import { FakeLLMClient } from "../../../src/llm/FakeLLMClient";
+import { FakeLLMClient } from "../../support/FakeLLMClient";
 import type { LLMMessage } from "../../../src/llm/LLMClient";
+import { LLMError } from "../../../src/llm/LLMError";
+import type { ContextBudget } from "../../../src/agent/ContextCompactor";
 import type { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
@@ -296,7 +298,7 @@ test("any player can ask for a plan and receive the coordinator's full tool cata
   } finally { await h.close(); }
 });
 
-test("coordinator stays within 20 messages with atomic exchanges and a pinned current plan", async () => {
+test("coordinator retains the active request and atomic exchanges beyond 20 messages", async () => {
   const h = await harness();
   try {
     plan(h.llm);
@@ -304,11 +306,11 @@ test("coordinator stays within 20 messages with atomic exchanges and a pinned cu
     tool(h.llm, "reply", { outcome: "answer", message: "Checked." });
     h.agent.submitUserMessage("owner", "Keep this objective.");
     await idle(h.agent);
-    for (const request of h.llm.requests) { assert.ok(request.messages.length <= 20); assertProtocol(request.messages); }
+    for (const request of h.llm.requests) { assertProtocol(request.messages); }
     const last = h.llm.requests.at(-1)!.messages;
     assert.match(section(last, "Task Context")!, /1\. Collect a log/);
     assert.doesNotMatch(last[0]!.content!, /Keep this objective|historyOmitted|source|planVersion/);
-    assert.equal(last.some((m) => m.role === "user"), false);
+    assert.equal(last.find((m) => m.role === "user")?.content, "Keep this objective.");
   } finally { await h.close(); }
 });
 
@@ -404,7 +406,7 @@ async function until(check: () => boolean): Promise<void> {
   throw new Error("Workflow did not reach expected state.");
 }
 async function idle(agent: WorkflowAgent): Promise<void> { await until(() => (agent.state() as { mode: string }).mode === "idle"); }
-async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "native") {
+async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "native", contextBudget?: ContextBudget) {
   const root = await mkdtemp(join(tmpdir(), "minecraft-workflow-test-"));
   const llm = new FakeLLMClient();
   const inspector = new AgentInspector(100);
@@ -428,17 +430,58 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
     llm, actionAgent, world, inspector, queries: createDefaultWorldQueryRegistry(world),
     landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
     prompts: {
+      contextSummary: PromptTemplate.fromString("context-summary", "Compress {{summary_input}} under {{max_chars}} characters."),
       coordinator: PromptTemplate.fromString("coordinator", "Coordinator\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## World Context\n{{world_context}}"),
       planner: PromptTemplate.fromString("planner", "Planner\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## Instruction\n{{instruction}}\n## World Context\n{{world_context}}"),
       actioner: PromptTemplate.fromString("actioner", "Actioner {{task_context}}"),
       summary: PromptTemplate.fromString("summary", "Summary limit {{max_chars}}\n{{summary_input}}"),
-      conversationSummary: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: empty. No earlier conversation has been compacted yet."),
+      conversationSummary: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: {{summary}}"),
     },
-    temperature: 0, maxTokens: 4096, maxRetries, historyMaxChars: 30_000,
-    toolReplayMode,
+    temperature: 0, maxTokens: 4096, maxRetries,
+    toolReplayMode, contextBudget,
     summaryFile: summary, respond: async (message) => { replies.push(message); },
   });
   return { agent, llm, inspector, replies, actions, actionInstructions, summary, world,
     close: async () => { await agent.shutdown(); await rm(root, { recursive: true, force: true }); },
   };
 }
+
+test("coordinator and planner retry malformed transport responses without repeating side effects", async () => {
+  const h = await harness(1);
+  try {
+    h.llm.enqueue(() => { throw new LLMError("INVALID_RESPONSE", "Empty response"); });
+    tool(h.llm, "ask_planner", { instruction: "Plan one log" });
+    h.llm.enqueue(() => { throw new LLMError("INVALID_RESPONSE", "Malformed JSON transport"); });
+    json(h.llm, { steps: [{ title: "Collect one log", successCriteria: "One new log in inventory" }] });
+    tool(h.llm, "reply", { outcome: "answer", message: "Plan ready" });
+    h.agent.submitUserMessage("owner", "Plan collecting wood");
+    await idle(h.agent);
+    assert.equal(h.agent.task.steps.length, 1);
+    assert.equal(h.actionInstructions.length, 0);
+    assert.equal(h.inspector.listRounds().filter((r) => r.status === "invalid_response").length, 2);
+    assert.equal(h.replies.at(-1), "Plan ready");
+  } finally { await h.close(); }
+});
+
+test("coordinator compression retains the request, then planner receives its summary and chronological chat", async () => {
+  const h = await harness(0, "native", { charsPerToken: 3, compactAtTokens: 7000, targetTokens: 4000, summaryMaxChars: 300 });
+  let observations = 0;
+  try {
+    for (let i = 0; i < 100; i++) h.llm.enqueue((request) => {
+      if (request.trace?.phase === "context_summary") return { message: { role: "assistant", content: '{"summary":"Read the bot state repeatedly. No new log collected."}' }, finishReason: "stop" };
+      if (request.trace?.phase === "planner") return { message: { role: "assistant", content: '{"steps":[{"title":"Collect a new log","successCriteria":"Inventory increases by one"}]}' }, finishReason: "stop" };
+      const n = observations++;
+      const name = n < 40 ? "get_self" : n === 40 ? "ask_planner" : "reply";
+      const args = n < 40 ? {} : n === 40 ? { instruction: "Plan the new log" } : { message: "Plan ready", outcome: "answer" };
+      return { message: { role: "assistant", content: "Inspecting the current state.", toolCalls: [{ id: "call-" + i, name, arguments: JSON.stringify(args) }] }, finishReason: "tool_calls" };
+    });
+    h.agent.submitUserMessage("owner", "Collect one NEW log");
+    await idle(h.agent);
+    assert.ok(h.llm.requests.some((r) => r.trace?.phase === "context_summary"));
+    const planner = h.llm.requests.find((r) => r.trace?.phase === "planner")!;
+    assert.ok(planner);
+    assert.match(planner.messages[1]!.content!, /No new log collected/);
+    assert.equal(planner.messages.at(-1)!.content, "Collect one NEW log");
+    assert.equal(h.replies.at(-1), "Plan ready");
+  } finally { await h.close(); }
+});

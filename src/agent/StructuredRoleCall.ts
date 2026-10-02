@@ -18,9 +18,10 @@ export interface StructuredRoleOptions {
 export async function callStructuredRole<T>(input: {
   readonly options: StructuredRoleOptions;
   readonly schema: z.ZodType<T>;
-  readonly phase: "planner" | "summary";
+  readonly phase: "planner" | "summary" | "context_summary" | "actioner_context_summary";
   readonly generationId: number;
   readonly reflection: number;
+  readonly round?: number;
   readonly messages: readonly LLMMessage[];
   readonly context: unknown;
   readonly signal: AbortSignal;
@@ -32,7 +33,7 @@ export async function callStructuredRole<T>(input: {
       generationId: input.generationId,
       phase: input.phase,
       reflection: input.reflection,
-      round: 0,
+      round: input.round ?? 0,
       attempt,
       wakeType: input.phase,
       permission: input.phase,
@@ -66,7 +67,7 @@ export async function callStructuredRole<T>(input: {
         input.options.inspector?.finalizeRound(trace, "aborted");
         throw error;
       }
-      if (error instanceof LLMError) {
+      if (error instanceof LLMError && error.code !== "INVALID_RESPONSE") {
         input.options.inspector?.annotate(trace, { validationError: error.message });
         input.options.inspector?.finalizeRound(trace, "error");
         throw error;

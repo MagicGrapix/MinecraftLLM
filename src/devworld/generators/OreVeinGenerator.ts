@@ -16,7 +16,6 @@ export interface OreVeinGeneratorOptions {
   readonly maxVeinSize: number;
   readonly fill: FillCommandGenerator;
   readonly random: RandomSource;
-  readonly maxAttemptsPerBlock?: number;
 }
 
 export interface PlannedOreVein {
@@ -37,11 +36,7 @@ const neighbors = [
 ] as const;
 
 export class OreVeinGenerator {
-  private readonly maxAttemptsPerBlock: number;
-
-  constructor(private readonly options: OreVeinGeneratorOptions) {
-    this.maxAttemptsPerBlock = options.maxAttemptsPerBlock ?? 200;
-  }
+  constructor(private readonly options: OreVeinGeneratorOptions) {}
 
   generate(
     center: Position,
@@ -65,6 +60,7 @@ export class OreVeinGenerator {
       center,
       size,
       this.options.surfaceY,
+      this.options.arena.min.y,
     );
     if (
       !containsBounds(this.options.arena, geometry.stoneBounds) ||
@@ -119,47 +115,25 @@ export class OreVeinGenerator {
     const positions: Position[] = [start];
     const keys = new Set([positionKey(start)]);
 
-    while (positions.length < size) {
-      let added = false;
-      for (
-        let attempt = 0;
-        attempt < this.maxAttemptsPerBlock;
-        attempt += 1
-      ) {
-        const anchor =
-          positions[
-            Math.floor(
-              nextRandom(this.options.random, 0, positions.length),
-            )
-          ]!;
-        const offset =
-          neighbors[
-            Math.floor(
-              nextRandom(this.options.random, 0, neighbors.length),
-            )
-          ]!;
-        const candidate = {
-          x: anchor.x + offset.x,
-          y: anchor.y + offset.y,
-          z: anchor.z + offset.z,
-        };
+    // Grow only from the current boundary: connected, unique, and no random retry exhaustion.
+    const frontier = new Map<string, Position>();
+    const expand = (anchor: Position): void => {
+      for (const offset of neighbors) {
+        const candidate = { x: anchor.x + offset.x, y: anchor.y + offset.y, z: anchor.z + offset.z };
         const key = positionKey(candidate);
-        if (
-          !containsPositionFast(interior, candidate) ||
-          keys.has(key)
-        ) {
-          continue;
-        }
-        positions.push(candidate);
-        keys.add(key);
-        added = true;
-        break;
+        if (containsPositionFast(interior, candidate) && !keys.has(key)) frontier.set(key, candidate);
       }
-      if (!added) {
-        throw new Error(
-          "Unable to generate the requested connected ore vein.",
-        );
-      }
+    };
+    expand(start);
+    while (positions.length < size) {
+      const candidates = [...frontier.values()];
+      if (!candidates.length) throw new Error("Ore pocket has no free neighboring cell.");
+      const position = candidates[Math.floor(nextRandom(this.options.random, 0, candidates.length))]!;
+      const key = positionKey(position);
+      frontier.delete(key);
+      keys.add(key);
+      positions.push(position);
+      expand(position);
     }
     return positions;
   }
@@ -169,18 +143,25 @@ function createPocketGeometry(
   center: Position,
   size: number,
   surfaceY: number,
+  minWorldY: number,
 ): {
   interiorBounds: ArenaBounds;
   stoneBounds: ArenaBounds;
   bedrockBounds: ArenaBounds;
 } {
-  const width = Math.max(3, Math.ceil(Math.cbrt(size)) + 1);
-  const depth = Math.max(2, Math.ceil(size / (width * width)));
+  let width = Math.max(3, Math.ceil(Math.cbrt(size)) + 1);
+  let interiorMaxY = surfaceY - 2;
+  // The default superflat has only two dirt layers above bedrock at -64.
+  // Use a wider shallow pocket there, never commands beneath build height.
+  if (interiorMaxY < minWorldY + 2) interiorMaxY = surfaceY - 1;
+  const availableDepth = interiorMaxY - (minWorldY + 2) + 1;
+  if (availableDepth < 1) throw new Error("No room for ore, stone support and bedrock below the surface.");
+  const depth = Math.min(availableDepth, Math.max(2, Math.ceil(size / (width * width))));
+  width = Math.max(width, Math.ceil(Math.sqrt(size / depth)));
   const centerX = Math.round(center.x);
   const centerZ = Math.round(center.z);
   const minX = centerX - Math.floor(width / 2);
   const minZ = centerZ - Math.floor(width / 2);
-  const interiorMaxY = surfaceY - 2;
   const interiorBounds = createArenaBounds(
     {
       x: minX,

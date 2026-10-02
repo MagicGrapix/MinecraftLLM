@@ -189,6 +189,48 @@ function neverEndingCapability(
   };
 }
 
+test("a timed-out uncooperative capability retains its physical lock until late completion", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let calls = 0;
+  const executor = createExecutor({
+    name: "late", inputSchema: z.object({}).strict(),
+    execute: async () => { calls++; await pending; return success(null); },
+  }, 5);
+  const first = taskFactory.create({ capability: "late", input: {} });
+  const result = await executor.execute(first);
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "TIMEOUT");
+    assert.equal(result.error.facts?.stillSettling, true);
+  }
+  assert.equal(executor.currentTask?.id, first.id);
+  const blocked = await executor.execute(taskFactory.create({ capability: "late", input: {} }));
+  assert.equal(blocked.ok, false);
+  if (!blocked.ok) assert.equal(blocked.error.code, "BLOCKED");
+  assert.equal(calls, 1);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(executor.currentTask, null);
+  assert.equal((await executor.execute(taskFactory.create({ capability: "late", input: {} }))).ok, true);
+});
+
+test("registered work remains deadline-bound even if the capability already returned", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  const executor = createExecutor({
+    name: "early", inputSchema: z.object({}).strict(),
+    execute: async (_input, context) => { context.deferCancellationUntil(pending); return success(null); },
+  }, 5);
+  const result = await executor.execute(taskFactory.create({ capability: "early", input: {} }));
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "TIMEOUT");
+  assert.ok(executor.currentTask);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(executor.currentTask, null);
+});
+
 function createExecutor<Input, Output>(
   capability: Capability<Input, Output>,
   defaultTimeoutMs = 1_000,
@@ -200,6 +242,7 @@ function createExecutor<Input, Output>(
     runtime: fakeRuntime,
     world: emptyWorld,
     defaultTimeoutMs,
+    cancellationGraceMs: 10,
   });
 }
 

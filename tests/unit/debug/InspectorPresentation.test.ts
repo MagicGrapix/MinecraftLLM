@@ -4,18 +4,18 @@ import { AgentInspector } from "../../../src/debug/AgentInspector";
 import type { InspectorRound, InspectorToolExecution } from "../../../src/debug/InspectorTypes";
 import type { LLMRequestTrace } from "../../../src/llm/LLMClient";
 
-test("legacy queue cards show the player request, delegated step, capability and actual failure", () => {
-  const result = { task: { capability: "goto" }, result: { ok: false, error: { code: "NO_PATH", message: "Target unreachable." } } };
+test("action cards show the player request, delegated step, capability and actual failure", () => {
+  const result = { ok: false, error: { code: "NO_PATH", message: "Target unreachable." } };
   const round = snapshot({
-    phase: "actioner_review",
-    contextSnapshot: { objective: JSON.stringify({
+    phase: "actioner",
+    contextSnapshot: { delegation: {
       userObjective: "Collect one additional log", step: { step: 2, title: "Reach the log" },
-    }) },
-  }, { name: "continue_plan", result: JSON.stringify(result), ok: true });
+    } },
+  }, { name: "goto", result: JSON.stringify(result), ok: true });
   assert.equal(round.requestTitle, "Collect one additional log");
   assert.equal(round.agentLabel, "Actioner");
   assert.equal(round.stepLabel, "Step 2 — Reach the log");
-  assert.equal(round.activity, "continue_plan → goto");
+  assert.equal(round.activity, "goto");
   assert.equal(round.outcome, "Failed: NO_PATH — Target unreachable.");
   assert.equal(round.failed, true); // Even when the wrapper incorrectly labels the execution successful.
 });
@@ -96,29 +96,40 @@ test("cards flag parsing, provider and token limit errors and show their cause",
   assert.match(round.outcome, /token limit/);
 });
 
-test("legacy plan previews list capabilities and never mutate exact payloads", () => {
-  const input = { tasks: [{ capability: "goto", input: { x: 1.123456 } }, { capability: "dig", input: {} }] };
+test("capability previews never mutate exact payloads and lists omit verbose details", () => {
+  const input = { position: { x: 1.123456, y: -60, z: 0 } };
   const inspector = new AgentInspector(5, "immutable");
   const current = trace();
   const argumentsText = JSON.stringify(input);
   inspector.beginRound(current);
   inspector.recordRequest(current, { model: "qwen", messages: [{ role: "user", content: "collect wood" }] });
-  inspector.recordToolStarted(current, { toolCallId: "a", name: "set_plan", arguments: argumentsText });
+  inspector.recordToolStarted(current, { toolCallId: "a", name: "goto", arguments: argumentsText });
   inspector.recordToolCompleted(current, {
-    toolCallId: "a", name: "set_plan", arguments: argumentsText, ok: true,
-    result: JSON.stringify({ ok: true, value: { remainingPlan: input.tasks } }),
+    toolCallId: "a", name: "goto", arguments: argumentsText, ok: true,
+    result: JSON.stringify({ ok: true, value: { position: input.position } }),
   });
   const round = inspector.finalizeRound(current, "completed")!;
-  assert.equal(round.activity, "set_plan → goto → dig");
-  assert.equal(round.outcome, "Plan saved — 2 actions");
+  assert.equal(round.activity, "goto → (1.12, -60, 0)");
+  assert.equal(round.outcome, "Succeeded");
   assert.equal(round.requestTitle, "collect wood");
   assert.equal(round.toolExecutions[0]?.arguments, argumentsText);
-  assert.equal(input.tasks[0]?.input.x, 1.123456);
+  assert.equal(input.position.x, 1.123456);
   const summary = inspector.listRounds()[0]!;
   assert.equal(summary.activity, round.activity);
   assert.equal(summary.requestTitle, round.requestTitle);
   assert.equal("toolExecutions" in summary, false);
   assert.equal("requestBody" in summary, false);
+});
+
+test("context compression cards retain the player request and distinguish their agent", () => {
+  for (const phase of ["context_summary", "actioner_context_summary"] as const) {
+    const round = snapshot({ phase, contextSnapshot: { currentMessage: "Collect more wood" } }, undefined, { summary: "Found a tree." });
+    assert.equal(round.requestTitle, "Collect more wood");
+    assert.equal(round.agentLabel, phase === "context_summary" ? "Coordinator context summary" : "Actioner context summary");
+    assert.equal(round.activity, "Compress conversation");
+    assert.equal(round.outcome, "Found a tree.");
+    assert.equal(round.failed, false);
+  }
 });
 
 test("invalid JSON arguments remain available without breaking the card summary", () => {

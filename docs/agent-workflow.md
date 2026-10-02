@@ -1,46 +1,109 @@
-# Agent workflow
+# Agents et contexte
 
-In agent mode, Minecraft chat goes to `WorkflowAgent`. There is no separate intent-classifier call. The coordinator chooses exactly one native tool per round. It receives no physical capabilities or action-agent tool catalog.
+## Coordinateur, planner, actionneur
 
-- `reply({ message, outcome })`: send a player-facing response and end the request. Outcomes: `answer`, `success`, `failure`, `needs_user`.
-- `ask_planner({ instruction })`: create or replace the numbered checklist. Even one-step tasks go through the planner. There is no `add_step` tool.
-- `run_step({ step, instruction })`: delegate one existing unfinished step. `step: 2` means the second entry of the CURRENT plan, not an ID.
-- `complete_step({ step })`: separately check off a step after reviewing its matching successful action report and fresh world state.
-- `refresh_summary({})`: generate a replacement factual memory in a separate LLM call; return only an acknowledgement/version/length.
-- Existing read-only world queries: `get_self`, `get_inventory`, `get_block`, `get_block_access`, `find_nearest_blocks`, `get_dropped_items`, `get_voxel_view`.
+Le coordinateur est la conversation du joueur. Il choisit un tool par tour : répondre, demander un plan,
+déléguer une étape, consulter le monde, cocher une étape ou mettre à jour le résumé de tâche.
+Il n'exécute aucune capability Minecraft lui-même.
 
-`get_dropped_items({ names?, maxDistance?, count? })` returns nearby loose item entities as `{ id, item, count, position, distance }`, nearest first. Names may be one exact item name or a list. Defaults: 32-block distance and 16 results; maximums: 512 blocks and 128 results. The result count limits entities, not the total item quantity. Without a name filter, unknown stacks retain `item: null, count: null`; a name filter selects only known matching stacks. An empty result is a current observation, not proof that a previous drop was picked up. Move near an observed drop and verify inventory changes.
+Le planner reçoit la conversation joueur/assistant restante, son résumé compacté, le monde actuel,
+la checklist et l'instruction du coordinateur. Il produit un seul JSON :
+`{"steps":[{"title":"...","successCriteria":"..."}]}`.
+Le code numérote les étapes à partir de 1. Un nouveau plan remplace l'ancien et invalide son dernier rapport.
 
-The generic `get_nearby_entities` tool is no longer exposed to either agent. The internal `WorldQueries.getNearbyEntities` API remains available and supplies this projection. Generic entity discovery can be exposed again when working on mobs/players; `attack` and `interact_entity` are unchanged but currently have no generic entity-discovery tool.
+L'actionneur reçoit une étape avec son critère, l'objectif utilisateur, la checklist et le résumé de tâche.
+Il garde une conversation privée pendant cette délégation, sans phases planning/review.
+Il choisit un tool à la fois : lecture, capability, skill ou `finish_step`.
+Le résultat réel est ajouté avant le prochain appel LLM. Chaque nouvelle délégation repart à zéro.
 
-The planner is single-shot (validation retries do not create an agent loop). It receives recent user/assistant chat, coordinator instructions and current state. Its JSON contains only `steps: [{ title, successCriteria }]`. Application code assigns 1-based indices. Replanning replaces the list, advances `planVersion`, and invalidates the old report; old step numbers in the transcript must not be used against the replacement plan.
+`finish_step` rend une déclaration et les TaskResults réels au coordinateur.
+`complete_step` coche une étape seulement si le rapport réussi correspond au plan courant.
+La validation du critère de réussite reste à la charge du coordinateur : ce contrôle de correspondance
+n'est pas une vérification déterministe de l'objectif.
 
-`ActionAgent` replaces the old `SequentialAgent` implementation and is used only for delegated actions. Planner and coordinator retain their existing implementations and prompts. The coordinator passes a typed delegation: one numbered step, its criterion, the overall objective, full checklist for orientation, its actual instruction and task summary. There is no JSON hidden inside an `objective` string.
+## Ordre des messages
 
-The actioner has one prompt and one private conversation, with no planning/review modes or local executable queue. Its system context supplies the delegation, fresh world snapshot and latest TaskResult. At every call it chooses exactly one world query, native capability (such as `goto`, `dig`, `equip` or `craft`), skill read, or `finish_step`. The stable catalog includes each capability's actual input schema: arguments are passed directly, not wrapped in a TaskSpec. There is no `set_plan`, `continue_plan` or `get_capability_schemas` tool. A concise operational note can accompany a tool call; these notes and actual assistant/tool exchanges preserve the approach and its revisions in the conversation. No plan phase or plan tool is required.
+```text
+system    : prompt du rôle + checklist + World Context actuel
+assistant : résumé de conversation antérieure (vide au départ)
+user      : demande active, conservée telle quelle
+assistant / tool : échanges suivants, dans leur ordre
+```
 
-The application validates the single tool call before any side effect. For a physical capability, `TaskFactory` creates the internal task and `Executor` awaits it with its existing cancellation, timeout and single-flight guarantees. The actual TaskResult becomes the native tool result. Landmark observations settle before the next call's world snapshot. No next LLM call runs during a capability. A failed capability does not automatically retry or prove completion: the actioner observes the failure and chooses how to proceed. `SequentialPlanRunner` remains available for demo mode but is not wired into agent mode.
+Les demandes précédentes et leurs réponses restent à leur place tant qu'elles n'ont pas été compactées.
+La demande active ne migre pas à la fin du contexte à chaque call. Elle ne peut pas être supprimée
+par la compression. Pour l'actionneur, l'instruction du coordinateur est le message user protégé ;
+l'objectif global reste également présent dans ses données de délégation.
 
-`finish_step({ status, message })` reports only on the delegated step, never speaks to the player or edits the global checklist. The application attaches actual outcomes, including failures; the coordinator receives capability names, inputs and results without internal task UUIDs/timestamps. Full outcomes remain in internal state and the inspector's action execution records. The actioner's conversation is cleared on handoff, failure or interruption; each new delegation starts fresh. No intent-classifier or memory-summary calls run inside the actioner. Its technical states (`idle`, `thinking`, `executing`, `stopped`) describe runtime activity, not different prompts or tool permissions.
+Le World Context est un instantané courant dans le system, sans horodatage. Il utilise du texte dense :
+position du bot, direction, état de survie, inventaire du bot, item tenu et landmarks.
+Les nombres de présentation ont au plus deux décimales. Les données brutes restent dans les traces.
+Une observation inconnue ne devient jamais de l'air.
 
-The coordinator owns the checklist. Code requires a matching successful report from the current plan before `complete_step` can mark `- [x]`; the coordinator still has to verify the semantic success criterion using actual results and observations. A `success` reply requires a non-empty completed checklist. Reports and queries remain visible in the transcript, with presentation controlled by the replay mode. Runtime failures are returned as failed tool results for the coordinator to handle; malformed responses are retried before executing any tool, with `[Bot]` notifications and validation feedback in the existing system message.
+## Compression à 20k
 
-Coordinator, planner and action-agent requests contain at most `AGENT_HISTORY_MAX_MESSAGES` messages (default 20, minimum 5). Coordinator and planner pin the system message and assistant previous-conversation-summary message, leaving up to 18 recent messages. The actioner also pins the actual coordinator instruction, leaving up to 17 messages for tool exchanges. Its approach notes follow the same history bounds; there is no separate persistent local plan. The reserved assistant summary is explicitly empty for now; automatic conversation summarization is not implemented. It is internal context, never Minecraft chat or player conversation history. The task summary produced by `refresh_summary` remains separate. In native mode, calls/results count separately; in compact mode, older completed exchanges count as one message. Exchanges are evicted whole. `LLM_CONTEXT_BUDGET_CHARS` bounds the serialized rolling transcript after formatting; it is not a tokenizer or provider context-window setting. Coordinator history rolls across player requests. Planner receives player conversation, and actioner history lasts only one delegation. Nothing is reloaded as agent memory when the process restarts.
+`CONTEXT_BUDGET`, dans `src/config.ts`, définit :
 
-`TOOL_REPLAY_MODE` in `src/config.ts` is the only replay setting: `"compact"` (current value) or `"native"` (original behavior). It is a project constant, not an environment variable, and applies to the coordinator and action agent. Compact mode converts older completed tool exchanges into assistant messages labelled `Tool activity (application record, not a player message)` and retains the most recent exchange as a native assistant call followed by its tool result. This preserves a usable tool continuation for Qwen. Tool names, non-empty arguments, assistant operational notes and complete results are rendered as readable YAML using the existing dependency; there is no extra LLM call, selective summary or additional truncation. Errors, coordinates, quantities and reported outcomes are retained. Successfully sent older `reply` calls become plain assistant text; failed replies remain activity records. New responses still use validated native tool calls. The inspector retains original calls/results and displays the actual formatted request sent to the model. This reduces protocol wrappers for older exchanges, not necessarily the size of every payload or its token count.
+- 3 caractères par token, avec une petite marge de structure/protocole ;
+- déclenchement à 20 000 tokens d'entrée estimés ;
+- cible d'environ 10 000 après compression ;
+- résumé de conversation plafonné à 3 000 caractères.
 
-To compare modes, change `TOOL_REPLAY_MODE` in `src/config.ts`, then restart the bot with `npm.cmd run dev`. The startup log shows the selected mode. No Minecraft server restart or environment variable is needed.
+L'estimation inclut les messages, le system et les schémas des tools. Ce n'est ni un tokenizer,
+ni le réglage de fenêtre d'Ollama. Les sorties ont leur propre budget, 4 096 tokens par défaut.
 
-`ACTION_MAX_TOOL_CALLS = 256` in the same file limits validated tool invocations per delegated step. Queries and capabilities count; malformed-response retries do not. The last slot is reserved for `finish_step`, so at most 255 observation/action calls precede the report. At the limit, validation feedback asks for a factual handoff rather than an invented success. The existing response-retry setting (default 8 retries) still applies; if exhausted, the coordinator receives a failed report with all recorded physical outcomes. The obsolete actioner read-round setting `LLM_MAX_TOOL_ROUNDS` was removed from configuration and is ignored if left in a local `.env`.
+Avant un nouveau call du coordinateur ou de l'actionneur, `ContextCompactor` vérifie le budget.
+Si le seuil est atteint, un appel LLM séparé résume les anciens échanges avec le résumé précédent.
+Il conserve les faits utiles, contraintes, échecs et incertitudes. Il remplace ensuite le premier message assistant.
+La demande active et le dernier échange complet restent intacts, et les messages récents gardent leur ordre.
 
-For coordinator and planner calls, `## Task Context` contains only the current validated numbered checklist (including success criteria and completion marks), or `No plan yet.` The player's request is not duplicated in the system prompt. A non-empty factual summary appears separately under `## Task Summary`. Task metadata (objective, versions and last report) remains internal and visible in the inspector snapshot, not serialized into this prompt projection. Reports remain in the tool transcript. The coordinator's static tool protocol already instructs it to choose one tool and verify current steps, so no redundant dynamic instruction is injected. Only the planner receives a separate `## Instruction` containing the actual coordinator delegation.
+La suppression des anciens échanges n'est validée qu'après un résumé non vide, dans la limite autorisée.
+Une erreur ou un stop pendant la compression laisse l'ancien historique intact.
+Si le system, la demande ou le dernier résultat sont eux-mêmes trop gros, le traitement échoue explicitement :
+aucun JSON n'est découpé et aucun résultat n'est éliminé silencieusement.
+Le monde est relu après la compression pour le prochain call.
 
-World state is injected once in the system prompt under `## World Context`, labelled as the current snapshot refreshed for the call. It has no observation number or timestamp. `WorldContextFormatter` renders compact text: exact position, facing, health/food/saturation/oxygen, grounded state, item totals by name, held item, and remembered places with dimension and status. Stack slots, numeric type IDs, display names and landmark timestamps are excluded from this prompt projection; the complete structured snapshot remains available in the inspector. Task/action context remains separate. The prompts use `{{world_context}}` for this projection and do not wrap it in a Markdown code fence.
+Le planner n'a pas d'historique indépendant : il reçoit les messages de discussion conservés par le coordinateur
+et son résumé, sans rejouer ses appels d'outils. Les appels de compression portent leur propre label debug ;
+ce ne sont pas de nouvelles phases de l'actionneur.
 
-The summarizer receives the old summary, current task/world facts and bounded recent activity. It returns the full replacement, capped by `AGENT_MEMORY_MAX_CHARS` (default 500). Oversized/invalid output is retried, never silently sliced. The full summary response is visible in its own inspector `summary` phase, but is not appended to the coordinator transcript; only the most recent summary appears in the next system prompt. The application writes the latest summary and checklist to `logs/agent_summary_<session>.md` after tool completion.
+## Deux résumés, deux usages
 
-Runtime prompts are `prompts/coordinator.md`, `planner.md`, `actioner.md`, `summary.md`, and the reserved `conversation-summary.md` assistant message. Restart the bot after editing them. Obsolete `agent-system.md`, `intent-classifier.md`, `memory-update.md`, their loader and `smoke:intent` have been removed. `smoke-*.md` remain because `npm run smoke:ollama` uses them. Legacy standalone intent/memory classes remain covered by their unit tests but are not wired into the production workflow.
+Le **résumé de conversation** est automatique au seuil de 20k. Il remplace de vieux messages dans le contexte
+assistant, avec un budget de 3 000 caractères.
 
-Any player in the local test server can request planning, actions, `stop`, or `resume`. While a run is active, ordinary chat messages are ignored; `stop` aborts the current LLM call or physical action, and `resume` causes the coordinator to re-check current state. Aborted tool calls receive an interruption result, so resume never replays an orphan call. The bot uses existing Mineflayer capabilities with no new administrator permissions. The coordinator stops after 64 tool rounds per uninterrupted processing loop; repeated planner calls without action are capped at four.
+Le **résumé de tâche** est demandé par `refresh_summary`, limité par `AGENT_MEMORY_MAX_CHARS`
+(500 caractères par défaut). Il reçoit les faits courants, le résumé précédent, le résumé de conversation
+et l'activité récente, puis remplace la section Task Summary du system.
+Sa réponse complète n'est pas rejouée dans l'historique ; seul un accusé de mise à jour y entre.
+Il est écrit avec la checklist dans `logs/agent_summary_<session>.md`.
+Aucun de ces résumés n'est automatiquement rechargé après redémarrage.
 
-Run `npm.cmd test` for build, type checks, and unit tests. For the live test, start Minecraft and Ollama, run `npm.cmd run dev`, then try a question followed by a small action (for example, collect one nearby log). The inspector at `http://127.0.0.1:3001/` shows `coordinator`, `planner`, and the single `actioner` label. Old phase names remain readable for legacy records but are no longer emitted by the actioner. Stop waits for an executing capability to settle and returns its actual result; resume is handled by the coordinator with a fresh delegation. World-state diffs are not implemented in this refactor.
+## Présentation compacte des tools
+
+`TOOL_REPLAY_MODE` reste une constante séparée. En mode `compact`, les anciens échanges complets
+sont présentés en texte/YAML assistant, étiquetés comme activité de l'application. Le dernier échange reste
+natif : assistant tool call, puis résultat tool. Une réponse `reply` envoyée devient du texte assistant.
+Le mode `native` garde les enveloppes assistant/tool originales.
+
+Cette transformation de format ne fait pas d'appel LLM et ne constitue pas la compression à 20k.
+Les arguments/résultats restent disponibles jusqu'à leur éventuelle inclusion dans un résumé.
+L'inspecteur montre toujours la requête exacte envoyée et les exécutions originales.
+
+## Arrêts, retries et limites
+
+Les messages ordinaires sont ignorés pendant une requête. `stop` annule le LLM ou l'action courante ;
+`resume` rend la main au coordinateur avec un monde relu. Les tools interrompus reçoivent un résultat,
+pour ne pas laisser de tool call sans réponse.
+
+Une sortie mal formée, vide ou tronquée provoque jusqu'à huit retries LLM, sans exécuter ses tools.
+Une action physique échouée n'est pas rejouée automatiquement. Voir [les annulations](contracts.md).
+Le coordinateur dispose de 64 tours par boucle, l'actionneur de 256 calls par délégation,
+dont le dernier est réservé à un rapport. Ces limites ne remplacent pas le budget de contexte.
+
+## Prompts
+
+Les six templates runtime sont dans `prompts/` : coordinator, planner, actioner, summary,
+conversation-summary et context-summary. Les trois prompts d'agents restent éditables séparément.
+Le chargement intervient au démarrage ; redémarrer le bot après édition.
+Les smoke sont dans `tests/fixtures/prompts/`. Aucun ancien classifier ou MemoryUpdater n'est conservé.

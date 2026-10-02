@@ -10,7 +10,7 @@ const failureStatuses = new Set(["error", "invalid_response", "token_limit_disca
 /** Read-only display projection: never changes prompts, tool arguments, or results. */
 export function describeInspectorRound(round: PresentationInput): InspectorPresentation {
   const context = record(round.contextSnapshot);
-  const delegation = record(context.delegation ?? parseObject(context.objective));
+  const delegation = record(context.delegation);
   const task = record(context.task);
   const decision = record(round.decision);
   const calls = round.response?.toolCalls.map(record) ?? [];
@@ -31,10 +31,10 @@ export function describeInspectorRound(round: PresentationInput): InspectorPrese
     : calls.length
       ? calls.map((call) => describeCall(text(call.name), parseObject(call.arguments))).join(" · ")
       : round.phase === "planner" ? "Create checklist"
-        : round.phase === "summary" || round.phase === "memory" ? "Update summary"
+        : round.phase === "context_summary" || round.phase === "actioner_context_summary" ? "Compress conversation"
+        : round.phase === "summary" ? "Update summary"
           : round.phase === "coordinator" ? "Choose next sequence"
-            : round.phase === "intent" ? "Classify intent"
-              : round.phase === "question" ? "Reply" : "Choose next action";
+            : "Choose next action";
   let outcome: string;
   if (issue) outcome = `Failed — ${issue}`;
   else if (round.response?.finishReason === "length") outcome = "Failed — response reached the token limit";
@@ -71,7 +71,7 @@ function describeExecution(execution: InspectorToolExecution) {
   const claimedStatus = text(report.status) || text(input.status) || text(input.outcome);
   const failed = execution.ok === false || result.ok === false || Boolean(failedAction) ||
     claimedStatus === "failure";
-  const activity = describeCall(execution.name, input, raw);
+  const activity = describeCall(execution.name, input);
   let outcome: string;
   if (failed) outcome = `Failed${text(error.code) ? `: ${error.code}` : ""} — ${
     text(error.message) || text(report.message) || text(input.message) || "execution failed"
@@ -82,7 +82,6 @@ function describeExecution(execution: InspectorToolExecution) {
   }${text(report.message) || text(input.message) ? ` — ${text(report.message) || text(input.message)}` : ""}`;
   else if (execution.result === undefined) outcome = "In progress";
   else if (Array.isArray(value.steps)) outcome = `Checklist created — ${value.steps.length} steps`;
-  else if (Array.isArray(value.remainingPlan)) outcome = `Plan saved — ${value.remainingPlan.length} actions`;
   else if (execution.name === "complete_step") outcome = `Step ${input.step} marked complete`;
   else if (execution.name === "refresh_summary") outcome = "Summary updated";
   else if (execution.name === "get_block_access") outcome = text(value.reason)
@@ -94,7 +93,7 @@ function describeExecution(execution: InspectorToolExecution) {
   return { activity, outcome, failed };
 }
 
-function describeCall(name: string, input: Record<string, unknown>, raw: Record<string, unknown> = {}): string {
+function describeCall(name: string, input: Record<string, unknown>): string {
   if (["goto", "dig", "get_block", "get_block_access", "use_block", "open_container"].includes(name)) {
     const position = record(input.position);
     const coordinates = [position.x, position.y, position.z];
@@ -102,21 +101,14 @@ function describeCall(name: string, input: Record<string, unknown>, raw: Record<
       return `${name} → (${coordinates.map((value) => Math.round((value as number) * 100) / 100).join(", ")})`;
     }
   }
-  // Display compatibility for saved logs only; these queue tools are no longer exposed.
-  if (name === "continue_plan" && text(record(raw.task).capability)) {
-    return `${name} → ${record(raw.task).capability}`;
-  }
-  if (name === "set_plan" && Array.isArray(input.tasks)) {
-    return `${name} → ${input.tasks.map((task) => text(record(task).capability)).filter(Boolean).join(" → ")}`;
-  }
   if (name === "run_step" || name === "complete_step") return `${name} → Step ${input.step ?? "?"}`;
-  if (name === "get_capability_schemas" && Array.isArray(input.names)) return `${name} → ${input.names.join(", ")}`;
   if (name === "load_skill" && text(input.name)) return `${name} → ${input.name}`;
   return name || "Tool call";
 }
 
 function agentLabel(phase: InspectorRound["phase"]): string {
-  if (phase.startsWith("actioner_") || phase === "planning" || phase === "review") return "Actioner";
+  if (phase === "context_summary") return "Coordinator context summary";
+  if (phase === "actioner_context_summary") return "Actioner context summary";
   return phase.charAt(0).toUpperCase() + phase.slice(1);
 }
 

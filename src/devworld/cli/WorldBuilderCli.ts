@@ -163,7 +163,7 @@ export class WorldBuilderCli {
     const result = await this.options.executor.execute(plan);
     if (result.status === "completed") {
       this.writeLine(
-        `Plan completed; ${result.commandsSent} commands sent.`,
+        `Plan sent; ${result.commandsSent} commands. No refusal observed; world changes are not independently verified.`,
       );
     } else {
       this.writeLine(

@@ -1,4 +1,5 @@
 import type { LLMRequestTrace, LLMResponse } from "../llm/LLMClient";
+import { SESSION_ID, writeTrace } from "../TraceLog";
 import { describeInspectorRound } from "./InspectorPresentation";
 import type {
   InspectorRound,
@@ -22,8 +23,6 @@ export interface BeginRoundInput {
 
 export interface InspectorRoundAnnotation {
   readonly decision?: unknown;
-  readonly memoryBefore?: string;
-  readonly memoryAfter?: string;
   readonly validationError?: string;
 }
 
@@ -37,7 +36,7 @@ export class AgentInspector {
 
   constructor(
     private readonly maxRounds = 30,
-    sessionId = `${Date.now()}_${process.pid}`,
+    sessionId = SESSION_ID,
   ) {
     if (!Number.isInteger(maxRounds) || maxRounds < 1) {
       throw new Error("maxRounds must be a positive integer.");
@@ -119,6 +118,10 @@ export class AgentInspector {
         estimatedInputChars: messagesJson.length + toolsJson.length,
       };
     }
+  }
+
+  recordRawResponse(trace: LLMRequestTrace, raw: unknown): void {
+    this.ensureDraft(trace).rawResponse = stripSecrets(structuredClone(raw));
   }
 
   recordResponse(
@@ -207,6 +210,7 @@ export class AgentInspector {
     }
     draft.status = status;
     const snapshot = freezeDeep(cloneRound(draft));
+    writeTrace("inspector.round", snapshot);
     this.drafts.delete(id);
     this.finalized.push(snapshot);
     this.finalized.sort((a, b) => a.sequence - b.sequence);
@@ -237,12 +241,6 @@ export class AgentInspector {
     const draft = this.requireDraft(trace);
     if (annotation.decision !== undefined) {
       draft.decision = structuredClone(annotation.decision);
-    }
-    if (annotation.memoryBefore !== undefined) {
-      draft.memoryBefore = annotation.memoryBefore;
-    }
-    if (annotation.memoryAfter !== undefined) {
-      draft.memoryAfter = annotation.memoryAfter;
     }
     if (annotation.validationError !== undefined) {
       draft.validationError = annotation.validationError;
@@ -373,8 +371,6 @@ interface MutableRound {
   status: InspectorRoundStatus;
   contextSnapshot?: unknown;
   decision?: unknown;
-  memoryBefore?: string;
-  memoryAfter?: string;
   validationError?: string;
   request?: InspectorRound["request"];
   requestBody?: Record<string, unknown>;
@@ -405,12 +401,6 @@ function cloneRound(draft: MutableRound): InspectorRound {
     ...(draft.decision === undefined
       ? {}
       : { decision: structuredClone(draft.decision) }),
-    ...(draft.memoryBefore === undefined
-      ? {}
-      : { memoryBefore: draft.memoryBefore }),
-    ...(draft.memoryAfter === undefined
-      ? {}
-      : { memoryAfter: draft.memoryAfter }),
     ...(draft.validationError === undefined
       ? {}
       : { validationError: draft.validationError }),

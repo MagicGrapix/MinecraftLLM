@@ -14,5 +14,12 @@ export const GOTO_DEFAULTS = {
 export const TOOL_REPLAY_MODE: "native" | "compact" = "compact";
 // Total validated tool invocations per delegation; parsing retries do not count.
 export const ACTION_MAX_TOOL_CALLS = 256;
+// Approximate INPUT budget, including system prompt and tool schemas (not a tokenizer).
+export const CONTEXT_BUDGET = {
+  charsPerToken: 3,
+  compactAtTokens: 20_000,
+  targetTokens: 10_000,
+  summaryMaxChars: 3_000,
+};
 
 export const mcData = MinecraftData(MINECRAFT_VERSION);

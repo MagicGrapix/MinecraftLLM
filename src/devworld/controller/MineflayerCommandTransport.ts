@@ -5,6 +5,7 @@ export interface TransportCommandResult {
   readonly command: string;
   readonly sentAt: number;
   readonly responses: readonly string[];
+  readonly error?: string;
 }
 
 export interface CommandTransport {
@@ -50,8 +51,11 @@ export class MineflayerCommandTransport implements CommandTransport {
     }
 
     const responses: string[] = [];
-    const collect = (message: string): void => {
+    let rejection: string | undefined;
+    const collect = (message: string, position?: string, jsonMsg?: unknown): void => {
+      if (position === "chat") return;
       responses.push(message);
+      if (isCommandRejection(jsonMsg) && !isExpectedNoChange(command, jsonMsg)) rejection = message;
     };
     this.bot.on("messagestr", collect);
     const sentAt = this.now();
@@ -61,7 +65,7 @@ export class MineflayerCommandTransport implements CommandTransport {
         await this.wait(this.responseWindowMs);
       }
       if (this.closed) throw new Error(this.closeReason);
-      return { command, sentAt, responses: [...responses] };
+      return { command, sentAt, responses: [...responses], ...(rejection ? { error: rejection } : {}) };
     } finally {
       this.bot.removeListener("messagestr", collect);
     }
@@ -102,6 +106,33 @@ export class MineflayerCommandTransport implements CommandTransport {
     this.closeReason = reason;
     for (const listener of [...this.closeListeners]) listener(reason);
   }
+}
+
+/** Best-effort feedback detection, not a command acknowledgement protocol. */
+function isCommandRejection(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const node = value as Record<string, unknown>;
+  if (node.color === "red") return true;
+  if (typeof node.translate === "string" &&
+      /^(command\.unknown|command\.failed|commands\.generic\.|argument\.|arguments\.)|^commands\..*\.(failed|failure|toobig|outOfWorld)/.test(node.translate)) return true;
+  return Object.values(node).some((child) =>
+    Array.isArray(child) ? child.some(isCommandRejection) : isCommandRejection(child));
+}
+
+function isExpectedNoChange(command: string, value: unknown): boolean {
+  const keys: string[] = [];
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    const record = node as Record<string, unknown>;
+    if (typeof record.translate === "string") keys.push(record.translate);
+    Object.values(record).forEach(visit);
+  };
+  visit(value);
+  return (command.startsWith("kill @e[") && keys.includes("argument.entity.notfound.entity")) ||
+    (command.startsWith("clear ") && keys.includes("clear.failed.single")) ||
+    (command.startsWith("effect clear ") && keys.includes("commands.effect.clear.everything.failed")) ||
+    (command.startsWith("fill ") && keys.includes("commands.fill.failed"));
 }
 
 export function describeConnectionReason(reason: unknown): string {

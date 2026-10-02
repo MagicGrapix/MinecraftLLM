@@ -2,27 +2,27 @@ import type { LLMMessage } from "../llm/LLMClient";
 import { compactToolExchange } from "./ToolReplayFormatter";
 import { promptNumbers } from "./PromptNumberFormatter";
 
-export const PINNED_MESSAGE_COUNT = 2;
 export type ToolReplayMode = "native" | "compact";
 
-/** A rolling transcript. Tool calls and all their results are one eviction unit. */
-export class MessageHistory {
-  private groups: LLMMessage[][] = [];
-  private omitted = 0;
+interface Group { messages: LLMMessage[]; chat?: LLMMessage }
 
-  constructor(readonly maxMessages = 20, readonly maxChars = 30_000, readonly toolReplayMode: ToolReplayMode = "native", readonly pinnedMessageCount = PINNED_MESSAGE_COUNT) {
-    if (!Number.isInteger(pinnedMessageCount) || pinnedMessageCount < 1 ||
-      !Number.isInteger(maxMessages) || maxMessages < pinnedMessageCount + 2 || maxChars < 1) {
-      throw new Error("History requires pinned context, a tool exchange, and a positive character budget.");
-    }
-  }
+/** Chronological transcript. Nothing is evicted before a valid summary is committed. */
+export class MessageHistory {
+  private groups: Group[] = [];
+  private activeUser: Group | undefined;
+  private revision = 0;
+  summary = "";
+
+  constructor(readonly toolReplayMode: ToolReplayMode = "native") {}
 
   append(message: LLMMessage): void {
     if (message.role === "system" || message.role === "tool" ||
       (message.role === "assistant" && message.toolCalls?.length)) {
       throw new Error("Use appendExchange for tools; pinned context is assembled separately.");
     }
-    this.add([message]);
+    const group = { messages: [structuredClone(message)], chat: structuredClone(message) };
+    this.add(group);
+    if (message.role === "user") this.activeUser = group;
   }
 
   appendExchange(message: Extract<LLMMessage, { role: "assistant" }>, results: readonly Extract<LLMMessage, { role: "tool" }>[]): void {
@@ -38,29 +38,66 @@ export class MessageHistory {
         return result;
       }
     });
-    this.add([message, ...presentedResults]);
+    const call = message.toolCalls?.[0];
+    let chat: LLMMessage | undefined;
+    if (call?.name === "reply" && ids.length === 1) {
+      try {
+        const result = JSON.parse(results[0]!.content);
+        const args = JSON.parse(call.arguments);
+        if (result.ok && result.value?.sent && typeof args.message === "string") {
+          chat = { role: "assistant", content: args.message };
+        }
+      } catch { /* Not a successful player reply. */ }
+    }
+    this.add({ messages: structuredClone([message, ...presentedResults]), chat });
   }
 
-  snapshot(): { messages: LLMMessage[]; omitted: number } {
-    return { messages: structuredClone(this.groups.flat()), omitted: this.omitted };
+  snapshot(): { messages: LLMMessage[] } {
+    return { messages: structuredClone(this.groups.flatMap((g) => g.messages)) };
   }
 
-  clear(): void { this.groups = []; this.omitted = 0; }
+  conversation(): { messages: LLMMessage[] } {
+    return { messages: structuredClone(this.groups.flatMap((g) => g.chat ? [g.chat] : [])) };
+  }
 
-  private add(group: LLMMessage[]): void {
+  clear(): void { this.groups = []; this.activeUser = undefined; this.summary = ""; this.revision++; }
+
+  /** Keeps the active user request in place, and the latest exchange in full. */
+  prepareCompaction(maxRemainingChars: number) {
+    const remaining = [...this.groups];
+    const removed: Group[] = [];
+    const latest = this.groups.at(-1);
+    for (const group of this.groups) {
+      if (JSON.stringify(remaining.flatMap((g) => g.messages)).length <= maxRemainingChars) break;
+      if (group === this.activeUser || group === latest) continue;
+      removed.push(group);
+      remaining.splice(remaining.indexOf(group), 1);
+    }
+    if (!removed.length) throw new Error("Context budget exceeded by protected input; narrow the request or tool output.");
+    const revision = this.revision;
+    return {
+      messages: structuredClone(removed.flatMap((g) => g.messages)),
+      remaining: structuredClone(remaining.flatMap((g) => g.messages)),
+      commit: (summary: string) => {
+        if (!summary.trim()) throw new Error("Cannot compact with an empty summary.");
+        if (revision !== this.revision) throw new Error("History changed during compression.");
+        this.groups = remaining;
+        this.summary = summary;
+        this.revision++;
+      },
+    };
+  }
+
+  private add(group: Group): void {
     if (this.toolReplayMode === "compact") {
       const previous = this.groups.at(-1);
-      const assistant = previous?.[0];
-      if (previous?.length && assistant?.role === "assistant" && assistant.toolCalls?.length) {
-        this.groups[this.groups.length - 1] = [compactToolExchange(assistant, previous.slice(1) as Extract<LLMMessage, { role: "tool" }>[])];
+      const assistant = previous?.messages[0];
+      if (previous && assistant?.role === "assistant" && assistant.toolCalls?.length) {
+        previous.messages = [compactToolExchange(assistant, previous.messages.slice(1) as Extract<LLMMessage, { role: "tool" }>[])];
       }
     }
-    this.groups.push(structuredClone(group));
-    // Reserve pinned context. Never slice JSON or tool pairs.
-    while (this.groups.length > 0 && (this.groups.flat().length > this.maxMessages - this.pinnedMessageCount ||
-      JSON.stringify(this.groups.flat()).length > this.maxChars)) {
-      this.omitted += this.groups.shift()!.length;
-    }
+    this.groups.push(group);
+    this.revision++;
   }
 }
 

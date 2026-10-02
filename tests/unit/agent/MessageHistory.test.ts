@@ -3,41 +3,20 @@ import test from "node:test";
 import { parse } from "yaml";
 import { MessageHistory, withValidationFeedback } from "../../../src/agent/MessageHistory";
 
-test("actioner history can reserve a third pinned instruction without changing coordinator defaults", () => {
-  const action = new MessageHistory(5, 30_000, "native", 3);
-  const coordinator = new MessageHistory(5);
-  for (const history of [action, coordinator]) {
-    history.append({ role: "assistant", content: "old" });
-    history.appendExchange({ role: "assistant", content: null, toolCalls: [{ id: "a", name: "read", arguments: "{}" }] },
-      [{ role: "tool", toolCallId: "a", content: "{}" }]);
-  }
-  assert.equal(action.snapshot().messages.length, 2);
-  assert.equal(coordinator.snapshot().messages.length, 3);
-  assert.throws(() => new MessageHistory(4, 30_000, "native", 3));
-});
-
-test("history evicts whole multi-tool exchanges and reserves system and summary slots", () => {
-  const history = new MessageHistory(6);
-  history.append({ role: "user", content: "initial" });
-  history.appendExchange({ role: "assistant", content: null, toolCalls: [
-    { id: "a", name: "read", arguments: "{}" }, { id: "b", name: "read", arguments: "{}" },
-  ] }, [{ role: "tool", toolCallId: "a", content: "{}" }, { role: "tool", toolCallId: "b", content: "{}" }]);
-  history.append({ role: "user", content: "latest" });
-  assert.deepEqual(history.snapshot().messages.map((m) => m.role), ["assistant", "tool", "tool", "user"]);
-  history.append({ role: "assistant", content: "answer" });
-  assert.deepEqual(history.snapshot().messages.map((m) => m.content), ["latest", "answer"]);
-  assert.equal(history.snapshot().omitted, 4);
-});
-
-test("oversized groups are evicted whole, never chopping JSON or leaving orphan results", () => {
-  const history = new MessageHistory(20, 200);
-  history.append({ role: "user", content: "old" });
-  history.appendExchange({ role: "assistant", content: null, toolCalls: [{ id: "a", name: "read", arguments: "{}" }] },
-    [{ role: "tool", toolCallId: "a", content: JSON.stringify({ data: "x".repeat(300) }) }]);
-  assert.deepEqual(history.snapshot().messages, []);
-  assert.equal(history.snapshot().omitted, 3);
-  history.clear();
-  assert.equal(history.snapshot().omitted, 0);
+test("history keeps the current request and whole exchanges until explicit compression", () => {
+  const history = new MessageHistory();
+  history.append({ role: "user", content: "Keep this request" });
+  for (let i = 0; i < 25; i++) history.appendExchange(
+    { role: "assistant", content: null, toolCalls: [{ id: String(i), name: "read", arguments: "{}" }] },
+    [{ role: "tool", toolCallId: String(i), content: "{}" }],
+  );
+  assert.equal(history.snapshot().messages.length, 51);
+  const candidate = history.prepareCompaction(500);
+  assert.equal(history.snapshot().messages.length, 51);
+  candidate.commit("Older observations.");
+  assert.equal(history.snapshot().messages[0]!.content, "Keep this request");
+  assert.equal(history.snapshot().messages.at(-1)!.role, "tool");
+  assert.equal(history.summary, "Older observations.");
 });
 
 test("history rejects malformed exchanges and retry feedback is internal", () => {
@@ -52,7 +31,7 @@ test("history rejects malformed exchanges and retry feedback is internal", () =>
 
 test("native and compact tool results round presentation but keep original calls exact", () => {
   for (const mode of ["native", "compact"] as const) {
-    const history = new MessageHistory(20, 30_000, mode);
+    const history = new MessageHistory(mode);
     const args = { position: { x: 10.53869625851037, y: -60, z: 4 } };
     const raw = { ok: true, value: { ...args, health: 14.833333969116211, count: 1 } };
     const response = { role: "assistant" as const, content: null, toolCalls: [{ id: "a", name: "get_self", arguments: JSON.stringify(args) }] };
@@ -76,7 +55,7 @@ test("native and compact tool results round presentation but keep original calls
 });
 
 test("compact replay keeps the latest exchange native and preserves older arguments and results", () => {
-  const history = new MessageHistory(20, 30_000, "compact");
+  const history = new MessageHistory("compact");
   const args = { position: { x: -2.5, y: -60, z: 3 }, expected: "oak_log" };
   const result = { ok: false, error: { code: "NO_PATH", message: "Cannot reach target.\nGround is missing.", facts: { partial: true } } };
   const inventory = { items: [{ name: "oak_log", count: 1 }] };
@@ -106,7 +85,7 @@ test("compact replay keeps the latest exchange native and preserves older argume
 
 test("compact replies become plain assistant text only when sending succeeded", () => {
   for (const sent of [true, false]) {
-    const history = new MessageHistory(20, 30_000, "compact");
+    const history = new MessageHistory("compact");
     history.appendExchange({ role: "assistant", content: null, toolCalls: [
       { id: "r", name: "reply", arguments: '{"message":"Hello player!","outcome":"answer"}' },
     ] }, [{ role: "tool", toolCallId: "r", content: JSON.stringify(sent ? { ok: true, value: { sent: true, outcome: "answer" } } : { ok: false, error: { message: "Send failed" } }) }]);
@@ -120,23 +99,4 @@ test("compact replies become plain assistant text only when sending succeeded", 
       assert.match(message.content!, /Send failed/);
     }
   }
-});
-
-test("compact history keeps raw text results and budgets whole formatted exchanges", () => {
-  const history = new MessageHistory(6, 1_000, "compact");
-  const appendRead = (text: string) => history.appendExchange({ role: "assistant", content: null, toolCalls: [
-    { id: "r", name: "read", arguments: "{}" },
-  ] }, [{ role: "tool", toolCallId: "r", content: text }]);
-  history.append({ role: "user", content: "old" });
-  appendRead("Unstructured result\nKeep this exact line.");
-  assert.equal(history.snapshot().messages.at(-1)?.role, "tool");
-  appendRead("Latest");
-  const compact = history.snapshot().messages[1]!.content!;
-  assert.equal(parse(compact.split("\n").slice(1).join("\n")).result, "Unstructured result\nKeep this exact line.");
-  appendRead("Another");
-  assert.equal(history.snapshot().messages.length, 4);
-  assert.equal(history.snapshot().omitted, 1);
-  appendRead("x".repeat(2_000));
-  assert.deepEqual(history.snapshot().messages, []);
-  assert.throws(() => history.appendExchange({ role: "assistant", content: null, toolCalls: [{ id: "missing", name: "read", arguments: "{}" }] }, []));
 });

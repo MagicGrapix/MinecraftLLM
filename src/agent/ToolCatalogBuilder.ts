@@ -19,7 +19,7 @@ const fixedDescriptions: Record<keyof typeof fixedToolSchemas, string> = {
   list_skills: "List available textual skills and their descriptions.",
   load_skill: "Load one textual skill with its complete instructions and dependencies.",
   list_landmarks: "List remembered important places and their status.",
-  finish_step: "Return a concise factual report for this delegated step to the coordinator. This does not check off the global checklist or complete the overall player request.",
+  finish_step: "Does: End this delegation and report to the coordinator.\nSuccess: The report was returned.\nLimits: Does not validate the task or complete the global checklist.\nNotes: Report observed results, failures, and remaining uncertainty.",
 };
 
 /** One stable actioner catalog: observations, native capabilities, and explicit handoff. */

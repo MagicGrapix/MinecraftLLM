@@ -12,6 +12,7 @@ export interface ActionContextRequest {
   readonly delegation: ActionDelegation;
   readonly lastTask: Task | null;
   readonly lastResult: TaskResult | null;
+  readonly conversationSummary?: string;
 }
 
 export class ActionContextBuilder {
@@ -48,7 +49,7 @@ export class ActionContextBuilder {
         last_action: lastAction,
         world_context: formatWorldContext({ self: snapshot.self, inventory: snapshot.inventory, landmarks: snapshot.pinnedLandmarks }),
       }) },
-      { role: "assistant", content: this.dependencies.conversationSummaryPrompt.render() },
+      { role: "assistant", content: this.dependencies.conversationSummaryPrompt.render({ summary: request.conversationSummary || "empty. No earlier conversation has been compacted yet." }) },
       { role: "user", content: instruction },
     ];
     return { messages, snapshot };

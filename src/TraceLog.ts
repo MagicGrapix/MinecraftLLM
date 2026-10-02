@@ -1,4 +1,5 @@
 export type TraceSink = (event: string, data: unknown) => void;
+export const SESSION_ID = `${Date.now()}_${process.pid}`;
 
 let sink: TraceSink = () => undefined;
 

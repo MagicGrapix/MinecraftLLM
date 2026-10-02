@@ -107,6 +107,19 @@ class FakeClock implements CommandExecutorClock {
   }
 }
 
+test("observed server refusals stop a plan and preserve the command feedback", async () => {
+  const clock = new FakeClock();
+  const transport = new FakeTransport(clock);
+  transport.send = async (command) => ({ command, sentAt: 0, responses: ["No permission"], error: "No permission" });
+  const executor = new CommandExecutor({ transport, commandsPerSecond: 1, maxQueueSize: 10, maxPlanCommands: 10, clock });
+  const result = await executor.execute(plan("rejected", ["first", "must not run"]));
+  assert.equal(result.status, "failed");
+  assert.equal(result.commandsSent, 1);
+  assert.equal(result.records[0]!.error, "No permission");
+  assert.deepEqual(result.records[0]!.responses, ["No permission"]);
+  executor.dispose();
+});
+
 class FakeTransport implements CommandTransport {
   readonly sent: Array<{ command: string; sentAt: number }> = [];
   protected readonly listeners = new Set<(reason: string) => void>();

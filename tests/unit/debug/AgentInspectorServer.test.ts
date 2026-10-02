@@ -10,7 +10,7 @@ test("inspector HTTP routes serve compact list, detail, UI, and status", async (
   const inspector = new AgentInspector(10, "http-session");
   const current = inspectorTrace({
     generationId: 7,
-    phase: "planning",
+    phase: "actioner",
     wakeType: "user_message",
   });
   inspector.beginRound(current);
@@ -127,7 +127,7 @@ function inspectorTrace(
 ): LLMRequestTrace {
   return {
     generationId: 1,
-    phase: "planning",
+    phase: "actioner",
     reflection: 0,
     round: 0,
     attempt: 0,

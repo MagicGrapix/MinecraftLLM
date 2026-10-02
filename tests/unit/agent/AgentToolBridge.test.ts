@@ -139,7 +139,7 @@ test("block access is a read tool and raw precision is only rounded in model his
     assert.equal(result.toolCallId, "access");
     assert.deepEqual(JSON.parse(result.content), { ok: true, value: expected });
     for (const mode of ["native", "compact"] as const) {
-      const history = new MessageHistory(20, 30_000, mode);
+      const history = new MessageHistory(mode);
       history.appendExchange({ role: "assistant", content: null, toolCalls: [call] },
         [{ role: "tool", toolCallId: result.toolCallId, content: result.content }]);
       const presented = JSON.parse(history.snapshot().messages.at(-1)!.content!);

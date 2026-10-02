@@ -31,3 +31,11 @@ export interface DelegatedTraceContext {
   readonly generationId: number;
   readonly delegation: number;
 }
+
+/** Coordinator boundary: no dependency on actioner internals or prompt phases. */
+export interface ActionRunner {
+  runDelegatedStep(delegation: ActionDelegation, trace?: DelegatedTraceContext): Promise<DelegatedActionReport>;
+  state(): { mode: string };
+  requestStop(username?: string): Promise<void>;
+  shutdown(): Promise<void>;
+}

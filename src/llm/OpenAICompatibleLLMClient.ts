@@ -8,6 +8,7 @@ import type {
 } from "./LLMClient";
 import { LLMError } from "./LLMError";
 import { buildOpenAIRequestBody } from "./openaiRequestBody";
+import { SESSION_ID, writeTrace } from "../TraceLog";
 
 export interface OpenAICompatibleLLMClientOptions {
   readonly baseUrl: string;
@@ -55,6 +56,8 @@ export class OpenAICompatibleLLMClient implements LLMClient {
   async complete(request: LLMRequest): Promise<LLMResponse> {
     request.signal?.throwIfAborted();
     const body = buildOpenAIRequestBody(request, this.options.model);
+    const metadata = { sessionId: SESSION_ID, ...request.trace };
+    writeTrace("llm.request", { ...metadata, body });
     if (request.trace && this.options.inspector) {
       this.options.inspector.recordRequest(request.trace, body);
     }
@@ -62,6 +65,9 @@ export class OpenAICompatibleLLMClient implements LLMClient {
       const raw = await this.transport.create(body, {
         signal: request.signal,
       });
+      // Preserve malformed/truncated responses before parsing them.
+      writeTrace("llm.raw_response", { ...metadata, raw });
+      if (request.trace) this.options.inspector?.recordRawResponse(request.trace, raw);
       request.signal?.throwIfAborted();
       const response = parseResponse(raw);
       if (request.trace && this.options.inspector) {
@@ -73,6 +79,7 @@ export class OpenAICompatibleLLMClient implements LLMClient {
         error instanceof LLMError
           ? error
           : mapLLMError(error, request.signal);
+      writeTrace("llm.error", { ...metadata, code: mapped.code, message: mapped.message });
       if (request.trace && this.options.inspector) {
         this.options.inspector.recordError(request.trace, mapped.message);
       }

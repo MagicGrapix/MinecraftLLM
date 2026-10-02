@@ -1,0 +1,13 @@
+---
+description: Keep project architecture and contracts documented alongside implementation changes
+alwaysApply: true
+---
+
+# Architecture documentation
+
+Read `docs/architecture.md` before changing component boundaries, then the relevant linked page.
+Update the affected docs when agent/context/tool/execution/debug behavior changes.
+Describe current behavior, guarantees and limits; do not retain obsolete designs as current documentation.
+Example: adding a query requires its schema/registry, regression tests and updated tool/context docs.
+Keep test prompts under `tests/fixtures/prompts/` and production prompts under `prompts/`.
+Preserve unfinished agent prompts unless the user requests their modification.

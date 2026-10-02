@@ -23,12 +23,12 @@ export function createCapabilityRegistry(
   register(
     registry,
     new GotoCapability(),
-    "Navigate near a feet-level position or use goal=interact to approach a visible block face within reach. Can dig route obstacles and scaffold with inventory dirt/cobblestone; never digs the target or collects its drop.",
+    "Does: Move near a feet-level position, or approach a block with goal=interact.\nSuccess: The selected movement goal was reached.\nLimits: Does not verify digging conditions or loot pickup.\nNotes: canDig/canPlace may change terrain. Scaffolding uses inventory dirt or cobblestone.",
   );
   register(
     registry,
     new DigCapability(),
-    "Break one explicit visible block by attacking it over time. The target must be reachable by view and the bot must be close enough. Can use `get_block_access` to make sure.",
+    "Does: Break one block at the specified position.\nSuccess: The target block was observed as removed.\nLimits: Does not confirm that its drops entered the inventory.\nNotes: Check get_block_access when uncertain. Check drops and inventory after digging.",
   );
   register(
     registry,
@@ -38,7 +38,7 @@ export function createCapabilityRegistry(
   register(
     registry,
     new PlaceCapability(),
-    "Place the equipped block against an explicit reference block and face.",
+    "Does: Place the held block against a reference block's selected face.\nSuccess: The placement operation completed at the returned position.\nLimits: Does not verify a complete structure.\nNotes: Equip the intended block first. The destination is adjacent to referencePosition; inspect it with get_block.",
   );
   register(
     registry,

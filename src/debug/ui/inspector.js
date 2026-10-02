@@ -11,6 +11,9 @@
     unseenCount: 0,
     search: "",
     pollError: null,
+    selectionVersion: 0,
+    refreshVersion: 0,
+    refreshing: false,
   };
 
   const els = {
@@ -66,6 +69,7 @@
   }
 
   function setLive(enabled) {
+    state.selectionVersion++;
     state.live = enabled;
     els.liveBtn.classList.toggle("active", enabled);
     els.pauseBtn.classList.toggle("active", !enabled);
@@ -77,7 +81,9 @@
   }
 
   async function jumpToLatest() {
+    const version = ++state.selectionVersion;
     const rounds = await fetchRounds();
+    if (version !== state.selectionVersion) return;
     if (!rounds.length) return;
     const latest = rounds[rounds.length - 1];
     state.live = true;
@@ -92,6 +98,7 @@
     try {
       const status = await fetchJson("/api/status");
       if (state.sessionId !== status.sessionId) {
+        state.selectionVersion++;
         state.sessionId = status.sessionId;
         state.knownIds.clear();
         state.rounds = [];
@@ -119,71 +126,82 @@
   }
 
   async function refreshList(fromPoll) {
-    await refreshStatus();
-    const scrollTop = els.roundList.scrollTop;
-    let rounds;
+    if (state.refreshing) return;
+    state.refreshing = true;
+    const version = state.refreshVersion;
     try {
-      rounds = await fetchRounds();
-    } catch {
-      return;
-    }
-    state.rounds = rounds;
-    updateClearControls();
+      await refreshStatus();
+      const scrollTop = els.roundList.scrollTop;
+      let rounds;
+      try {
+        rounds = await fetchRounds();
+      } catch {
+        return;
+      }
+      if (version !== state.refreshVersion) return;
+      state.rounds = rounds;
+      updateClearControls();
 
-    const previousKnown = state.knownIds;
-    const nextKnown = new Set(rounds.map((round) => round.id));
-    let added = 0;
-    for (const id of nextKnown) {
-      if (!previousKnown.has(id)) added += 1;
-    }
-    state.knownIds = nextKnown;
+      const previousKnown = state.knownIds;
+      const nextKnown = new Set(rounds.map((round) => round.id));
+      let added = 0;
+      for (const id of nextKnown) {
+        if (!previousKnown.has(id)) added += 1;
+      }
+      state.knownIds = nextKnown;
 
-    if (fromPoll && added > 0) {
-      if (state.live) {
-        const latest = rounds[rounds.length - 1];
-        if (latest && latest.id !== state.selectedId) {
-          await selectRound(latest.id, false);
+      if (fromPoll && added > 0) {
+        if (state.live) {
+          const latest = rounds[rounds.length - 1];
+          if (latest && latest.id !== state.selectedId) {
+            await selectRound(latest.id, false);
+          }
+        } else {
+          state.unseenCount += rounds.filter((round) => !previousKnown.has(round.id)).length;
+          updateBadge();
         }
-      } else {
-        state.unseenCount += rounds.filter((round) => !previousKnown.has(round.id)).length;
-        updateBadge();
       }
-    }
 
-    const filtered = rounds.filter(matchesSearch);
-    els.roundList.innerHTML = "";
-    if (!filtered.length) {
-      const empty = document.createElement("p");
-      empty.className = "empty";
-      empty.textContent = "Aucun call pour l’instant.";
-      els.roundList.appendChild(empty);
-    } else {
-      // Newest request first; calls within a request follow their start order.
-      const ordered = [...filtered].sort((a, b) =>
-        b.generationId - a.generationId || (a.callIndex ?? 0) - (b.callIndex ?? 0),
-      );
-      for (const round of ordered) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.dataset.id = round.id;
-        button.className =
-          "round-item" + (round.failed ? " failed" : "") + (round.id === state.selectedId ? " selected" : "");
-        button.innerHTML =
-          `<div class="request-title">${escapeHtml(round.requestTitle ?? `Request ${round.generationId}`)}</div>` +
-          `<div class="meta">${escapeHtml(formatRoundLabel(round))}</div>` +
-          (round.stepLabel ? `<div class="step-label">${escapeHtml(round.stepLabel)}</div>` : "") +
-          `<div class="activity">${escapeHtml(round.activity ?? round.preview)}</div>` +
-          `<div class="outcome${round.failed ? " status-error" : ""}">${escapeHtml(round.outcome ?? round.status)}</div>`;
-        button.addEventListener("click", () => {
-          void selectRound(round.id, true);
-        });
-        els.roundList.appendChild(button);
+      if (version !== state.refreshVersion) return;
+      const filtered = rounds.filter(matchesSearch);
+      els.roundList.innerHTML = "";
+      if (!filtered.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "Aucun call pour l’instant.";
+        els.roundList.appendChild(empty);
+      } else {
+        // Newest request first; calls within a request follow their start order.
+        const ordered = [...filtered].sort((a, b) =>
+          b.generationId - a.generationId || (a.callIndex ?? 0) - (b.callIndex ?? 0),
+        );
+        for (const round of ordered) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.id = round.id;
+          button.className =
+            "round-item" + (round.failed ? " failed" : "") + (round.id === state.selectedId ? " selected" : "");
+          button.innerHTML =
+            `<div class="request-title">${escapeHtml(round.requestTitle ?? `Request ${round.generationId}`)}</div>` +
+            `<div class="meta">${escapeHtml(formatRoundLabel(round))}</div>` +
+            (round.stepLabel ? `<div class="step-label">${escapeHtml(round.stepLabel)}</div>` : "") +
+            `<div class="activity">${escapeHtml(round.activity ?? round.preview)}</div>` +
+            `<div class="outcome${round.failed ? " status-error" : ""}">${escapeHtml(round.outcome ?? round.status)}</div>`;
+          button.addEventListener("click", () => {
+            void selectRound(round.id, true);
+          });
+          els.roundList.appendChild(button);
+        }
       }
+      els.roundList.scrollTop = scrollTop;
+    } finally {
+      state.refreshing = false;
     }
-    els.roundList.scrollTop = scrollTop;
   }
 
   async function clearView() {
+    state.refreshVersion++;
+    state.selectionVersion++;
     state.clearing = true;
     updateClearControls();
     try {
@@ -238,6 +256,7 @@
   }
 
   async function selectRound(id, manual) {
+    const version = ++state.selectionVersion;
     if (manual) {
       state.live = false;
       els.liveBtn.classList.remove("active");
@@ -248,7 +267,14 @@
       return;
     }
     const detailScroll = els.detailBody.scrollTop;
-    const round = await fetchJson(`/api/rounds/${encodeURIComponent(id)}`);
+    let round;
+    try {
+      round = await fetchJson(`/api/rounds/${encodeURIComponent(id)}`);
+    } catch (error) {
+      if (version === state.selectionVersion) els.statusLine.textContent = `Selection unavailable: ${error.message ?? error}`;
+      return;
+    }
+    if (version !== state.selectionVersion) return;
     state.selectedId = id;
     state.selectedSnapshot = round;
     if (!manual) {
@@ -464,9 +490,6 @@
     if (round.validationError !== undefined) {
       parts.push(`<article class="block"><div class="role status-error">Validation error</div><pre>${escapeHtml(round.validationError)}</pre></article>`);
     }
-    if (round.memoryBefore !== undefined || round.memoryAfter !== undefined) {
-      parts.push(`<article class="block"><div class="role">Working memory</div>${renderFoldableJson({ before: round.memoryBefore ?? null, after: round.memoryAfter ?? null })}</article>`);
-    }
     if (round.toolExecutions?.length) {
       parts.push(`<article class="block"><div class="role">Tool executions</div>${renderExecutions(round)}</article>`);
     }
@@ -511,8 +534,6 @@
               },
               decision: state.selectedSnapshot.decision,
               validationError: state.selectedSnapshot.validationError,
-              memoryBefore: state.selectedSnapshot.memoryBefore,
-              memoryAfter: state.selectedSnapshot.memoryAfter,
               toolExecutions: state.selectedSnapshot.toolExecutions,
             };
     await navigator.clipboard.writeText(formatValue(payload));

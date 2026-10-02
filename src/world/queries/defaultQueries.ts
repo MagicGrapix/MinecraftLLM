@@ -60,7 +60,7 @@ const getInventoryQuery: WorldQuery<
   InventoryState
 > = {
   name: "get_inventory",
-  description: "Return a compact snapshot of the bot's inventory.",
+  description: "Does: Inspect the bot's inventory and selected item.\nReturns: Current item quantities.\nLimits: Does not show when or how items were acquired.\nNotes: Compare with an earlier snapshot to verify a gain.",
   inputSchema: emptyInputSchema,
   execute: async (_input, world) => querySuccess(world.getInventory()),
 };
@@ -81,7 +81,7 @@ const getBlockAccessQuery: WorldQuery<
   BlockAccessInfo
 > = {
   name: "get_block_access",
-  description: "Read a block's loaded state, eye-to-center distance, dig reach, unobstructed dig face, canDig preflight, reason and an observed blocker. Visible is independent of camera direction; null means unknown (including unloaded cells or visibility beyond 64 blocks). Reach is eye-to-face, not center distance. This never moves or digs and does not prove server permission or item pickup.",
+  description: "Does: Check local digging conditions for one block.\nReturns: Reach, unobstructed face, canDig, and any observed blocker.\nLimits: Does not prove server permission or successful digging.\nNotes: null means unknown. Visibility ignores camera direction. Center distance is not the face-reach test.",
   inputSchema: getBlockInputSchema,
   execute: async (input, world) =>
     querySuccess(world.getBlockAccess(input.position)),
@@ -92,7 +92,7 @@ const findNearestBlocksQuery: WorldQuery<
   BlockInfo[]
 > = {
   name: "find_nearest_blocks",
-  description: "Find nearby blocks matching one or more Minecraft names. You can specify the max distance search as well as the max results count.",
+  description: "Does: Find placed blocks matching the requested names.\nReturns: Matching blocks known within the search radius.\nLimits: Does not check visibility, reachability, or dig access.\nNotes: count limits results. No results does not mean none exist elsewhere.",
   inputSchema: findNearestBlocksInputSchema,
   execute: async (input, world) =>
     querySuccess(
@@ -110,7 +110,7 @@ const getVoxelViewQuery: WorldQuery<
   VoxelView
 > = {
   name: "get_voxel_view",
-  description: "Read a 5x5x4 north-up block grid around the bot or an observed integer position. Offsets are dx west/east, dy down/up, dz north/south; optional focus resolves one cell to world coordinates. The returned voxel grid is annotated with the block types and provide insights about the terrain.",
+  description: "Does: Show a 5x5x4 block grid around the bot or a position.\nReturns: Terrain layers and a symbol legend; focus resolves a cell to world coordinates.\nLimits: Does not show loot or prove a usable path.\nNotes: North is up, regardless of facing. Unknown cells are not air.",
   inputSchema: voxelViewInputSchema,
   execute: async (input, world) => {
     const self = world.getSelf();

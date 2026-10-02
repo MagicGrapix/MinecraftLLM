@@ -6,10 +6,12 @@ import { TaskFactory } from "../execution/TaskFactory";
 import type { TaskResult } from "../execution/TaskResult";
 import type { LLMClient, LLMRequestTrace, LLMResponse, LLMToolCall } from "../llm/LLMClient";
 import type { ActionContextBuilder } from "./ActionContextBuilder";
-import type { ActionDelegation, ActionTaskOutcome, DelegatedActionReport, DelegatedTraceContext } from "./ActionTypes";
+import type { ActionDelegation, ActionTaskOutcome, DelegatedActionReport, DelegatedTraceContext, ActionRunner } from "./ActionTypes";
 import type { AgentToolBridge, ValidatedActionCall } from "./AgentToolBridge";
 import { MessageHistory, withValidationFeedback, type ToolReplayMode } from "./MessageHistory";
-import { ModelResponseError } from "./ModelResponseError";
+import { ModelResponseError, isModelResponseError } from "./ModelResponseError";
+import { ContextCompactor, type ContextBudget } from "./ContextCompactor";
+import type { PromptTemplate } from "../prompts/PromptTemplate";
 
 type ActionMode = "idle" | "thinking" | "executing" | "stopped";
 
@@ -23,8 +25,8 @@ interface ActionAgentOptions {
   readonly temperature: number;
   readonly reasoningEffort?: "none" | "low" | "medium" | "high" | "max";
   readonly maxTokens: number;
-  readonly historyMaxMessages?: number;
-  readonly historyMaxChars?: number;
+  readonly contextSummaryPrompt: PromptTemplate;
+  readonly contextBudget?: ContextBudget;
   readonly toolReplayMode?: ToolReplayMode;
   readonly inspector?: AgentInspector;
   readonly onRetry?: (message: string) => Promise<void>;
@@ -44,7 +46,7 @@ interface ActionSession {
 }
 
 /** One prompt, one private conversation, one direct awaited tool at a time. */
-export class ActionAgent {
+export class ActionAgent implements ActionRunner {
   private mode: ActionMode = "idle";
   private session: ActionSession | null = null;
   private processing: Promise<DelegatedActionReport> | null = null;
@@ -71,7 +73,7 @@ export class ActionAgent {
     const session: ActionSession = {
       id: ++this.nextId, delegation: structuredClone(delegation), trace,
       abort: new AbortController(),
-      history: new MessageHistory(this.options.historyMaxMessages ?? 20, this.options.historyMaxChars ?? 30_000, this.options.toolReplayMode, 3),
+      history: new MessageHistory(this.options.toolReplayMode),
       outcomes: [], lastTask: null, lastResult: null, round: 0,
     };
     this.session = session;
@@ -183,18 +185,36 @@ export class ActionAgent {
     for (let attempt = 0; attempt <= this.options.maxResponseRetries; attempt += 1) {
       signal.throwIfAborted();
       if (this.options.executor.currentTask) throw new Error("Invariant violation: LLM called during a physical action.");
-      const built = this.options.contextBuilder.build({
+      let built = this.options.contextBuilder.build({
         delegation: session.delegation, lastTask: session.lastTask, lastResult: session.lastResult,
       });
-      const trace: LLMRequestTrace = {
+      let trace: LLMRequestTrace = {
         generationId: session.trace?.generationId ?? session.id, phase: "actioner",
         reflection: session.trace?.delegation ?? session.id, round: session.round, attempt,
         wakeType: "delegated_step", permission: "action", contextSnapshot: built.snapshot,
       };
+      const messages = await new ContextCompactor({
+        llm: this.options.llm, inspector: this.options.inspector,
+        temperature: this.options.temperature, reasoningEffort: this.options.reasoningEffort,
+        maxTokens: this.options.maxTokens, maxRetries: this.options.maxResponseRetries,
+        onRetry: async (_phase, retry) => { await this.options.onRetry?.("[Bot] Retrying context compression (" + retry + ")."); },
+      }, this.options.contextSummaryPrompt, this.options.contextBudget).prepare({
+        history: session.history,
+        render: (messages, summary) => {
+          built = this.options.contextBuilder.build({
+            delegation: session.delegation, lastTask: session.lastTask, lastResult: session.lastResult, conversationSummary: summary,
+          });
+          return [...built.messages, ...messages];
+        },
+        tools: this.options.toolBridge.catalog.build(),
+        generationId: trace.generationId, reflection: trace.reflection, round: session.round,
+        phase: "actioner_context_summary", signal, requestTitle: session.delegation.userObjective,
+      });
+      trace = { ...trace, contextSnapshot: built.snapshot };
       this.options.inspector?.beginRound(trace);
       try {
         const response = await this.options.llm.complete({
-          messages: withValidationFeedback([...built.messages, ...session.history.snapshot().messages], correction),
+          messages: withValidationFeedback(messages, correction),
           tools: this.options.toolBridge.catalog.build(),
           temperature: this.options.temperature, reasoningEffort: this.options.reasoningEffort,
           maxTokens: this.options.maxTokens, signal, trace,
@@ -211,7 +231,7 @@ export class ActionAgent {
         this.options.inspector?.annotate(trace, { decision: validated });
         return { response, validated, trace };
       } catch (error: unknown) {
-        if (signal.aborted || !(error instanceof ModelResponseError)) {
+        if (signal.aborted || !isModelResponseError(error)) {
           this.options.inspector?.finalizeRound(trace, signal.aborted ? "aborted" : "error");
           throw error;
         }

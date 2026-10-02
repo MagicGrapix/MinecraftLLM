@@ -1,7 +1,7 @@
 import type { LLMMessage, LLMRequestTrace } from "../llm/LLMClient";
 import type { CoordinatorTools } from "./CoordinatorTools";
 import { withValidationFeedback } from "./MessageHistory";
-import { ModelResponseError } from "./ModelResponseError";
+import { ModelResponseError, isModelResponseError } from "./ModelResponseError";
 import type { StructuredRoleOptions } from "./StructuredRoleCall";
 
 export async function callCoordinator(input: {
@@ -41,8 +41,8 @@ export async function callCoordinator(input: {
     } catch (error: unknown) {
       const issue = error instanceof Error ? error.message : String(error);
       input.options.inspector?.annotate(trace, { validationError: issue });
-      input.options.inspector?.finalizeRound(trace, input.signal.aborted ? "aborted" : error instanceof ModelResponseError ? "invalid_response" : "error");
-      if (input.signal.aborted || !(error instanceof ModelResponseError)) throw error;
+      input.options.inspector?.finalizeRound(trace, input.signal.aborted ? "aborted" : isModelResponseError(error) ? "invalid_response" : "error");
+      if (input.signal.aborted || !isModelResponseError(error)) throw error;
       if (attempt === input.options.maxRetries) throw new Error(`coordinator failed after ${attempt + 1} attempts: ${issue}`);
       correction = issue;
       await input.options.onRetry?.("coordinator", attempt + 1, issue);

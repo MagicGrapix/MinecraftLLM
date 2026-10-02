@@ -32,7 +32,7 @@ export interface InspectorRound extends InspectorPresentation {
   readonly sequence: number;
   readonly callIndex: number;
   readonly generationId: number;
-  readonly phase: "intent" | "question" | "planning" | "review" | "memory" | "summary" | "coordinator" | "planner" | "actioner" | "actioner_planning" | "actioner_review";
+  readonly phase: import("../llm/LLMClient").LLMRequestTrace["phase"];
   readonly reflection: number;
   readonly round: number;
   readonly attempt: number;
@@ -41,8 +41,6 @@ export interface InspectorRound extends InspectorPresentation {
   readonly status: InspectorRoundStatus;
   readonly contextSnapshot?: unknown;
   readonly decision?: unknown;
-  readonly memoryBefore?: string;
-  readonly memoryAfter?: string;
   readonly validationError?: string;
   readonly request?: {
     readonly model: string;

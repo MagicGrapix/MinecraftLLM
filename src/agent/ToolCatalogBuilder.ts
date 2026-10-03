@@ -52,3 +52,10 @@ export function toJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   delete result.$schema;
   return result;
 }
+
+/** Documentation for planning, generated from the actioner's actual tool definitions. */
+export function formatToolReference(tools: readonly LLMTool[]): string {
+  return tools.map(tool =>
+    `### ${tool.name}\n\n${tool.description}\nArguments (JSON Schema): ${JSON.stringify(tool.parameters)}`,
+  ).join("\n\n");
+}

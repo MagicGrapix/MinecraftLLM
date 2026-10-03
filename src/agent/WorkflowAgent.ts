@@ -2,7 +2,7 @@ import { z } from "zod";
 import { writeTrace } from "../TraceLog";
 import type { ToolCallJournal } from "../execution/ToolCallJournal";
 import type { AgentInspector } from "../debug/AgentInspector";
-import type { LLMClient, LLMMessage } from "../llm/LLMClient";
+import type { LLMClient, LLMMessage, LLMTool } from "../llm/LLMClient";
 import type { LandmarkMemory } from "../memory/LandmarkMemory";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import type { WorkflowPrompts } from "../prompts/WorkflowPrompts";
@@ -17,6 +17,7 @@ import { MessageHistory, type ToolReplayMode } from "./MessageHistory";
 import { ContextCompactor, type ContextBudget } from "./ContextCompactor";
 import { formatWorldContext, type WorldContextSnapshot } from "./WorldContextFormatter";
 import { formatTaskContext } from "./TaskContextFormatter";
+import { formatToolReference } from "./ToolCatalogBuilder";
 import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRoleCall";
 import {
   PlannerResultSchema,
@@ -29,6 +30,7 @@ export type WorkflowMode = "idle" | "thinking" | "planning" | "executing" | "sto
 export interface WorkflowAgentOptions {
   readonly llm: LLMClient;
   readonly actionAgent: ActionRunner;
+  readonly actionTools: readonly LLMTool[];
   readonly world: WorldQueries;
   readonly landmarks: LandmarkMemory;
   readonly queries: WorldQueryRegistry;
@@ -229,7 +231,7 @@ export class WorkflowAgent {
   private async askPlanner(instruction: string, signal: AbortSignal) {
     const { context, messages } = this.roleInput(
       this.options.prompts.planner,
-      { ...this.commonContext(), instruction },
+      { ...this.commonContext(), instruction, actionTools: this.options.actionTools },
       this.transcript.conversation(),
     );
     const result = await callStructuredRole({
@@ -261,6 +263,7 @@ export class WorkflowAgent {
     task: ReturnType<WorkflowState["snapshot"]>;
     world: WorldContextSnapshot;
     instruction?: string;
+    actionTools?: readonly LLMTool[];
   }, history: { messages: readonly LLMMessage[] }, summary = this.transcript.summary,
     taskContext = currentContext.task.checklist || "No plan yet."): {
     readonly context: Record<string, unknown>;
@@ -276,6 +279,7 @@ export class WorkflowAgent {
         task_summary_section: task.summary ? `## Task Summary\n\n${task.summary}` : "",
         instruction: instruction ?? "",
         world_context: formatWorldContext(world),
+        action_tools: currentContext.actionTools ? formatToolReference(currentContext.actionTools) : "",
       }) },
       { role: "assistant", content: this.options.prompts.conversationSummary.render({ summary: summary || "empty. No earlier conversation has been compacted yet." }) },
       ...history.messages,

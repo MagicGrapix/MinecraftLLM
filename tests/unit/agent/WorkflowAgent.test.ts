@@ -6,6 +6,9 @@ import test from "node:test";
 import type { ActionAgent } from "../../../src/agent/ActionAgent";
 import type { ActionDelegation, DelegatedActionReport } from "../../../src/agent/ActionTypes";
 import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
+import { ToolCatalogBuilder } from "../../../src/agent/ToolCatalogBuilder";
+import { createCapabilityRegistry } from "../../../src/bootstrap/createCapabilities";
+import type { ContainerSessionManager } from "../../../src/runtime/ContainerSessionManager";
 import { ToolCallJournal } from "../../../src/execution/ToolCallJournal";
 import { inventoryTotals } from "../../../src/runtime/InventoryAdapter";
 import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
@@ -184,6 +187,16 @@ test("planner creates indices, actioner gets context, completion and summary are
     await idle(h.agent);
     assert.deepEqual(h.llm.requests.map((r) => r.trace?.phase), ["coordinator", "planner", "coordinator", "coordinator", "coordinator", "summary", "coordinator"]);
     assert.equal(h.llm.requests[1]!.tools, undefined);
+    const reference = section(h.llm.requests[1]!.messages, "Action Agent Tools")!;
+    for (const definition of h.actionTools) {
+      assert.ok(reference.includes(`### ${definition.name}\n`));
+      assert.ok(reference.includes(definition.description));
+      assert.ok(reference.includes(JSON.stringify(definition.parameters)));
+    }
+    assert.ok(h.actionTools.some(tool => tool.name === "craft_from_inventory_2x2"));
+    assert.ok(h.actionTools.some(tool => tool.name === "get_block_access"));
+    assert.ok(h.actionTools.some(tool => tool.name === "load_skill"));
+    assert.equal(section(h.llm.requests[0]!.messages, "Action Agent Tools"), undefined);
     assert.equal(h.llm.requests[1]!.messages.at(-1)?.content, "Collect another log.");
     assert.equal(section(h.llm.requests[1]!.messages, "Instruction"), "Plan a small wood task.");
     assert.equal(section(h.llm.requests[1]!.messages, "Task Context"), "No plan yet.");
@@ -577,13 +590,15 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
   } as unknown as WorldQueries;
   const summary = new WorkflowSummaryFile("test", root);
   const journal = new ToolCallJournal(() => inventoryTotals(world.getInventory().items));
+  const queries = createDefaultWorldQueryRegistry(world, journal);
+  const actionTools = new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries).build();
   const agent = new WorkflowAgent({
-    llm, actionAgent, world, inspector, journal, queries: createDefaultWorldQueryRegistry(world, journal),
+    llm, actionAgent, actionTools, world, inspector, journal, queries,
     landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
     prompts: {
       contextSummary: PromptTemplate.fromString("context-summary", "Compress {{summary_input}} under {{max_chars}} characters."),
       coordinator: PromptTemplate.fromString("coordinator", "Coordinator\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## World Context\n{{world_context}}"),
-      planner: PromptTemplate.fromString("planner", "Planner\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## Instruction\n{{instruction}}\n## World Context\n{{world_context}}"),
+      planner: await PromptTemplate.load(join(process.cwd(), "prompts/planner.md")),
       actioner: PromptTemplate.fromString("actioner", "Actioner {{task_context}}"),
       summary: PromptTemplate.fromString("summary", "Summary limit {{max_chars}}\n{{summary_input}}"),
       conversationSummary: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: {{summary}}"),
@@ -592,7 +607,7 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
     toolReplayMode, contextBudget,
     summaryFile: summary, respond: async (message) => { replies.push(message); },
   });
-  return { agent, llm, inspector, replies, actions, actionInstructions, summary, world, journal,
+  return { agent, llm, inspector, replies, actions, actionInstructions, actionTools, summary, world, journal,
     close: async () => { await agent.shutdown(); await rm(root, { recursive: true, force: true }); },
   };
 }

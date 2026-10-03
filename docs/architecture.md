@@ -27,6 +27,8 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `WorkflowState` conserve le plan, l'étape sélectionnée et le dernier rapport de chaque étape du plan courant.
 - `CoordinatorTools.ts` et `ToolCatalogBuilder.ts` définissent les catalogues propres à chaque rôle.
   Le coordinateur possède les outils de workflow et les lectures du monde, pas les capacités physiques.
+  Le bootstrap transmet aussi le catalogue de l'actionneur au planner comme documentation dans son system,
+  sans tools appelables. Les descriptions et schémas restent issus des mêmes registres.
 - `execution/ToolCallJournal.ts` est partagé par les deux agents. Il attribue les numéros d'appels
   et conserve les inventaires avant/après des capabilities et de `run_step`. La query
   `get_inventory_diff_after` consulte ces données sans dépendre de la conversation LLM.
@@ -65,7 +67,8 @@ une requête invalide ne retourne jamais un succès vide. Les erreurs de schéma
 
 Pour une évolution d'agent : conserver la frontière `ActionDelegation -> DelegatedActionReport`.
 Adapter les tests de protocole et le contexte envoyé, pas seulement les phrases du prompt.
-Les descriptions et schémas voyagent dans le champ `tools` du LLM, pas dans le World Context.
+Les descriptions et schémas des outils appelables voyagent dans le champ `tools` du LLM.
+Le planner en reçoit une référence textuelle dans son system. Le World Context reste réservé aux observations.
 
 Pour une carte debug : ajouter les données dans `InspectorTypes`, puis la présentation dans
 `InspectorPresentation.ts` et le rendu dans `src/debug/ui/`. La projection UI ne transforme pas

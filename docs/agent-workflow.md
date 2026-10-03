@@ -9,6 +9,11 @@ Il n'exécute aucune capability Minecraft lui-même.
 Le planner reçoit la conversation joueur/assistant restante, son résumé compacté, le monde actuel,
 la checklist et l'instruction du coordinateur. Il produit un seul JSON :
 `{"steps":[{"title":"...","successCriteria":"..."}]}`.
+Son system contient aussi le catalogue complet de l'actionneur (noms, descriptions et schémas d'arguments),
+injecté par `{{action_tools}}` depuis le même `ToolCatalogBuilder` que les tools réellement disponibles.
+Il s'en sert pour proposer des sous-objectifs réalisables et tenir compte des opérations déjà gérées
+par chaque tool. Les cibles et arguments d'exécution restent à l'actionneur. Le planner ne reçoit aucun
+tool appelable dans la requête API et ne possède pas de boucle d'exécution.
 Le code numérote les étapes à partir de 1. Un nouveau plan remplace l'ancien et invalide tous ses rapports.
 
 L'actionneur reçoit une étape avec son critère, l'objectif utilisateur, la checklist complète, le résumé

@@ -101,6 +101,15 @@ Après un crash du lanceur, vérifier que ses processus sont arrêtés avant de 
 Chaque campagne écrit `logs/scenarios/campaign_<date>_<id>/report.html`, consultable sans serveur.
 Le rapport est réécrit après chaque essai. Il n'impose aucun rafraîchissement pendant la lecture.
 Ouvrir/recharger le fichier pour voir les nouveaux résultats.
+L'inspecteur affiche une liste d'appels défilante, un panneau de détail et une chronologie défilante.
+Cliquer une carte ou une barre sélectionne le même appel et le surligne. Pour un LLM, le détail présente
+les messages exacts du prompt, les tools transmis et la réponse ; pour un tool, les arguments et le résultat.
+Les contenus JSON sont formatés pour la lecture et les données brutes restent accessibles. Les erreurs sont rouges.
+Le tableau et l'histogramme par outil comptent les appels démarrés de l'essai sélectionné, avec les échecs distingués.
+
+`Statistics.ts` conserve le corps de `llm.request` avec la réponse et les éventuelles erreurs.
+Un ancien rapport sans cette requête l'indique explicitement ; les traces originales permettent de le régénérer.
+Les sources UI sont dans `tests/e2e/report/`, incorporées par `Report.ts` dans un unique HTML autonome.
 
 - `campaign.json` : configuration effective, scénarios, révision Git et empreinte source ; clé API exclue.
 - `prompts/` : copie utilisée réellement par les workers, même si les prompts originaux sont édités ensuite.

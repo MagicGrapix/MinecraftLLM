@@ -48,7 +48,7 @@ export function summarizeTrace(events: readonly TraceEvent[]): Statistics {
       if (!d.ok) { stats.failedTools++; stats.tools[d.tool]!.failed++; }
     }
     if (event.event === "llm.request") {
-      const activity: Activity = { kind: "llm", agent: d.phase ?? "unknown", label: `LLM ${d.phase ?? ""}`, startMs: at, durationMs: null, status: "incomplete", details: { model: d.body?.model } };
+      const activity: Activity = { kind: "llm", agent: d.phase ?? "unknown", label: `LLM ${d.phase ?? ""}`, startMs: at, durationMs: null, status: "incomplete", details: { model: d.body?.model, request: d.body } };
       llm.set(key(d), activity);
       stats.activities.push(activity);
       stats.llmCalls++;

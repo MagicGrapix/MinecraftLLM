@@ -2,6 +2,8 @@
 
 Les descriptions anglaises sont envoyées au LLM dans son catalogue `tools`, avec le JSON Schema
 des arguments. Le World Context contient les observations, pas ces descriptions.
+Le planner reçoit le catalogue complet de l'actionneur en référence textuelle dans son prompt système,
+avec les mêmes descriptions et schémas, sans pouvoir appeler ces tools. Il n'y a pas de catalogue manuel séparé.
 
 Emplacements à modifier :
 

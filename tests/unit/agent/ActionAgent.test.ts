@@ -623,6 +623,7 @@ function workflowHarness(h: Awaited<ReturnType<typeof harness>>) {
   const replies: string[] = [];
   const agent = new WorkflowAgent({
     llm: h.llm, actionAgent: h.agent, world: h.world, landmarks: h.landmarks, journal: h.journal,
+    actionTools: h.toolBridge.catalog.build(),
     queries: createDefaultWorldQueryRegistry(h.world, h.journal), prompts: h.prompts, inspector: h.inspector,
     temperature: 0, maxTokens: 4096, maxRetries: 0,
     summaryFile: { path: "test-only", save: async () => undefined } as unknown as WorkflowSummaryFile,

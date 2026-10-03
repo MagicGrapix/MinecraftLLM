@@ -114,6 +114,7 @@ export async function createAgentRuntime(
   const agent = new WorkflowAgent({
     llm,
     actionAgent,
+    actionTools: bridge.catalog.build(),
     journal,
     queries,
     world,

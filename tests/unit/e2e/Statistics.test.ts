@@ -28,8 +28,9 @@ test("nested tools retain start order, failures and per-tool counts without dupl
 
 test("LLM attempts, token usage and post-response parsing errors are visible", () => {
   const metadata = { generationId: 1, phase: "coordinator", reflection: 1, round: 0, attempt: 0 };
+  const body = { model: "local-model", messages: [{ role: "system", content: "Exact prompt" }], tools: [{ type: "function", function: { name: "reply" } }] };
   const result = summarizeTrace([
-    event(100, "llm.request", metadata),
+    event(100, "llm.request", { ...metadata, body }),
     event(200, "llm.raw_response", { ...metadata, raw: { usage: { prompt_tokens: 50, completion_tokens: 12 } } }),
     event(205, "llm.validation_error", { ...metadata, message: "invalid response" }),
   ]);
@@ -37,6 +38,10 @@ test("LLM attempts, token usage and post-response parsing errors are visible", (
   assert.equal(result.activities[0]?.status, "failed");
   assert.equal(result.promptTokens, 50);
   assert.equal(result.completionTokens, 12);
+  const details = result.activities[0]!.details as { request: unknown; response: unknown; error: unknown };
+  assert.deepEqual(details.request, body);
+  assert.ok(details.response);
+  assert.ok(details.error);
 });
 
 test("standalone report preserves untrusted text as JSON and its UI script compiles", () => {

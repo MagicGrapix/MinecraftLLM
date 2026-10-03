@@ -21,10 +21,14 @@ npm.cmd run test:scenarios -- --scenario craft_table
 npm.cmd run test:scenarios -- --scenario collect_two_logs --timeout 300 --repeat 3
 npm.cmd run test:scenarios -- --scenario collect_four_logs --timeout 300
 npm.cmd run test:scenarios -- --scenario place_block_in_front
+npm.cmd run test:scenarios -- --scenario craft_wooden_pickaxe --repeat 5
+npm.cmd run test:scenarios -- --repeat 5
 npm.cmd run test:scenarios
 ```
 
-La dernière commande lance les quatre scénarios. Le reset modifie l'arène configurée du world builder
+La dernière commande lance les onze scénarios une fois chacun. `--repeat 5` les répète cinq fois chacun
+(55 essais pour la suite entière). Les répétitions d'un scénario sont consécutives, avec reset complet à chaque fois.
+Le reset modifie l'arène configurée du world builder
 (par défaut X/Z -48..48, Y -64..-30), y compris ses blocs souterrains et ses entités hors joueurs.
 Le profil restauré est bedrock -64, terre -63/-62, herbe -61, air au-dessus.
 Éviter les interventions manuelles et les autres bots actifs dans cette zone pendant une campagne.
@@ -48,6 +52,28 @@ Scénarios disponibles :
   initiale du bot. Il démarre face au sud (+Z), donc la cible est (0, surfaceY+1, 1), soit (0, -60, 1)
   par défaut. Le critère vérifie le passage air → `oak_planks` à cet endroit **et** la consommation
   d'un bloc d'inventaire. Tourner ou se déplacer ne déplace pas la cible ; jeter l'objet ne valide pas le test.
+- `craft_wooden_pickaxe` : table posée à (3, surfaceY+1, 0), trois planches et deux bâtons fournis ;
+  obtenir une pioche en bois et conserver la table en place. Isole le craft 3×3 de la récolte et de la pose de table.
+- `collect_dropped_logs` : quatre bûches au sol à (5.5, surfaceY+1, 0.5), sans arbre ; les ramasser.
+  Le loot de test ne disparaît pas avec le temps. Sa disparition seule ne suffit pas : il faut gagner quatre bûches.
+- `chest_withdraw` : coffre avec quatre bûches, inventaire vide ; retirer exactement deux bûches et fermer le coffre.
+- `chest_deposit` : coffre vide, quatre bûches en inventaire ; en déposer exactement deux et fermer le coffre.
+  Pour les deux tests, les variations des deux inventaires doivent être opposées et le coffre doit rester en place.
+- `navigate_around_wall` : mur de pierre de cinq blocs de large et trois de haut, centré en Z=3 ;
+  se tenir sur le marqueur cobblestone au sol en (0, surfaceY, 6), mur intact.
+- `navigate_with_scaffolding` : pilier de deux blocs en X=6/Z=0 avec sommet cobblestone, douze terres fournies ;
+  se tenir sur le sommet sans détruire le pilier. Vérifie aussi une nouvelle terre posée autour du pilier et une
+  consommation de terre. L'agent choisit ses actions ; le test ne force pas un tool ou un itinéraire particulier.
+- `eat_food` : un steak fourni, faim réduite pendant la préparation ; le consommer et augmenter la faim.
+  Aucun scénario de craft impossible/prérequis manquant n'est inclus.
+
+Les scénarios supplémentaires sont répartis dans `InteractionScenarios.ts` et `NavigationScenarios.ts`,
+réexportés par `scenarios.ts`. Les fixtures utilisent des positions fixes et s'adaptent à `surfaceY`.
+Les agents et leurs prompts ne sont pas modifiés par ces scénarios.
+
+Commencer par un scénario avec `--scenario ID`, puis ajouter `--repeat 5` pour comparer plusieurs essais.
+À 300 secondes par essai, 55 essais pourraient prendre 4 h 35 **hors préparation** s'ils atteignaient tous
+leur limite. La répétition par défaut reste donc 1. Aucun de ces lancements n'est automatique.
 
 Pour une série périodique, sans chevauchement :
 
@@ -58,8 +84,12 @@ npm.cmd run test:scenarios -- --campaigns 3 --interval 60
 Cela lance trois campagnes, espacées de 60 secondes **après la fin** de la précédente.
 Le programme doit rester ouvert. Ce n'est pas une tâche système ni un service en arrière-plan.
 Ctrl+C annule la campagne, ferme ses processus et conserve les résultats déjà écrits.
-Un problème de préparation, de connexion ou d'arrêt confirmé arrête la série ; un échec de critère
-ou un timeout dont le nettoyage est confirmé permet de poursuivre les essais.
+Un échec de critère, un timeout ou une erreur isolée (préparation, workflow, observation IPC)
+est enregistré, puis la campagne passe à l'essai suivant après nettoyage confirmé. Chaque essai
+garde son propre verdict ; une erreur ne masque pas les scénarios suivants.
+La campagne s'arrête seulement si le controller/serveur n'est plus utilisable, si la sortie du
+processus ou la déconnexion du joueur ne peut pas être confirmée, si les sources changent ou sur Ctrl+C.
+Ces arrêts restent bloquants : le prochain reset ne doit pas commencer sans isolation garantie.
 Le code de sortie est 0 si tous les essais réussissent, 1 sinon.
 
 ## Cycle et isolation
@@ -67,14 +97,19 @@ Le code de sortie est 0 si tous les essais réussissent, 1 sinon.
 1. Vérification OP du controller et des chunks de l'arène.
 2. Reset du terrain, bot de test déconnecté. Vérification de toutes les cellules de l'arène.
 3. Pose de la fixture, puis vérification des blocs attendus et du reste de l'arène.
+   Ensuite seulement, remplissage des coffres et apparition des drops, puis vérification de leur contenu.
 4. Nouveau processus Node du bot, nouveau contexte des agents et fichier de landmarks propre à l'essai.
 5. Inventaire vidé et alimenté, effets retirés, santé/faim restaurées, XP remis à zéro, mode survival,
    position (0.5, surfaceY+1, 0.5), orientation sud, slot de barre rapide 0. Temps réglé au jour, météo claire.
 6. Vérification de l'inventaire, santé, faim, effets, position, orientation, sol et absence d'action physique.
+   `eat_food` termine la préparation entre 6 et 16 points de faim, sans effet actif ; les autres restent à 20.
 7. Activation du chat, demande du controller, confirmation structurée de prise en charge, chronométrage.
 8. Observations toutes les 200 ms. Fin du workflow + exécuteur libre + critère satisfait = réussite.
 9. `stop` dans le chat, arrêt du workflow, attente de libération du verrou physique, fermeture du processus
    et confirmation de départ du joueur par le controller avant le prochain reset.
+
+`TrialCleanup.ts` applique cette barrière de nettoyage indépendamment du verdict du test.
+Elle confirme également l'absence du joueur après une erreur de préparation sans processus enfant.
 
 Le controller est créé avec `physicsEnabled: false` et placé en spectateur au-dessus de l'arène.
 Il n'applique pas de gravité locale pendant que le reset supprime le sol. Le bot agent garde sa physique normale.
@@ -99,10 +134,23 @@ Le bot de test accepte le chat normalement. Le worker détecte une demande accep
 ou différente de la demande attendue comme une contamination. Il n'ajoute aucun contrôle de propriétaire
 au bot normal. Une intervention physique d'un joueur n'est pas automatiquement détectée.
 
+Le profil `hungry` applique `hunger` pendant quatre secondes (amplificateur 255), après la restauration
+habituelle de santé/saturation. Le lanceur attend l'expiration de l'effet et vérifie la faim effectivement
+observée avant de transmettre la demande. Il ne modifie pas la difficulté du serveur ; le mode peaceful
+est refusé explicitement pour ce scénario. Le serveur actuel est configuré en normal.
+
 L'IPC du worker transporte uniquement readiness, événements de workflow, observations et fermeture.
 Un snapshot peut demander une liste de cellules fixes (64 maximum), lues avec `blockAt` dans les chunks
 reçus du serveur. Une cellule indisponible vaut `null`, pas `air` ; la préparation attend leur disponibilité.
 Les mêmes positions sont relues pendant l'essai et conservées dans `blocks` des observations.
+Pour les coffres, `BlockNbtReader` utilise les paquets `query_block_nbt` / `nbt_query_response` du controller OP,
+appariés par numéro de transaction, avec timeout et nettoyage des listeners. Aucune fenêtre n'est ouverte
+pour cette lecture et aucune commande chat n'est envoyée à chaque poll. Un coffre manquant ou des données
+illisibles donnent un inventaire `null`, jamais vide ; un timeout de lecture est une erreur d'infrastructure.
+La lecture NBT cible Java 1.21.11 et utilise les stacks `id` / `count` du
+[format moderne documenté par Mojang](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5).
+`EnvironmentObservations` ajoute `containers` / `drops` aux snapshots côté lanceur ; le worker fournit aussi
+`windowOpen`. Les drops sont observés depuis les entités et leurs métadonnées reçues par le controller.
 Cette instrumentation de test ne donne aucun outil, coordonnée cible ou critère supplémentaire aux agents.
 Les objectifs viennent du controller via Minecraft, jamais d'une commande IPC d'action.
 La déconnexion seule n'efface pas les données joueur côté serveur ; le reset du joueur est donc obligatoire.
@@ -133,8 +181,8 @@ Les sources UI sont dans `tests/e2e/report/`, incorporées par `Report.ts` dans 
 - `prompts/` : copie utilisée réellement par les workers, même si les prompts originaux sont édités ensuite.
 - `skills/`, `source/`, `working-tree.patch` : copie de référence du code, des skills et changements locaux.
 - `results.json` : essais et statistiques cumulés, consommables ultérieurement par une autre UI.
-- `<essai>/scenario.json` : demande, délai et inventaire initial.
-- `<essai>/events.jsonl` : événements du lanceur et observations de l'inventaire/état/cellules suivies.
+- `<essai>/scenario.json` : demande, délai, inventaire initial, profil de faim, coffres et drops prévus.
+- `<essai>/events.jsonl` : événements du lanceur et observations de l'inventaire/état/cellules/coffres/drops suivis.
 - `<essai>/trace_<session>.jsonl` : requêtes LLM, réponses brutes et appels de tools de production.
 - `<essai>/result.json` : verdict, critère, observations initiale/finale, temps et statistiques.
 - `<essai>/process.log`, `log_<session>.log`, `agent_summary_<session>.md` : sorties et checklist.
@@ -149,6 +197,8 @@ Statuts : `passed`, `failed` (workflow terminé mais critère faux), `timeout`, 
 workflow en erreur, observation perdue ou infrastructure). Un « success » du modèle ne valide rien seul.
 Les critères de craft/récolte mesurent des gains d'inventaire depuis l'état initial, pas seulement une présence.
 Le placement compare aussi la cellule cible observée au début et à la fin, sans faire confiance au rapport du modèle.
+Les tests de navigation vérifient la position finale et les blocs suivis, pas chaque mouvement intermédiaire
+ni chaque cellule du monde. Une nouvelle terre posée et consommée est requise pour le scénario de scaffolding.
 Un objectif atteint sans workflow terminé avant le délai reste un timeout, avec `goalReachedAtMs` renseigné.
 Le temps de setup est séparé du temps de demande. Les observations et IPC ont une granularité de quelques
 centaines de millisecondes ; un état observé après le délai ne transforme pas un timeout en réussite.
@@ -176,3 +226,6 @@ fixture bornée facultative, liste de blocs attendus et `verify(initial, current
 `expectedBlocks` décrit la fixture à vérifier avant l'essai ; `observeBlocks(config)` sélectionne,
 si nécessaire, les cellules à suivre pendant l'essai. Les critères restent de petites fonctions
 déterministes, basées sur l'inventaire, l'état du bot et ces observations explicites de blocs.
+`containers(config)` décrit des coffres déjà présents dans la fixture et les items à y mettre ;
+`drops(config)` décrit les piles au sol (position, item, count). Leur préparation et observation restent
+exclusivement dans la couche de test/controller. `hungry: true` sélectionne le profil de faim décrit ci-dessus.

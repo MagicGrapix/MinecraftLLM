@@ -6,6 +6,8 @@ interface TrialOptions {
   scenario: Scenario;
   agent: TrialAgent;
   initial: Observation;
+  /** Adds controller-only observations when needed; never executes agent actions. */
+  snapshot?: () => Promise<Observation>;
   timeoutMs: number;
   acceptanceTimeoutMs: number;
   pollMs: number;
@@ -22,6 +24,7 @@ export async function runTrial(options: TrialOptions): Promise<TrialResult> {
   const { scenario, agent, initial, timeoutMs, signal } = options;
   // Keep the same targets even if the bot turns or moves during the request.
   const positions = initial.blocks.map((block) => block.position);
+  const snapshot = options.snapshot ?? (() => agent.snapshot(positions));
   const now = options.now ?? (() => performance.now());
   const wait = options.wait ?? ((ms) => delay(ms, undefined, { signal }));
   const result: TrialResult = {
@@ -49,7 +52,7 @@ export async function runTrial(options: TrialOptions): Promise<TrialResult> {
       let timer: NodeJS.Timeout | undefined;
       let observation: Observation | null;
       try {
-        observation = await Promise.race([agent.snapshot(positions), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), remaining); })]);
+        observation = await Promise.race([snapshot(), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), remaining); })]);
       } finally { clearTimeout(timer); }
       if (observation === null) { result.durationMs = now() - start; result.status = "timeout"; break; }
       result.final = observation;

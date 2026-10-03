@@ -13,6 +13,7 @@ import type { ReportTrial } from "./Report";
 import { scenarios } from "./scenarios";
 import { TestWorld } from "./TestWorld";
 import { runTrial } from "./TrialRunner";
+import { cleanupTrial } from "./TrialCleanup";
 import type { Scenario, TrialResult } from "./types";
 
 async function campaign(options: CampaignOptions, selected: readonly Scenario[], signal: AbortSignal): Promise<{ passed: boolean; fatal: boolean }> {
@@ -46,54 +47,46 @@ async function campaign(options: CampaignOptions, selected: readonly Scenario[],
         let result: TrialResult = { scenario: scenario.id, status: "error", timeoutMs, startedAt: new Date().toISOString(), durationMs: 0, goalReachedAtMs: null };
         const setupStarted = performance.now();
         console.info(`[${index}] ${scenario.id}, repeat ${repetition}/${options.repetitions}, limit ${timeoutMs / 1_000}s`);
-        await jsonFile(join(trialDirectory, "scenario.json"), { id: scenario.id, prompt: scenario.prompt, timeoutMs, initialInventory: scenario.initialInventory });
+        await jsonFile(join(trialDirectory, "scenario.json"), { id: scenario.id, prompt: scenario.prompt, timeoutMs, initialInventory: scenario.initialInventory,
+          hungry: scenario.hungry ?? false, containers: scenario.containers?.(config) ?? [], drops: scenario.drops?.(config) ?? [] });
         try {
           await world.prepareTerrain(scenario, signal);
           signal.throwIfAborted();
           bot = new AgentProcess(config, trialDirectory, prompts, trace);
           await bot.waitReady(scenarioConfig.startupTimeoutMs, signal);
           const positions = scenario.observeBlocks?.(config) ?? [];
-          const initial = await world.preparePlayer(scenario, () => bot!.snapshot(positions), signal);
+          const snapshot = async () => ({ ...await bot!.snapshot(positions), ...await world.observeEnvironment(scenario) });
+          const initial = await world.preparePlayer(scenario, snapshot, signal);
           const setupMs = performance.now() - setupStarted;
           result = await runTrial({
-            scenario, agent: bot, initial, timeoutMs,
+            scenario, agent: bot, initial, timeoutMs, snapshot,
             acceptanceTimeoutMs: scenarioConfig.acceptanceTimeoutMs, pollMs: scenarioConfig.pollMs,
             sendChat: (text) => world.chat(text), record: trace, signal,
             inArena: (position) => { world.assertHealthy(); return world.inArena(position); },
           });
           result.setupMs = setupMs;
-          if (result.status === "error") healthy = false;
           if (await sourceFingerprint() !== fingerprint) { result.status = "error"; result.error = "Source or skills changed during the trial."; healthy = false; }
         } catch (error) {
           result.status = "error";
           result.error = message(error);
           result.setupMs ??= performance.now() - setupStarted;
-          healthy = false;
         } finally {
-          if (bot) {
-            try {
-              // Chat is the same stop entry point as manual use. IPC then confirms settlement/exit.
-              if (!bot.failure) await world.chat("stop").catch((error) => trace("stop.chat_error", { error: message(error) }));
-              result.forcedShutdown = await bot.close(scenarioConfig.stopGraceMs);
-              if (result.forcedShutdown && result.status !== "timeout") {
-                result.status = "error"; result.error ??= "Physical shutdown required terminating the test process.";
-              }
-              await world.waitDisconnected();
-            } catch (error) {
-              result.status = "error"; result.error = `Cleanup could not be confirmed: ${message(error)}`; healthy = false;
-            }
-            bot = null;
+          try {
+            await cleanupTrial(world, bot, result, trace);
+          } catch (error) {
+            result.status = "error"; result.error = `Cleanup could not be confirmed: ${message(error)}`; healthy = false;
           }
+          bot = null;
           trace("trial.saved", result);
           results.push(await finishTrial(directory, trialDirectory, result));
           await writeCampaignReport(directory, results);
-          console.info(`  ${result.status}: ${(result.durationMs / 1_000).toFixed(2)}s — ${result.criterion?.actual ?? result.error ?? "No observation"}`);
+          console.info(`  ${result.status}: ${(result.durationMs / 1_000).toFixed(2)}s — ${result.error ?? result.criterion?.actual ?? "No observation"}`);
         }
         if (!healthy || signal.aborted) { campaignError = result.error ?? "Campaign cancelled."; return { passed: false, fatal: true }; }
       }
     }
     // End with the empty baseline as well; archived observations retain the last experiment.
-    await world.prepareTerrain({ ...selected[0]!, fixture: undefined, expectedBlocks: undefined }, signal);
+    await world.prepareTerrain({ ...selected[0]!, fixture: undefined, expectedBlocks: undefined, containers: undefined, drops: undefined }, signal);
     return { passed: results.every((trial) => trial.result.status === "passed"), fatal: false };
   } catch (error) {
     campaignError = message(error);

@@ -51,6 +51,8 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   Il ne passe jamais par les tools de l'agent.
 - `tests/e2e/` orchestre les campagnes Minecraft : controller réutilisé, bot enfant neuf par essai,
   consignes dans le chat, observations IPC, critères déterministes et rapport HTML persistant.
+  Les observations de coffres/drops sont ajoutées par le controller ; les lectures NBT OP sont isolées dans
+  `tests/e2e/BlockNbtReader.ts` et ne donnent aucun pouvoir supplémentaire au bot testé.
   Voir [scénarios de test](scenario-testing.md). Les campagnes sont lancées explicitement, hors `npm test`.
 
 ## Ajouter ou changer un composant

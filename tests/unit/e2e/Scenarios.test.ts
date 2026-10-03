@@ -109,7 +109,8 @@ test("placement requires an initially empty front cell, an actual placed block a
 });
 
 test("all scenarios have unique ids and one bounded plain chat request", () => {
-  assert.equal(new Set(scenarios.map((s) => s.id)).size, 4);
+  assert.equal(scenarios.length, 11);
+  assert.equal(new Set(scenarios.map((s) => s.id)).size, scenarios.length);
   for (const scenario of scenarios) {
     assert.ok(scenario.prompt.trim().length > 0 && scenario.prompt.length <= 220);
     assert.doesNotMatch(scenario.prompt, /^[\/]|[\r\n\u0000]/);

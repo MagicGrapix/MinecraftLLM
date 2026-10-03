@@ -8,12 +8,16 @@ import { containsPosition, createArenaBounds } from "../../src/devworld/ArenaBou
 import { bounded, until, message } from "./async";
 import { firstTerrainMismatch, formatTerrainMismatch, type ExpectedBlock, type TerrainMismatch } from "./TerrainVerification";
 import type { Observation, Scenario } from "./types";
+import { Vec3 } from "vec3";
+import { BlockNbtReader, chestInventory } from "./BlockNbtReader";
+import { environmentPlan, environmentReady, observeDrops } from "./EnvironmentObservations";
 
 export class TestWorld {
   private readonly runtime: WorldControllerRuntime;
   private transport: MineflayerCommandTransport | null = null;
   private executor: CommandExecutor | null = null;
   private failure: string | null = null;
+  private nbt: BlockNbtReader | null = null;
   constructor(readonly config: WorldBuilderConfig, private readonly record: (event: string, data: unknown) => void) {
     this.runtime = new WorldControllerRuntime(config);
   }
@@ -24,6 +28,7 @@ export class TestWorld {
     this.runtime.bot.on("death", () => { this.failure ??= "World controller died; terrain observations are no longer reliable."; });
     this.transport = new MineflayerCommandTransport(this.runtime.bot, this.config.commandResponseWindowMs);
     await this.runtime.initialize(this.transport);
+    this.nbt = new BlockNbtReader(this.runtime.bot._client);
     this.executor = new CommandExecutor({ ...this.config, transport: this.transport });
     if (this.runtime.bot.players[this.config.agentUsername]) throw new Error(`Player ${this.config.agentUsername} is already online. Stop that test bot first.`);
   }
@@ -36,9 +41,41 @@ export class TestWorld {
     await this.verifyTerrain([], "Superflat reset verification", signal);
     if (scenario.fixture) await this.execute(scenario.fixture(this.config), signal);
     await this.verifyTerrain(scenario.expectedBlocks?.(this.config) ?? [], "Scenario fixture verification", signal);
+    // Entity fixtures are added only after the strict entity-free terrain check.
+    const containers = scenario.containers?.(this.config) ?? [];
+    const drops = scenario.drops?.(this.config) ?? [];
+    const extras = environmentPlan(this.config, containers, drops);
+    if (extras) await this.execute(extras, signal);
+    if (containers.length || drops.length) {
+      let observed: Pick<Observation, "containers" | "drops"> = {};
+      await until(async () => {
+        observed = await this.observeEnvironment(scenario);
+        return environmentReady(observed, containers, drops);
+      }, 10_000, "Scenario chest/drop verification", signal, () => `Last observed: ${JSON.stringify(observed)}`);
+    }
+  }
+
+  async observeEnvironment(scenario: Scenario): Promise<Pick<Observation, "containers" | "drops">> {
+    this.assertHealthy();
+    const result: Pick<Observation, "containers" | "drops"> = {};
+    if (scenario.containers) {
+      if (!this.nbt) throw new Error("Controller NBT observer is not ready.");
+      const containers = [];
+      for (const { position } of scenario.containers(this.config)) {
+        const block = this.runtime.bot.blockAt(new Vec3(position.x, position.y, position.z));
+        const inventory = block?.name === "chest" ? chestInventory(await this.nbt.read(position)) : null;
+        containers.push({ position, inventory });
+      }
+      result.containers = containers;
+    }
+    if (scenario.drops) result.drops = observeDrops(this.runtime.bot, this.config);
+    return result;
   }
 
   async preparePlayer(scenario: Scenario, snapshot: () => Promise<Observation>, signal?: AbortSignal): Promise<Observation> {
+    if (scenario.hungry && this.runtime.bot.game.difficulty === "peaceful") {
+      throw new Error("eat_food requires easy, normal or hard difficulty; the test does not change server difficulty.");
+    }
     const username = this.config.agentUsername;
     await until(() => !!this.runtime.bot.players[username], 10_000, "Player visible to controller", signal);
     const y = this.config.surfaceY + 1;
@@ -55,6 +92,8 @@ export class TestWorld {
         return `give ${username} minecraft:${item} ${count}`;
       }),
       `effect clear ${username}`,
+      // Four seconds drain saturation and some food; wait for expiry before arming.
+      ...(scenario.hungry ? [`effect give ${username} minecraft:hunger 4 255 true`] : []),
     ];
     await this.execute(new WorldPlanFactory(this.config).create("Prepare test player", commands.map((text) => ({
       text, estimatedBlocksChanged: 0, affectedBounds: createArenaBounds(p, p),
@@ -62,8 +101,12 @@ export class TestWorld {
     let observed: Observation | undefined;
     await until(async () => {
       observed = await snapshot();
-      return playerReady(observed, scenario, y);
-    }, 10_000, "Initial player state verification", signal);
+      return playerReady(observed, scenario, y)
+        && environmentReady(observed, scenario.containers?.(this.config) ?? [], scenario.drops?.(this.config) ?? []);
+    }, 10_000, "Initial player state verification", signal, () => JSON.stringify({
+      food: observed?.food, effects: observed?.effects, health: observed?.health, inventory: observed?.inventory,
+      position: observed?.position, containers: observed?.containers, drops: observed?.drops,
+    }));
     return observed!;
   }
 
@@ -123,9 +166,11 @@ export class TestWorld {
 export function playerReady(observed: Observation, scenario: Scenario, y: number): boolean {
   const actual = Object.entries(observed.inventory).filter(([, n]) => n > 0).sort();
   const expected = Object.entries(scenario.initialInventory).sort();
-  return JSON.stringify(actual) === JSON.stringify(expected) && observed.physicalIdle && observed.mode === "idle"
+  return JSON.stringify(actual) === JSON.stringify(expected) && observed.physicalIdle && observed.mode === "idle" && !observed.windowOpen
     && observed.blocks.every((block) => block.name !== null)
-    && observed.health === 20 && observed.food === 20 && observed.effects === 0 && observed.onGround
+    && (observed.containers ?? []).every((container) => container.inventory !== null)
+    && observed.health === 20 && (scenario.hungry ? observed.food >= 6 && observed.food <= 16 : observed.food === 20)
+    && observed.effects === 0 && observed.onGround
     && Math.abs(observed.position.x - 0.5) < 0.05 && Math.abs(observed.position.y - y) < 0.05 && Math.abs(observed.position.z - 0.5) < 0.05
     && Math.abs(observed.pitch) < 0.01 && Math.abs(Math.abs(observed.yaw) - Math.PI) < 0.01;
 }

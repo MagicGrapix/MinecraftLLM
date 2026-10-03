@@ -42,6 +42,7 @@ function snapshot(positions: readonly Position[] = []): Observation {
     yaw: bot.entity.yaw, pitch: bot.entity.pitch, health: bot.health, food: bot.food,
     effects: Object.keys(bot.entity.effects).length, onGround: bot.entity.onGround,
     physicalIdle: agentRuntime.isPhysicallyIdle(), mode: state.mode,
+    windowOpen: !!bot.currentWindow,
     planSteps: agentRuntime.agent.task.steps.length,
     completedSteps: agentRuntime.agent.task.steps.filter((step) => step.status === "done").length,
   };

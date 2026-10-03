@@ -3,11 +3,17 @@ import type { WorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
 import type { WorldPlan } from "../../src/devworld/WorldPlan";
 
 export interface BlockObservation { position: Position; name: string | null }
+export interface ContainerObservation { position: Position; inventory: Record<string, number> | null }
+export interface DropObservation { position: Position; item: string | null; count: number | null }
+export interface ContainerFixture { position: Position; items: Readonly<Record<string, number>> }
+export interface DropFixture { position: Position; item: string; count: number }
 
 export interface Observation {
   inventory: Record<string, number>;
   /** Only cells requested by the scenario. null means unavailable, never air. */
   blocks: readonly BlockObservation[];
+  containers?: readonly ContainerObservation[];
+  drops?: readonly DropObservation[];
   position: Position;
   yaw: number;
   pitch: number;
@@ -16,6 +22,7 @@ export interface Observation {
   effects: number;
   onGround: boolean;
   physicalIdle: boolean;
+  windowOpen: boolean;
   mode: string;
   planSteps: number;
   completedSteps: number;
@@ -27,10 +34,14 @@ export interface Scenario {
   prompt: string;
   timeoutMs?: number;
   initialInventory: Readonly<Record<string, number>>;
+  /** Controlled Hunger effect during setup; no active effect when the request starts. */
+  hungry?: boolean;
   fixture?: (config: WorldBuilderConfig) => WorldPlan;
   expectedBlocks?: (config: WorldBuilderConfig) => readonly { position: Position; name: string }[];
   /** Fixed cells to observe during setup and execution; never injected into LLM context. */
   observeBlocks?: (config: WorldBuilderConfig) => readonly Position[];
+  containers?: (config: WorldBuilderConfig) => readonly ContainerFixture[];
+  drops?: (config: WorldBuilderConfig) => readonly DropFixture[];
   verify(initial: Observation, current: Observation): Criterion;
 }
 

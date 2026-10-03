@@ -105,3 +105,16 @@ test("placement observations follow the initial fixed cell through trial snapsho
   assert.equal(result.goalReachedAtMs, 50);
   assert.deepEqual(result.final?.blocks, [{ position: positions[0], name: "oak_planks" }]);
 });
+
+test("trial evaluates enriched controller observations and preserves them in the result", async () => {
+  const s = scenarios.find((s) => s.id === "chest_deposit")!;
+  const position = { x: 3, y: -60, z: 0 };
+  const before = observation({ inventory: { oak_log: 4 }, blocks: [{ position, name: "chest" }], containers: [{ position, inventory: {} }] });
+  const after = { ...before, inventory: { oak_log: 2 }, containers: [{ position, inventory: { oak_log: 2 } }] };
+  const agent: TrialAgent = { acceptedAt: 0, finished: { at: 0 }, failure: null,
+    arm: async () => undefined, snapshot: async () => assert.fail("Must use the controller-enriched snapshot") };
+  const result = await runTrial({ scenario: s, agent, initial: before, timeoutMs: 100, acceptanceTimeoutMs: 50, pollMs: 10,
+    snapshot: async () => after, sendChat: async () => undefined, record: () => undefined, now: () => 0, inArena: () => true });
+  assert.equal(result.status, "passed");
+  assert.deepEqual(result.final?.containers, after.containers);
+});

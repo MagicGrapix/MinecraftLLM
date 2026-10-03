@@ -34,6 +34,8 @@ export interface RunningAgentRuntime {
   readonly agent: WorkflowAgent;
   readonly chat: MinecraftChatAdapter;
   readonly inspector: AgentInspector | null;
+  isPhysicallyIdle(): boolean;
+  waitForPhysicalIdle(timeoutMs: number): Promise<void>;
   shutdown(reason?: string): Promise<void>;
 }
 
@@ -108,7 +110,7 @@ export async function createAgentRuntime(
       await refreshLandmarksFromTask(outcome, runtime.bot.game.dimension, landmarks);
     },
   });
-  const summaryFile = new WorkflowSummaryFile(SESSION_ID);
+  const summaryFile = new WorkflowSummaryFile(SESSION_ID, resolve(process.cwd(), process.env.LOG_DIR ?? "logs"));
   const agent = new WorkflowAgent({
     llm,
     actionAgent,
@@ -172,6 +174,8 @@ export async function createAgentRuntime(
     agent,
     chat,
     inspector,
+    isPhysicallyIdle: () => executor.currentTask === null,
+    waitForPhysicalIdle: (timeoutMs) => executor.waitForIdle(timeoutMs),
     shutdown(reason = "Agent runtime stopped."): Promise<void> {
       if (shutdownPromise) return shutdownPromise;
       shutdownPromise = (async () => {

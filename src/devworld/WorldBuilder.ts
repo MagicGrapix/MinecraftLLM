@@ -74,6 +74,11 @@ export class WorldBuilder {
     );
   }
 
+  resetTerrain(): WorldPlan {
+    return this.plans.create("Reset superflat terrain (agent may be offline)",
+      this.resetGenerator.generateTerrainReset());
+  }
+
   clear(): WorldPlan {
     return this.plans.create(
       "Clear entities and blocks above the arena surface",

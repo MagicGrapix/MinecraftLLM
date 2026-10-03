@@ -3,6 +3,7 @@ import type { CoordinatorTools } from "./CoordinatorTools";
 import { withValidationFeedback } from "./MessageHistory";
 import { ModelResponseError, isModelResponseError } from "./ModelResponseError";
 import type { StructuredRoleOptions } from "./StructuredRoleCall";
+import { writeTrace } from "../TraceLog";
 
 export async function callCoordinator(input: {
   options: StructuredRoleOptions;
@@ -40,6 +41,10 @@ export async function callCoordinator(input: {
       return { trace, call, parsed, message: response.message };
     } catch (error: unknown) {
       const issue = error instanceof Error ? error.message : String(error);
+      if (isModelResponseError(error)) {
+        const { contextSnapshot: _context, ...metadata } = trace;
+        writeTrace("llm.validation_error", { ...metadata, message: issue });
+      }
       input.options.inspector?.annotate(trace, { validationError: issue });
       input.options.inspector?.finalizeRound(trace, input.signal.aborted ? "aborted" : isModelResponseError(error) ? "invalid_response" : "error");
       if (input.signal.aborted || !isModelResponseError(error)) throw error;

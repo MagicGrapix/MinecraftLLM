@@ -27,6 +27,9 @@ Un snapshot `null` signifie indisponible, pas vide. Les fichiers existants sont 
 Les réponses tronquées ou invalides sont conservées, même quand le parsing échoue.
 
 La trace complète est activée par défaut ; `LOG_FULL_TRACE=false` la désactive.
+Les événements `workflow.accepted` et `workflow.finished` rendent visible le cycle d'une demande.
+`llm.validation_error` conserve les erreurs de format des réponses, même sans inspecteur actif.
+`tool.started`/`tool.completed` incluent aussi le rôle, les arguments et le résultat de l'appel.
 Elle peut devenir volumineuse et contient les messages du joueur ainsi que les observations du monde :
 ne pas la publier sans la relire. La clé API du client n'est pas ajoutée aux requêtes enregistrées.
 La rétention UI (30 calls par défaut) ne supprime pas ces fichiers.
@@ -45,3 +48,7 @@ L'UI ne recharge pas encore les anciennes sessions JSONL et il n'y a pas de rota
 
 Les métriques natives de tokens retournées par le fournisseur restent visibles.
 Le monitoring GPU, la vitesse token/s et le temps de préremplissage ne font pas partie de cette version.
+
+Les [campagnes de scénarios](scenario-testing.md) produisent un rapport HTML hors ligne avec sélection
+d'essai, timeline, comptes par tool et comparaison objectif atteint/fin effective du workflow.
+Leurs traces sont isolées dans `logs/scenarios/` ; elles n'effacent pas les logs du bot habituel.

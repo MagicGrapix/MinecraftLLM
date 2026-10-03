@@ -2,7 +2,7 @@ import type { ExecutionContext } from "../capabilities/Capability";
 import type { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../config";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
-import { errorMessage, runWithCancellation } from "../shared/helper";
+import { errorMessage, runWithCancellation, sleep } from "../shared/helper";
 import type { WorldQueries } from "../world/WorldQueries";
 import type { Task } from "./Task";
 import { failure, type TaskResult } from "./TaskResult";
@@ -48,6 +48,16 @@ export class Executor {
 
   get currentTask(): Task | null {
     return this.currentExecution?.task ?? null;
+  }
+
+  /** Cancellation may return before Mineflayer settles. Call after stopping producers. */
+  async waitForIdle(timeoutMs: number): Promise<void> {
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new Error("Invalid idle timeout.");
+    const deadline = performance.now() + timeoutMs;
+    while (this.currentExecution) {
+      if (performance.now() >= deadline) throw new Error("Physical action did not settle before the idle deadline.");
+      await sleep(Math.min(20, Math.max(1, deadline - performance.now())));
+    }
   }
 
   abortCurrent(reason = "Task interrupted."): boolean {

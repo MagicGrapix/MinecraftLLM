@@ -34,6 +34,24 @@ const emptyWorld: WorldQueries = {
 const fakeRuntime = {} as MinecraftRuntime;
 const taskFactory = new TaskFactory();
 
+test("waitForIdle observes the physical lock after cancellation returns", async () => {
+  let release!: () => void;
+  const operation = new Promise<void>((resolve) => { release = resolve; });
+  const capability: Capability<Record<string, never>, {}> = {
+    name: "settling", inputSchema: z.object({}).strict(),
+    execute: async () => { await operation; return success({}); },
+  };
+  const registry = new CapabilityRegistry(); registry.register(capability);
+  const executor = new Executor({ registry, runtime: fakeRuntime, world: emptyWorld, cancellationGraceMs: 0 });
+  const running = executor.execute(taskFactory.create({ capability: "settling", input: {} }));
+  executor.abortCurrent();
+  await running;
+  await assert.rejects(executor.waitForIdle(0), /did not settle/);
+  release();
+  await executor.waitForIdle(100);
+  assert.equal(executor.currentTask, null);
+});
+
 test("execute returns a successful TaskResult and releases currentTask", async () => {
   const capability: Capability<Record<string, never>, { done: true }> = {
     name: "success",

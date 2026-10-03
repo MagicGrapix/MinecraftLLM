@@ -55,6 +55,8 @@ et de ses opérations enregistrées. Toute nouvelle action est refusée avec BLO
 Il n'y a pas de relance automatique d'action physique. Si l'opération ne se termine jamais, le verrou
 ne se libère pas artificiellement : inspecter le log et reconnecter le processus du bot.
 Un résultat d'annulation ne garantit pas l'absence de changements déjà appliqués.
+`Executor.waitForIdle(timeoutMs)` attend explicitement la libération du verrou physique après arrêt
+des producteurs de tâches. Le runtime expose cette attente pour le lanceur de scénarios.
 
 ## Contrôleur de monde
 
@@ -74,3 +76,7 @@ La console annonce « Plan sent » : absence d'erreur observée ne signifie pas 
 de toutes les modifications. Un retour tardif peut échapper à la fenêtre ; ce n'est pas un protocole d'ACK.
 Les changements déjà effectués ne sont pas annulés si une commande ultérieure échoue.
 Le contrôleur est OP ; le bot principal reste sans privilèges administratifs.
+
+Le reset de terrain peut être construit séparément du reset du joueur pour un bot hors ligne.
+Le lanceur de [scénarios](scenario-testing.md) vérifie l'état initial observé avant d'envoyer la demande ;
+il applique ses critères déterministes séparément de la validation sémantique du coordinateur.

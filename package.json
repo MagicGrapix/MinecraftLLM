@@ -15,6 +15,7 @@
     "start": "node dist/main.js",
     "test": "npm run build && npm run typecheck:tests && npm run typecheck:scripts && npm run test:unit",
     "test:unit": "node scripts/run-tests.cjs tests/unit",
+    "test:scenarios": "ts-node tests/e2e/main.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json"

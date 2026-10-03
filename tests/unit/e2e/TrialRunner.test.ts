@@ -1,0 +1,80 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { runTrial } from "../../e2e/TrialRunner";
+import { scenarios } from "../../e2e/scenarios";
+import type { TrialAgent } from "../../e2e/types";
+import { observation } from "../../support/ScenarioObservations";
+
+function harness() {
+  let time = 0;
+  let state = observation({ mode: "thinking" });
+  const events: string[] = [];
+  const agent: TrialAgent = {
+    acceptedAt: null, finished: null, failure: null,
+    arm: async () => { events.push("armed"); },
+    snapshot: async () => state,
+  };
+  return {
+    agent, events,
+    setState: (next: typeof state) => { state = next; },
+    advance: (ms: number) => { time += ms; },
+    run: (step: (ms: number) => void = () => undefined, accept = true, signal?: AbortSignal) => runTrial({
+      scenario: scenarios[1]!, agent, initial: observation(), timeoutMs: 500, acceptanceTimeoutMs: 200, pollMs: 50,
+      now: () => time, wait: async (ms) => { time += ms; step(time); },
+      sendChat: async () => { events.push("chat"); if (accept) agent.acceptedAt = time; },
+      record: (name) => events.push(name), inArena: () => true, signal,
+    }),
+  };
+}
+
+test("trial waits for chat acceptance and both physical success and agent completion", async () => {
+  const h = harness();
+  const result = await h.run((time) => {
+    if (time >= 50) h.setState(observation({ inventory: { oak_log: 2 }, mode: "thinking" }));
+    if (time >= 150) h.agent.finished = { at: time };
+  });
+  assert.equal(result.status, "passed");
+  assert.equal(result.goalReachedAtMs, 50);
+  assert.equal(result.durationMs, 150);
+  assert.deepEqual(h.events.slice(0, 3), ["armed", "chat", "trial.accepted"]);
+});
+
+test("collecting resources but looping is a timeout, not a pass", async () => {
+  const h = harness();
+  h.setState(observation({ inventory: { oak_log: 2 }, mode: "thinking" }));
+  const result = await h.run();
+  assert.equal(result.status, "timeout");
+  assert.equal(result.criterion?.passed, true);
+  assert.equal(result.goalReachedAtMs, 0);
+});
+
+test("a claim of completion without inventory gain fails", async () => {
+  const h = harness(); h.agent.finished = { at: 0 };
+  const result = await h.run();
+  assert.equal(result.status, "failed");
+  assert.equal(result.goalReachedAtMs, null);
+});
+
+test("a finished workflow cannot pass while physical work is still settling", async () => {
+  const h = harness(); h.agent.finished = { at: 0 };
+  h.setState(observation({ inventory: { oak_log: 2 }, physicalIdle: false }));
+  assert.equal((await h.run()).status, "timeout");
+});
+
+test("missing acceptance, worker failure and cancellation are explicit errors", async () => {
+  const h = harness();
+  assert.match((await h.run(undefined, false)).error!, /not accepted/);
+  const failed = harness(); failed.agent.failure = "connection lost";
+  assert.match((await failed.run()).error!, /connection lost/);
+  const cancelled = harness(); const abort = new AbortController(); abort.abort("cancelled");
+  assert.equal((await cancelled.run(undefined, true, abort.signal)).status, "error");
+  assert.equal(cancelled.events.includes("chat"), false);
+});
+
+test("a late completion cannot convert a deadline into a pass", async () => {
+  const h = harness();
+  const result = await h.run((time) => {
+    if (time === 500) { h.agent.finished = { at: time }; h.setState(observation({ inventory: { oak_log: 2 } })); }
+  });
+  assert.equal(result.status, "timeout");
+});

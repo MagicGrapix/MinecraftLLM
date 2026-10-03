@@ -1,4 +1,5 @@
 import { ACTION_MAX_TOOL_CALLS } from "../config";
+import { writeTrace } from "../TraceLog";
 import type { AgentInspector } from "../debug/AgentInspector";
 import type { Executor } from "../execution/Executor";
 import type { Task } from "../execution/Task";
@@ -125,7 +126,9 @@ export class ActionAgent implements ActionRunner {
         this.mode = "thinking";
         const { response, validated, trace } = await this.completeValidatedCall(session);
         const call = response.message.toolCalls![0]!;
-        const actionNumber = this.options.journal.start(call.name, validated.kind === "action");
+        const actionNumber = this.options.journal.start(call.name, validated.kind === "action", {
+          agent: "actioner", generationId: trace.generationId, toolCallId: call.id, arguments: call.arguments,
+        });
         this.options.inspector?.recordToolStarted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments });
         let report: DelegatedActionReport | undefined;
         try {
@@ -146,7 +149,7 @@ export class ActionAgent implements ActionRunner {
             console.info("Action capability started.", { step: session.delegation.step.step, capability: task.capability, input: task.input });
             const result = await this.options.executor.execute(task);
             // Capture before observers or another call can change the inventory.
-            this.options.journal.complete(actionNumber, result.ok);
+            this.options.journal.complete(actionNumber, result.ok, JSON.stringify(result));
             const outcome = { actionNumber, task: structuredClone(task), result: structuredClone(result) };
             session.outcomes.push(outcome);
             session.lastTask = outcome.task;
@@ -162,13 +165,13 @@ export class ActionAgent implements ActionRunner {
             content = JSON.stringify({ ok: true, value: { status: validated.status, message: validated.message } });
             ok = true;
           }
-          this.options.journal.complete(actionNumber, ok);
+          this.options.journal.complete(actionNumber, ok, content);
           content = numberedToolResult(actionNumber, content);
           this.options.inspector?.recordToolCompleted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments, result: content, ok });
           session.history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id, content }]);
           this.options.inspector?.finalizeRound(trace, signal.aborted ? "aborted" : "completed");
         } catch (error: unknown) {
-          this.options.journal.complete(actionNumber, false);
+          this.options.journal.complete(actionNumber, false, JSON.stringify({ ok: false, error: { message: errorMessage(error) } }));
           this.options.inspector?.recordToolCompleted(trace, {
             actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments,
             result: JSON.stringify({ actionNumber, ok: false, error: { message: errorMessage(error) } }), ok: false,
@@ -244,6 +247,8 @@ export class ActionAgent implements ActionRunner {
           throw error;
         }
         correction = error.message;
+        const { contextSnapshot: _context, ...metadata } = trace;
+        writeTrace("llm.validation_error", { ...metadata, message: correction });
         this.options.inspector?.annotate(trace, { validationError: correction });
         this.options.inspector?.finalizeRound(trace, "invalid_response");
         if (attempt >= this.options.maxResponseRetries) {

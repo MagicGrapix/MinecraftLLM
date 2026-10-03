@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { writeTrace } from "../TraceLog";
 import type { ToolCallJournal } from "../execution/ToolCallJournal";
 import type { AgentInspector } from "../debug/AgentInspector";
 import type { LLMClient, LLMMessage } from "../llm/LLMClient";
@@ -92,6 +93,7 @@ export class WorkflowAgent {
     this.transcript.append({ role: "user", content: text.trim() });
     this.stopRequested = false;
     this.mode = "thinking";
+    writeTrace("workflow.accepted", { generationId: this.generationId, username, text: text.trim() });
     this.startProcessing();
   }
 
@@ -153,7 +155,9 @@ export class WorkflowAgent {
       for (let turn = 0; turn < 64 && !this.stopRequested && !this.shutdownRequested; turn += 1) {
         this.mode = "thinking";
         const { call, parsed, message, trace } = await this.askCoordinator(signal);
-        const actionNumber = this.options.journal.start(call.name, parsed.name === "run_step");
+        const actionNumber = this.options.journal.start(call.name, parsed.name === "run_step", {
+          agent: "coordinator", generationId: this.generationId, toolCallId: call.id, arguments: call.arguments,
+        });
         this.options.inspector?.recordToolStarted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments });
         let result: { ok: boolean; value?: unknown; error?: { message: string } };
         let terminal = false;
@@ -165,7 +169,7 @@ export class WorkflowAgent {
         } catch (error: unknown) {
           result = { ok: false, error: error instanceof QueryToolError ? error.details : { message: error instanceof Error ? error.message : String(error) } };
         }
-        this.options.journal.complete(actionNumber, result.ok);
+        this.options.journal.complete(actionNumber, result.ok, JSON.stringify(result));
         const rawContent = JSON.stringify({ ...result, actionNumber });
         const content = rawContent;
         // Even aborted tools get a result: resume must never replay an orphan call.
@@ -191,7 +195,7 @@ export class WorkflowAgent {
       });
       await this.reply(`[Bot] Workflow issue: ${issue}`);
       this.transcript.append({ role: "assistant", content: `[Bot] Workflow issue: ${issue}` });
-      this.finish();
+      this.finish(issue);
     }
   }
 
@@ -373,10 +377,11 @@ export class WorkflowAgent {
     await this.options.respond(message, this.activeUsername ?? undefined);
   }
 
-  private finish(): void {
+  private finish(error?: string): void {
     this.mode = "idle";
     this.activeUsername = null;
     this.stopRequested = false;
+    writeTrace("workflow.finished", { generationId: this.generationId, ...(error ? { error } : {}) });
   }
 }
 

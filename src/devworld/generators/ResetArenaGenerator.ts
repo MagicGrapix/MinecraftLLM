@@ -17,6 +17,16 @@ export class ResetArenaGenerator {
   constructor(private readonly options: ResetArenaGeneratorOptions) {}
 
   generateReset(): readonly PlannedCommand[] {
+    return [
+      ...this.generateTerrainReset(),
+      ...this.generatePlayerReset(),
+      globalCommand("time set day"),
+      globalCommand("weather clear"),
+    ];
+  }
+
+  /** Can run while the agent is offline. Player commands are deliberately separate. */
+  generateTerrainReset(): readonly PlannedCommand[] {
     const profile = flatLayerProfile(this.options.surfaceY);
     const commands: PlannedCommand[] = [
       entityCleanupCommand(this.options.arena),
@@ -40,6 +50,14 @@ export class ResetArenaGenerator {
         horizontalLayer(this.options.arena, profile.grassY),
         DEV_WORLD_BLOCKS.grass,
       ),
+      entityCleanupCommand(this.options.arena),
+    ];
+    return commands;
+  }
+
+  generatePlayerReset(): readonly PlannedCommand[] {
+    const profile = flatLayerProfile(this.options.surfaceY);
+    return [
       globalCommand(`clear ${this.options.agentUsername}`),
       globalCommand(
         `effect clear ${this.options.agentUsername}`,
@@ -50,10 +68,7 @@ export class ResetArenaGenerator {
       globalCommand(
         `tp ${this.options.agentUsername} 0 ${profile.airY} 0`,
       ),
-      globalCommand("time set day"),
-      globalCommand("weather clear"),
     ];
-    return commands;
   }
 
   generateClear(): readonly PlannedCommand[] {

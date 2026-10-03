@@ -111,10 +111,13 @@ test("journal persists numbered snapshots through the existing trace sink withou
   setTraceSink((event, data) => events.push({ event, data }));
   try {
     const journal = new ToolCallJournal(() => ({ dirt: 2 }));
-    const n = journal.start("dig", true);
-    journal.complete(n, false);
+    const n = journal.start("dig", true, { agent: "actioner", generationId: 1, toolCallId: "dig-1", arguments: '{"position":{"x":0,"y":-60,"z":0}}' });
+    journal.complete(n, false, '{"ok":false,"error":{"code":"OUT_OF_REACH"}}');
     assert.deepEqual(events.map(({ event }) => event), ["tool.started", "tool.completed"]);
     assert.equal(events[1]!.data.actionNumber, 1);
     assert.deepEqual(events[1]!.data.after, { dirt: 2 });
+    assert.equal(events[0]!.data.context.agent, "actioner");
+    assert.equal(JSON.parse(events[1]!.data.result).error.code, "OUT_OF_REACH");
+    assert.equal("result" in journal.get(n)!, false);
   } finally { setTraceSink(() => undefined); }
 });

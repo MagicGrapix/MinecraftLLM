@@ -19,6 +19,24 @@ import type { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
+import { subscribeTrace } from "../../../src/TraceLog";
+
+test("lifecycle traces acknowledge only accepted requests and report completion after reply", async () => {
+  const h = await harness();
+  const events: { event: string; data: any }[] = [];
+  const unsubscribe = subscribeTrace((event, data) => { if (event.startsWith("workflow.")) events.push({ event, data }); });
+  try {
+    tool(h.llm, "reply", { outcome: "answer", message: "Ready." });
+    h.agent.submitUserMessage("test_controller", "Hello");
+    h.agent.submitUserMessage("test_controller", "Ignored while busy");
+    await idle(h.agent);
+    assert.deepEqual(events.map((e) => e.event), ["workflow.accepted", "workflow.finished"]);
+    assert.equal(events[0]!.data.text, "Hello");
+    assert.equal(events[0]!.data.username, "test_controller");
+    assert.equal(events[1]!.data.error, undefined);
+    assert.deepEqual(h.replies, ["Ready."]);
+  } finally { unsubscribe(); await h.close(); }
+});
 
 test("coordinator native tools exclude capabilities and world state is injected only in system", async () => {
   const h = await harness();

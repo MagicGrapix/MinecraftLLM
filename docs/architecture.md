@@ -44,6 +44,9 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `src/debug/` contient le serveur local, les snapshots et leur projection UI.
 - `src/devworld/` est un processus séparé : WorldBuilder -> WorldPlan -> CommandExecutor -> bot OP.
   Il ne passe jamais par les tools de l'agent.
+- `tests/e2e/` orchestre les campagnes Minecraft : controller réutilisé, bot enfant neuf par essai,
+  consignes dans le chat, observations IPC, critères déterministes et rapport HTML persistant.
+  Voir [scénarios de test](scenario-testing.md). Les campagnes sont lancées explicitement, hors `npm test`.
 
 ## Ajouter ou changer un composant
 

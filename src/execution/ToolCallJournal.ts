@@ -11,6 +11,7 @@ export interface ToolCallRecord {
   after: InventorySnapshot | null;
   completed: boolean;
   ok?: boolean;
+  readonly context?: { agent: string; generationId: number; toolCallId: string; arguments: string };
 }
 
 /** Shared by both agents. Numbers last for the session; records last for the request. */
@@ -27,25 +28,26 @@ export class ToolCallJournal {
     this.records.clear();
   }
 
-  start(tool: string, tracksInventory: boolean): number {
+  start(tool: string, tracksInventory: boolean, context?: ToolCallRecord["context"]): number {
     const actionNumber = ++this.nextNumber;
     const record: ToolCallRecord = {
       actionNumber, tool, tracksInventory,
       before: tracksInventory ? this.snapshot() : null,
-      after: null, completed: false,
+      after: null, completed: false, ...(context ? { context: { ...context } } : {}),
     };
     this.records.set(actionNumber, record);
     writeTrace("tool.started", structuredClone(record));
     return actionNumber;
   }
 
-  complete(actionNumber: number, ok: boolean): void {
+  complete(actionNumber: number, ok: boolean, result?: string): void {
     const record = this.records.get(actionNumber);
     if (!record || record.completed) return;
     record.after = record.tracksInventory ? this.snapshot() : null;
     record.completed = true;
     record.ok = ok;
-    writeTrace("tool.completed", structuredClone(record));
+    // Full tool output belongs in the trace, not the retained inventory journal.
+    writeTrace("tool.completed", { ...structuredClone(record), ...(result === undefined ? {} : { result }) });
   }
 
   get(actionNumber: number): ToolCallRecord | undefined {

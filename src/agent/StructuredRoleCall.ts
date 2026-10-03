@@ -4,6 +4,7 @@ import type { LLMClient, LLMMessage, LLMRequestTrace } from "../llm/LLMClient";
 import { LLMError } from "../llm/LLMError";
 import { parseJsonObjectText } from "../shared/helper";
 import { withValidationFeedback } from "./MessageHistory";
+import { writeTrace } from "../TraceLog";
 
 export interface StructuredRoleOptions {
   readonly llm: LLMClient;
@@ -73,6 +74,8 @@ export async function callStructuredRole<T>(input: {
         throw error;
       }
       correction = error instanceof Error ? error.message : String(error);
+      const { contextSnapshot: _context, ...metadata } = trace;
+      writeTrace("llm.validation_error", { ...metadata, message: correction });
       input.options.inspector?.annotate(trace, { validationError: correction });
       input.options.inspector?.finalizeRound(trace, "invalid_response");
       if (attempt === input.options.maxRetries) {

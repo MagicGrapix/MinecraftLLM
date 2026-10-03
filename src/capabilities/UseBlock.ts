@@ -193,7 +193,7 @@ function isSimpleInteractiveBlock(name: string): boolean {
 }
 
 function requiredCapability(blockName: string): string {
-  if (blockName === "crafting_table") return "craft";
+  if (blockName === "crafting_table") return "craft_from_table_3x3";
   if (
     blockName.includes("chest") ||
     blockName === "barrel" ||

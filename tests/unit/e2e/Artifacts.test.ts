@@ -10,8 +10,8 @@ test("saved reports survive process exit and a truncated final JSONL line", asyn
   try {
     const trial = join(root, "001_craft_table"); await mkdir(trial);
     const record = recorder(join(trial, "events.jsonl"));
-    record("tool.started", { actionNumber: 1, tool: "craft", context: { agent: "actioner" } });
-    record("tool.completed", { actionNumber: 1, tool: "craft", ok: true });
+    record("tool.started", { actionNumber: 1, tool: "craft_from_inventory_2x2", context: { agent: "actioner" } });
+    record("tool.completed", { actionNumber: 1, tool: "craft_from_inventory_2x2", ok: true });
     await writeFile(join(trial, "trace_partial.jsonl"), '{"event":');
     const result = await finishTrial(root, trial, { scenario: "craft_table", status: "timeout", startedAt: new Date().toISOString(), durationMs: 300_000, timeoutMs: 300_000, goalReachedAtMs: 10_000 });
     assert.equal(result.statistics.toolCalls, 1);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GotoCapability } from "../../../src/capabilities/Goto";
-import { CraftCapability } from "../../../src/capabilities/Craft";
+import { CraftFromInventoryCapability, CraftFromTableCapability } from "../../../src/capabilities/Craft";
 import { CoordinatorTools } from "../../../src/agent/CoordinatorTools";
 import { invalidToolArguments, parseToolArguments } from "../../../src/shared/ToolArgumentFeedback";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
@@ -50,9 +50,25 @@ test("invalid JSON and non-object arguments identify the tool and rejected input
   }
 });
 
-test("craft input guide gives an example even for a missing discriminant", () => {
-  const schema = new CraftCapability().inputSchema;
-  const parsed = schema.safeParse({ item: "oak_planks", quantity: 4 });
-  if (parsed.success) assert.fail("Missing station must fail.");
-  assert.match(invalidToolArguments("craft", { item: "oak_planks", quantity: 4 }, parsed.error.issues, schema), /Input guide: Example:.*station/);
+test("inventory crafting feedback identifies a numeric quantity and gives a station-free example", () => {
+  const capability = new CraftFromInventoryCapability();
+  const raw = { item: "oak_planks", quantity: "4" };
+  const parsed = capability.inputSchema.safeParse(raw);
+  if (parsed.success) assert.fail("String quantity must fail.");
+  const text = invalidToolArguments(capability.name, raw, parsed.error.issues, capability.inputSchema);
+  assert.match(text, /craft_from_inventory_2x2/);
+  assert.match(text, /Field quantity: Expected number, received string/);
+  assert.match(text, /Input guide: Example: \{"item":"oak_planks","quantity":4\}/);
+  assert.match(text, /No tool was executed/);
+});
+
+test("table crafting feedback identifies a missing table position and gives a complete example", () => {
+  const capability = new CraftFromTableCapability();
+  const raw = { item: "wooden_pickaxe", quantity: 1 };
+  const parsed = capability.inputSchema.safeParse(raw);
+  if (parsed.success) assert.fail("Missing tablePosition must fail.");
+  const text = invalidToolArguments(capability.name, raw, parsed.error.issues, capability.inputSchema);
+  assert.match(text, /Field tablePosition: Required/);
+  assert.match(text, /Input guide: Example:.*"tablePosition":\{"x":2,"y":-60,"z":5\}/);
+  assert.match(text, /No tool was executed/);
 });

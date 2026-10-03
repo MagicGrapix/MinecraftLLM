@@ -34,11 +34,12 @@ test("use_block confirms a lever state change after exact raycast", async () => 
   }
 });
 
-test("use_block refuses containers before sending interaction", async () => {
+for (const [name, requiredCapability] of [["chest", "open_container"], ["crafting_table", "craft_from_table_3x3"]]) {
+test(`use_block redirects ${name} to ${requiredCapability} before sending interaction`, async () => {
   let activated = false;
   const position = new Vec3(1, 64, 1);
   const bot = fakeBot(() => ({
-    name: "chest",
+    name,
     stateId: 1,
     boundingBox: "block",
     position,
@@ -55,10 +56,11 @@ test("use_block refuses containers before sending interaction", async () => {
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.error.code, "BLOCKED");
-    assert.equal(result.error.facts?.requiredCapability, "open_container");
+    assert.equal(result.error.facts?.requiredCapability, requiredCapability);
   }
   assert.equal(activated, false);
 });
+}
 
 function fakeBot(blockAt: () => unknown): Bot {
   const emitter = new EventEmitter();

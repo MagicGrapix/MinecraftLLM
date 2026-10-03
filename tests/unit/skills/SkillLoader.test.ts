@@ -71,15 +71,18 @@ test("craft and hunger skills load as text-only instructions", async () => {
   );
   const loader = new SkillLoader(
     registry,
-    capabilities("goto", "equip", "craft", "consume"),
+    capabilities("goto", "equip", "craft_from_inventory_2x2", "craft_from_table_3x3", "consume"),
     createDefaultWorldQueryRegistry(emptyWorld),
   );
 
   const craft = await loader.load("craft_item");
   const hunger = await loader.load("eat_when_hungry");
 
-  assert.deepEqual(craft.requiredCapabilities, ["goto", "craft"]);
+  assert.deepEqual(craft.requiredCapabilities, ["goto", "craft_from_inventory_2x2", "craft_from_table_3x3"]);
   assert.match(craft.instructions, /3x3\s+recipe/);
+  assert.match(craft.instructions, /craft_from_inventory_2x2/);
+  assert.match(craft.instructions, /craft_from_table_3x3/);
+  assert.doesNotMatch(craft.instructions, /call `craft`|station: "crafting_table"/);
   assert.deepEqual(hunger.requiredCapabilities, ["equip", "consume"]);
   assert.match(hunger.instructions, /ACTION_NOT_CONFIRMED/);
 });

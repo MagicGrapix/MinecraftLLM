@@ -3,7 +3,8 @@ name: craft_item
 description: Craft an item with the personal grid or an explicitly located crafting table.
 required_capabilities:
   - goto
-  - craft
+  - craft_from_inventory_2x2
+  - craft_from_table_3x3
 required_queries:
   - get_inventory
   - find_nearest_blocks
@@ -11,12 +12,13 @@ required_queries:
 
 # Craft item
 
-Read the inventory before crafting. Use the `"inventory"` station only for a 2x2 recipe. For a 3x3
-recipe, find a `crafting_table`, call `goto` for it and inspect its result, then call `craft` with
-`station: "crafting_table"` and its exact observed position.
+Read the inventory before crafting. Use `craft_from_inventory_2x2` for a 2x2 recipe, including
+logs into planks and planks into a crafting table. For a 3x3 recipe, find a `crafting_table`,
+call `goto` for it and inspect its result, then call `craft_from_table_3x3` with its exact
+observed `tablePosition`. Neither tool takes a `station` argument. A table also supports 2x2 recipes.
 
-If `craft` returns `MISSING_ITEM`, use `missingIngredients` as the list of sub-objectives. If the code
-is `RECIPE_NOT_FOUND`, do not repeat the same request without changing the item or station. If the
+If a crafting tool returns `MISSING_ITEM`, use `missingIngredients` as the list of sub-objectives. If the code
+is `RECIPE_NOT_FOUND`, do not repeat the same request without changing the item or crafting tool. If the
 table is out of reach, correct navigation rather than the capability.
 
 Always verify success with `get_inventory`. The actual quantity produced may slightly exceed the

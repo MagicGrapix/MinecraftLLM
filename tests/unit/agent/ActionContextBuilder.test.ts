@@ -25,7 +25,7 @@ test("action context provides the full plan and past reports, keeping raw action
       projectSummary: "Crafted planks.",
       reports: [{ step: 1, status: "success" as const, message: "Crafted four oak planks." }],
     },
-    lastTask: { id: "internal-id", capability: "craft", input: { item: "oak_planks" }, createdAt: 1 },
+    lastTask: { id: "internal-id", capability: "craft_from_inventory_2x2", input: { item: "oak_planks", quantity: 4 }, createdAt: 1 },
     lastResult: { ok: true as const, value: { item: "oak_planks", count: 4, distance: 10.53869625851037 } },
   };
   const built = builder.build(input);

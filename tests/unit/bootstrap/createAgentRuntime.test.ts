@@ -40,6 +40,14 @@ test("successful place confirms its result position and dig invalidates it", asy
     );
     assert.equal(memory.list()[0]?.status, "confirmed");
 
+    await memory.markStatus("table-id", "stale");
+    await refreshLandmarksFromTask(
+      taskFinished("craft_from_table_3x3", { item: "wooden_pickaxe", quantity: 1, tablePosition: placedPosition },
+        success({ item: "wooden_pickaxe", craftedQuantity: 1, station: "crafting_table" })),
+      "overworld", memory,
+    );
+    assert.equal(memory.list()[0]?.status, "confirmed");
+
     await refreshLandmarksFromTask(
       taskFinished(
         "dig",

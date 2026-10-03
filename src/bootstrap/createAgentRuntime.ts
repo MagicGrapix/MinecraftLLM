@@ -260,7 +260,7 @@ export async function refreshLandmarksFromTask(
     isPosition(inputPosition) &&
     (event.task.capability === "use_block" ||
       event.task.capability === "open_container" ||
-      event.task.capability === "craft")
+      event.task.capability === "craft_from_table_3x3")
   ) {
     await landmarks.markAtPosition(
       dimension,

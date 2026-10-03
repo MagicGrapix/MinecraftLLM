@@ -11,6 +11,10 @@
   Il ne prouve pas que la ressource est entrée dans l'inventaire.
 - `get_dropped_items` décrit les stacks observées au sol. `get_inventory` décrit l'inventaire actuel
   du bot. Un item présent ne prouve pas un gain : comparer avec l'observation initiale.
+- `craft_from_inventory_2x2` et `craft_from_table_3x3` vérifient le gain d'inventaire demandé.
+  Le premier rejette les recettes nécessitant une table ; le second accepte les recettes 2x2 et 3x3,
+  vérifie l'accès à la table avant exécution et son état après. Aucun ne fabrique ses ingrédients
+  ni ne navigue. Le nombre produit peut dépasser la quantité demandée selon le rendement de la recette.
 - `finish_step` rend un rapport sans cocher de case. `complete_step` exige le dernier rapport réussi
   de l'étape et de la version courante du plan, puis met à jour la checklist. Les rapports sont conservés
   par étape : une délégation suivante n'empêche pas de vérifier une étape précédente. Retenter une étape
@@ -22,7 +26,9 @@
 
 Les positions sont des objets numériques `{ "x": 2, "y": -60, "z": 5 }`, jamais des chaînes ou tableaux.
 `goto` accepte des décimales ; les cellules de blocs exigent des entiers. Les schémas envoyés au LLM
-documentent ces formats et des exemples, ainsi que les quantités, faces et stations de crafting.
+documentent ces formats et des exemples, ainsi que les quantités et faces. Pour le crafting,
+le choix du tool fixe la station : `station` n'est pas un argument. `quantity` reste un entier
+de 1 à 64, sans conversion implicite de chaînes comme `"4"`. Voir [les exemples](tools.md#crafting).
 Une erreur de validation indique le tool, le champ, sa valeur rejetée et le schéma attendu.
 Elle précise qu'aucun tool n'a été exécuté. Aucune conversion implicite de position ou de liste n'est faite.
 

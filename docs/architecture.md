@@ -38,6 +38,9 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `ContextCompactor.ts` décide quand faire un résumé. Voir [les règles de contexte](agent-workflow.md).
 - `Executor.ts` valide les entrées, applique timeout/annulation et garde le verrou physique.
   `TaskResult` est un succès ou une erreur structurée ; le texte du modèle n'est pas une preuve d'exécution.
+- `capabilities/Craft.ts` expose `craft_from_inventory_2x2` et `craft_from_table_3x3`.
+  Deux schémas objets distincts fixent la station en interne et partagent le même moteur de recettes,
+  annulation et vérification. L'ancien tool `craft` n'est plus exposé. Voir [les arguments](tools.md#crafting).
 - `src/world/` traduit les observations Mineflayer. `WorldQueries.getNearbyEntities` est conservée
   comme API interne, notamment pour `get_dropped_items`, sans tool générique exposé au LLM.
 - `src/llm/` traduit nos messages en Chat Completions. La couche agents ne dépend pas du SDK OpenAI.

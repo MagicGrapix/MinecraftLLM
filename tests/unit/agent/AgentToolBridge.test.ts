@@ -17,6 +17,7 @@ import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defa
 import type { BlockAccessInfo } from "../../../src/world/BlockAccess";
 import { MessageHistory } from "../../../src/agent/MessageHistory";
 import { ToolCatalogBuilder } from "../../../src/agent/ToolCatalogBuilder";
+import { CraftFromInventoryCapability, CraftFromTableCapability } from "../../../src/capabilities/Craft";
 
 const world: WorldQueries = {
   isKnownName: () => true,
@@ -188,6 +189,27 @@ test("catalog rejects ambiguous names shared by native capabilities and other to
   }
 });
 
+test("bridge routes both crafting tools and rejects legacy or malformed calls before execution", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minecraft-craft-bridge-"));
+  try {
+    const bridge = await createBridge(root);
+    const inventoryCall = { id: "inventory", name: "craft_from_inventory_2x2", arguments: '{"item":"oak_planks","quantity":4}' };
+    const tableCall = { id: "table", name: "craft_from_table_3x3", arguments: '{"item":"wooden_pickaxe","quantity":1,"tablePosition":{"x":2,"y":-60,"z":5}}' };
+    for (const call of [inventoryCall, tableCall]) {
+      assert.deepEqual(bridge.validateResponseCalls([call]), {
+        kind: "action", task: { capability: call.name, input: JSON.parse(call.arguments) },
+      });
+      assert.equal(bridge.isReadTool(call.name), false);
+    }
+    assert.throws(() => bridge.validateResponseCalls([{ ...inventoryCall, arguments: "{}" }]), /Field item: Required.*Field quantity: Required.*No tool was executed/);
+    assert.throws(() => bridge.validateResponseCalls([{ ...inventoryCall, arguments: '{"item":"oak_planks","quantity":"4"}' }]), /Field quantity: Expected number, received string/);
+    assert.throws(() => bridge.validateResponseCalls([{ ...tableCall, arguments: '{"item":"wooden_pickaxe","quantity":1}' }]), /Field tablePosition: Required/);
+    assert.throws(() => bridge.validateResponseCalls([{ ...inventoryCall, name: "craft" }]), /Unknown tool "craft"/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("oversized observation is a failed result in both the tool payload and inspector flag", async () => {
   const root = await mkdtemp(join(tmpdir(), "minecraft-agent-result-limit-"));
   try {
@@ -209,6 +231,8 @@ async function createBridge(root: string, queryWorld: WorldQueries = world, maxR
     execute: async () => success(null),
   };
   capabilities.register(capability);
+  capabilities.register(new CraftFromInventoryCapability());
+  capabilities.register(new CraftFromTableCapability());
   const queries = createDefaultWorldQueryRegistry(queryWorld);
   const skills = await SkillRegistry.discover(resolve(process.cwd(), "skills"));
   const landmarks = await LandmarkMemory.load(join(root, "landmarks.json"));

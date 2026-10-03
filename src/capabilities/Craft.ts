@@ -12,25 +12,27 @@ import type { Capability, ExecutionContext } from "./Capability";
 
 const MAX_CRAFT_OUTPUT_QUANTITY = 64;
 
-const CraftInputSchema = z.discriminatedUnion("station", [
-  z
-    .object({
-      item: z.string().trim().min(1).describe('Exact output item ID, e.g. "oak_planks".'),
-      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY).describe("Requested output item quantity, not recipe executions; recipes may yield more. Maximum 64."),
-      station: z.literal("inventory").describe("Use the bot's 2x2 crafting grid; no tablePosition."),
-    })
-    .strict(),
-  z
-    .object({
-      item: z.string().trim().min(1).describe('Exact output item ID, e.g. "wooden_pickaxe".'),
-      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY).describe("Requested output item quantity, not recipe executions; recipes may yield more. Maximum 64."),
-      station: z.literal("crafting_table").describe("Use an existing reachable 3x3 crafting table; tablePosition is required."),
-      tablePosition: BlockPositionSchema,
-    })
-    .strict(),
-]).describe('Example: {"item":"oak_planks","quantity":4,"station":"inventory"}. For station="crafting_table", also supply integer tablePosition as {"x":2,"y":-60,"z":5}.');
+const CraftQuantitySchema = z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY)
+  .describe("Requested output item quantity, not recipe executions. Use an integer number, not a string. Recipes may yield more. Maximum 64.");
 
-export type CraftInput = z.infer<typeof CraftInputSchema>;
+const CraftFromInventoryInputSchema = z.object({
+  item: z.string().trim().min(1).describe('Exact output item ID, e.g. "oak_planks" or "crafting_table".'),
+  quantity: CraftQuantitySchema,
+}).strict().describe('Example: {"item":"oak_planks","quantity":4}. Uses the bot\'s 2x2 inventory grid. No station or tablePosition argument.');
+
+const CraftFromTableInputSchema = z.object({
+  item: z.string().trim().min(1).describe('Exact output item ID, e.g. "wooden_pickaxe".'),
+  quantity: CraftQuantitySchema,
+  tablePosition: BlockPositionSchema,
+}).strict().describe('Example: {"item":"wooden_pickaxe","quantity":1,"tablePosition":{"x":2,"y":-60,"z":5}}. Uses an existing reachable table. No station argument.');
+
+export type CraftFromInventoryInput = z.infer<typeof CraftFromInventoryInputSchema>;
+export type CraftFromTableInput = z.infer<typeof CraftFromTableInputSchema>;
+
+// The station is an internal engine choice, never a model-supplied argument.
+type CraftInput =
+  | (CraftFromInventoryInput & { station: "inventory" })
+  | (CraftFromTableInput & { station: "crafting_table" });
 
 export interface MissingIngredient {
   item: string;
@@ -55,9 +57,28 @@ interface RecipeCandidate {
   signature: string;
 }
 
-export class CraftCapability implements Capability<CraftInput, CraftOutput> {
-  readonly name = "craft";
-  readonly inputSchema: z.ZodType<CraftInput> = CraftInputSchema;
+export class CraftFromInventoryCapability implements Capability<CraftFromInventoryInput, CraftOutput> {
+  readonly name = "craft_from_inventory_2x2";
+  readonly inputSchema = CraftFromInventoryInputSchema;
+  private readonly crafting = new CraftingOperation();
+
+  execute(input: CraftFromInventoryInput, context: ExecutionContext): Promise<TaskResult<CraftOutput>> {
+    return this.crafting.execute({ ...input, station: "inventory" }, context);
+  }
+}
+
+export class CraftFromTableCapability implements Capability<CraftFromTableInput, CraftOutput> {
+  readonly name = "craft_from_table_3x3";
+  readonly inputSchema = CraftFromTableInputSchema;
+  private readonly crafting = new CraftingOperation();
+
+  execute(input: CraftFromTableInput, context: ExecutionContext): Promise<TaskResult<CraftOutput>> {
+    return this.crafting.execute({ ...input, station: "crafting_table" }, context);
+  }
+}
+
+/** Shared recipe selection, physical execution, cancellation and inventory verification. */
+class CraftingOperation {
 
   async execute(
     input: CraftInput,

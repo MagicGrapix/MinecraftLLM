@@ -54,7 +54,7 @@ test("inventory totals ignore slots and diff sorts only changed quantities", () 
   assert.deepEqual(inventoryTotals([{ name: "oak_log", count: 1 }, { name: "oak_log", count: 2 }]), { oak_log: 3 });
   let inventory = { oak_log: 2, dirt: 5 } as Record<string, number>;
   const journal = new ToolCallJournal(() => inventory);
-  const n = journal.start("craft", true);
+  const n = journal.start("craft_from_inventory_2x2", true);
   inventory = { dirt: 5, oak_planks: 4, oak_log: 1 };
   journal.complete(n, true);
   assert.equal(formatInventoryDiff(journal.get(n)!), "--- before action #1\n+++ after action #1\n- oak_log: 2\n+ oak_log: 1\n+ oak_planks: 4");

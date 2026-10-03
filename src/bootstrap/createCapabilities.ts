@@ -3,7 +3,7 @@ import type { Capability } from "../capabilities/Capability";
 import { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import { CloseContainerCapability } from "../capabilities/CloseContainer";
 import { ConsumeCapability } from "../capabilities/Consume";
-import { CraftCapability } from "../capabilities/Craft";
+import { CraftFromInventoryCapability, CraftFromTableCapability } from "../capabilities/Craft";
 import { DigCapability } from "../capabilities/Dig";
 import { DropCapability } from "../capabilities/Drop";
 import { EquipCapability } from "../capabilities/Equip";
@@ -47,8 +47,13 @@ export function createCapabilityRegistry(
   );
   register(
     registry,
-    new CraftCapability(),
-    "Craft an item in the 2x2 inventory grid or at a reachable crafting table 3x3.",
+    new CraftFromInventoryCapability(),
+    "Does: Craft an item using the bot's 2x2 inventory grid.\nSuccess: The requested output quantity was observed as gained in inventory.\nLimits: Cannot make recipes requiring a 3x3 grid; does not craft missing ingredients automatically.\nNotes: One log makes four planks; four planks make one crafting table. quantity is an output count, not recipe repetitions.",
+  );
+  register(
+    registry,
+    new CraftFromTableCapability(),
+    "Does: Craft an item at an existing reachable crafting table using its 3x3 grid. Also supports 2x2 recipes.\nSuccess: The requested output quantity was observed as gained in inventory and the table remained unchanged.\nLimits: Does not find, approach or place a table; does not craft missing ingredients automatically.\nNotes: Supply the table's observed integer tablePosition. quantity is an output count, not recipe repetitions.",
   );
   register(
     registry,

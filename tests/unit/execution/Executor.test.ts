@@ -14,6 +14,7 @@ import { TaskFactory } from "../../../src/execution/TaskFactory";
 import { success, type TaskResult } from "../../../src/execution/TaskResult";
 
 const emptyWorld: WorldQueries = {
+  isKnownName: () => true,
   getSelf: () => ({
     position: { x: 0, y: 0, z: 0 },
     facing: "north",

@@ -2,12 +2,11 @@ import { z } from "zod";
 import type { DroppedItemInfo, EntityInfo } from "../types";
 import { querySuccess } from "./QueryResult";
 import type { WorldQuery } from "./WorldQuery";
+import { MinecraftNamesSchema, validateMinecraftNames } from "./MinecraftNames";
+import { normalizeMinecraftName } from "../../shared/helper";
 
 const inputSchema = z.object({
-  names: z.union([
-    z.string().trim().min(1),
-    z.array(z.string().trim().min(1)).min(1),
-  ]).optional().describe("Optional exact item name(s), such as oak_log. Filters known stacks only; omit to also see unidentified drops."),
+  names: MinecraftNamesSchema.optional().describe('Optional array of exact item IDs, e.g. ["oak_log"]. No comma-separated string or category aliases. Omit to also see unidentified drops.'),
   maxDistance: z.number().finite().positive().max(512).optional()
     .describe("Maximum distance from the bot in blocks (default 32, maximum 512)."),
   count: z.number().int().positive().max(128).optional()
@@ -20,9 +19,13 @@ export const getDroppedItemsQuery: WorldQuery<z.infer<typeof inputSchema>, Dropp
   description: "Does: Find nearby loose item entities.\nReturns: Observed positions and stack quantities.\nLimits: Does not prove reachability or pickup.\nNotes: count limits entities, not item quantity. Name filters exclude unidentified drops.",
   inputSchema,
   execute: async (input, world) => {
+    if (input.names) {
+      const invalid = validateMinecraftNames(world, "item", input.names);
+      if (invalid) return invalid;
+    }
     const maxDistance = input.maxDistance ?? 32;
     const names = input.names === undefined ? null
-      : new Set(typeof input.names === "string" ? [input.names] : input.names);
+      : new Set(input.names.map(normalizeMinecraftName));
     const drops = world.getNearbyEntities({ maxDistance })
       .filter(isDroppedItemEntity)
       .filter((entity) => entity.distance <= maxDistance &&

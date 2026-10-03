@@ -15,20 +15,20 @@ const MAX_CRAFT_OUTPUT_QUANTITY = 64;
 const CraftInputSchema = z.discriminatedUnion("station", [
   z
     .object({
-      item: z.string().trim().min(1),
-      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY),
-      station: z.literal("inventory"),
+      item: z.string().trim().min(1).describe('Exact output item ID, e.g. "oak_planks".'),
+      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY).describe("Requested output item quantity, not recipe executions; recipes may yield more. Maximum 64."),
+      station: z.literal("inventory").describe("Use the bot's 2x2 crafting grid; no tablePosition."),
     })
     .strict(),
   z
     .object({
-      item: z.string().trim().min(1),
-      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY),
-      station: z.literal("crafting_table"),
+      item: z.string().trim().min(1).describe('Exact output item ID, e.g. "wooden_pickaxe".'),
+      quantity: z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY).describe("Requested output item quantity, not recipe executions; recipes may yield more. Maximum 64."),
+      station: z.literal("crafting_table").describe("Use an existing reachable 3x3 crafting table; tablePosition is required."),
       tablePosition: BlockPositionSchema,
     })
     .strict(),
-]);
+]).describe('Example: {"item":"oak_planks","quantity":4,"station":"inventory"}. For station="crafting_table", also supply integer tablePosition as {"x":2,"y":-60,"z":5}.');
 
 export type CraftInput = z.infer<typeof CraftInputSchema>;
 

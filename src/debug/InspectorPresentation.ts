@@ -71,7 +71,7 @@ function describeExecution(execution: InspectorToolExecution) {
   const claimedStatus = text(report.status) || text(input.status) || text(input.outcome);
   const failed = execution.ok === false || result.ok === false || Boolean(failedAction) ||
     claimedStatus === "failure";
-  const activity = describeCall(execution.name, input);
+  const activity = `${execution.actionNumber === undefined ? "" : `Action #${execution.actionNumber} · `}${describeCall(execution.name, input)}`;
   let outcome: string;
   if (failed) outcome = `Failed${text(error.code) ? `: ${error.code}` : ""} — ${
     text(error.message) || text(report.message) || text(input.message) || "execution failed"
@@ -94,6 +94,7 @@ function describeExecution(execution: InspectorToolExecution) {
 }
 
 function describeCall(name: string, input: Record<string, unknown>): string {
+  if (name === "get_inventory_diff_after") return `${name} → Action #${input.actionNumber ?? "?"}`;
   if (["goto", "dig", "get_block", "get_block_access", "use_block", "open_container"].includes(name)) {
     const position = record(input.position);
     const coordinates = [position.x, position.y, position.z];

@@ -110,6 +110,34 @@ Cette transformation de format ne fait pas d'appel LLM et ne constitue pas la co
 Les arguments/résultats restent disponibles jusqu'à leur éventuelle inclusion dans un résumé.
 L'inspecteur montre toujours la requête exacte envoyée et les exécutions originales.
 
+## Numéros d'appels et diff d'inventaire
+
+Chaque appel validé qui commence reçoit un `actionNumber` partagé par coordinateur et actionneur,
+y compris les lectures, réponses et handoffs. Ce numéro suit l'ordre de démarrage pendant toute
+la session du bot. Il est distinct du numéro de checklist et de l'index du call LLM dans l'inspecteur.
+Une proposition rejetée avant exécution n'en reçoit pas. Le planner ne possède pas d'appels de tools.
+
+Le résultat natif garde son contrat (`ok`, `value` ou `error`) et ajoute `actionNumber` au premier niveau.
+Les échanges compactés conservent ce champ ; une réponse `reply` envoyée reste toutefois du texte
+de conversation, comme avant. Les traces et la UI conservent son numéro.
+Les outcomes des capabilities dans le rapport de l'actionneur conservent aussi leur `actionNumber`.
+
+Toutes les capabilities et `run_step` enregistrent les quantités agrégées par nom d'objet avant/après
+l'exécution, succès ou échec. Les lectures et tools de workflow sans effet physique n'enregistrent
+pas d'inventaire. `run_step` encadre toute la délégation ; les capabilities enfants ont leurs propres
+snapshots. Un échec physique ne déclenche aucune nouvelle tentative automatique.
+
+Les deux agents disposent de `get_inventory_diff_after({"actionNumber":12})` : comparaison fixe
+entre juste avant et juste après l'appel 12, jamais avec l'état actuel. Consulter le diff ne modifie
+aucun snapshot. Aucun gain retourne `No inventory changes during action #12.`, pas un ancien gain.
+Le champ `actionNumber` extérieur désigne l'appel de lecture ; celui de `value` désigne l'appel comparé.
+`toolSucceeded` décrit le résultat technique du tool, pas la validation d'une checklist.
+
+Le journal est conservé pendant la demande, y compris après une délégation et pendant stop/resume.
+Une nouvelle demande acceptée efface les entrées, sans réutiliser les numéros. Les anciennes entrées
+restent dans les traces JSONL, mais ne sont pas rechargées dans l'agent. Ce stockage ne remplace pas
+le contexte du monde courant et n'ajoute pas de mémoire LLM.
+
 ## Arrêts, retries et limites
 
 Les messages ordinaires sont ignorés pendant une requête. `stop` annule le LLM ou l'action courante ;

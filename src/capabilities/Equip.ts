@@ -22,8 +22,8 @@ export class EquipCapability implements Capability<EquipInput, EquipOutput> {
   readonly name = "equip";
   readonly inputSchema: z.ZodType<EquipInput> = z
     .object({
-      item: z.string().trim().min(1),
-      destination: EquipmentDestinationSchema.optional(),
+      item: z.string().trim().min(1).describe('Exact inventory item ID, e.g. "wooden_axe".'),
+      destination: EquipmentDestinationSchema.optional().describe('Equipment slot; defaults to "hand".'),
     })
     .strict();
 

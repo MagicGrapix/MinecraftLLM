@@ -18,6 +18,33 @@
   Un nouveau plan ou une nouvelle demande joueur efface ces rapports. La vérification du critère reste
   sémantique ; aucun moteur de prédicats déterministes n'est encore implémenté.
 
+## Arguments des tools et noms Minecraft
+
+Les positions sont des objets numériques `{ "x": 2, "y": -60, "z": 5 }`, jamais des chaînes ou tableaux.
+`goto` accepte des décimales ; les cellules de blocs exigent des entiers. Les schémas envoyés au LLM
+documentent ces formats et des exemples, ainsi que les quantités, faces et stations de crafting.
+Une erreur de validation indique le tool, le champ, sa valeur rejetée et le schéma attendu.
+Elle précise qu'aucun tool n'a été exécuté. Aucune conversion implicite de position ou de liste n'est faite.
+
+`find_nearest_blocks.names` est un tableau non vide d'IDs exacts, même pour un seul nom.
+`get_dropped_items.names` utilise le même format, mais peut être omis pour voir aussi les drops inconnus.
+Le préfixe `minecraft:` est accepté. Les chaînes séparées par des virgules, catégories comme `log`,
+wildcards et IDs inconnus sont rejetés. Une liste partiellement inconnue est rejetée intégralement.
+`INVALID_ARGUMENT` signifie que la recherche n'a pas eu lieu ; `ok: true, value: []` signifie qu'une
+recherche valide n'a trouvé aucun résultat connu dans ses limites.
+
+## Limites du diff d'inventaire
+
+`get_inventory_diff_after` expose les changements observés pendant un appel, sans attribuer leur cause.
+Un drop ramassé après le retour de `dig` n'est pas dans le diff de ce `dig`. Le diff de `run_step`
+couvre une fenêtre plus large. Les snapshots ne contiennent ni slots, ni durabilité, ni NBT : un outil
+abîmé sans changement de quantité ne produit pas de ligne. Les anciennes valeurs ne sont jamais
+remplacées par l'inventaire courant lors d'une consultation.
+
+Un numéro absent ou un tool non suivi produit une erreur explicite. Un appel encore en cours,
+une déconnexion ou une action physique encore en cours de terminaison produit `OBSERVATION_UNAVAILABLE`,
+jamais un inventaire vide. Dans ce dernier cas, le snapshot manquant n'est pas reconstruit plus tard.
+
 ## Annuler une capability
 
 Un timeout ou `stop` déclenche l'AbortSignal. L'exécuteur attend au plus une seconde de grâce

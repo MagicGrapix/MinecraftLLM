@@ -71,6 +71,31 @@ test("item entities without metadata remain visible with an unknown stack", () =
   assert.equal(world.getNearbyEntities()[0]?.droppedItem, null);
 });
 
+test("search validation uses the connected version registries and rejects partially unknown lists", async () => {
+  let searches = 0;
+  const bot = {
+    entity: { id: 1, position: new Vec3(0, -60, 0) }, entities: {},
+    registry: { blocksByName: { oak_log: { id: 1 } }, itemsByName: { oak_log: { id: 2 }, stick: { id: 3 } } },
+    findBlocks: () => { searches += 1; return []; },
+  } as unknown as Bot;
+  const world = new MineflayerWorldQueries({ bot } as MinecraftRuntime);
+  const registry = createDefaultWorldQueryRegistry(world);
+  assert.equal(world.isKnownName("block", "minecraft:oak_log"), true);
+  assert.equal(world.isKnownName("block", "stick"), false);
+  assert.equal(world.isKnownName("item", "stick"), true);
+  assert.equal(world.isKnownName("item", "toString"), false);
+  for (const query of ["find_nearest_blocks", "get_dropped_items"]) {
+    const result = await registry.execute(query, { names: ["oak_log", "log"] });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.deepEqual(result.error.facts?.unknownNames, ["log"]);
+  }
+  assert.equal(searches, 0);
+  assert.throws(() => world.findNearestBlocks(["oak_log", "log"]), /Unknown block/);
+  assert.equal(searches, 0);
+  assert.deepEqual(await registry.execute("find_nearest_blocks", { names: ["minecraft:oak_log"] }), { ok: true, value: [] });
+  assert.equal(searches, 1);
+});
+
 function entity(
   id: number,
   name: string,

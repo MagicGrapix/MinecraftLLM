@@ -4,6 +4,7 @@ import type { TaskResult } from "../execution/TaskResult";
 export type ActionFinishStatus = "success" | "failure" | "needs_user";
 
 export interface ActionTaskOutcome {
+  readonly actionNumber?: number;
   readonly task: Task;
   readonly result: TaskResult;
 }

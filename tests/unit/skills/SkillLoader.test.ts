@@ -13,6 +13,7 @@ import { SkillLoader } from "../../../src/skills/SkillLoader";
 import { SkillRegistry } from "../../../src/skills/SkillRegistry";
 
 const emptyWorld: WorldQueries = {
+  isKnownName: () => true,
   getSelf: () => ({
     position: { x: 0, y: 0, z: 0 },
     facing: "north",

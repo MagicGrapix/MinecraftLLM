@@ -451,7 +451,7 @@
               : "";
         return (
           `<article class="block">` +
-          `<div class="role ${okClass}">${escapeHtml(execution.name)} · ${escapeHtml(execution.toolCallId)}</div>` +
+          `<div class="role ${okClass}">${execution.actionNumber === undefined ? "" : `Action #${escapeHtml(execution.actionNumber)} · `}${escapeHtml(execution.name)} · ${escapeHtml(execution.toolCallId)}</div>` +
           `<pre>arguments:\n${escapeHtml(execution.arguments)}</pre>` +
           (execution.result === undefined
             ? ""

@@ -29,10 +29,10 @@ export class TransferItemCapability
   readonly name = "transfer_item";
   readonly inputSchema: z.ZodType<TransferItemInput> = z
     .object({
-      sessionId: z.string().uuid(),
-      direction: z.enum(["deposit", "withdraw"]),
-      item: z.string().trim().min(1),
-      quantity: z.number().int().positive(),
+      sessionId: z.string().uuid().describe("Opaque sessionId returned by open_container. Do not invent an ID."),
+      direction: z.enum(["deposit", "withdraw"]).describe("deposit: bot to container; withdraw: container to bot."),
+      item: z.string().trim().min(1).describe('Exact item ID, e.g. "oak_log".'),
+      quantity: z.number().int().positive().describe("Exact positive item quantity to transfer, not a number of stacks."),
     })
     .strict();
 

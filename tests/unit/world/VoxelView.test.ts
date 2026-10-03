@@ -83,6 +83,7 @@ test("voxel query rejects invalid offsets and distant centers", async () => {
 
 function fakeWorld(getBlock: (position: Position) => BlockInfo | null): WorldQueries {
   return {
+    isKnownName: () => true,
     getSelf: () => ({
       position: { x: 5.5, y: -60, z: 8.5 },
       facing: "north",

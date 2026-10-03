@@ -21,7 +21,7 @@ async function harness() {
     fetch: (path: string) => new Promise((resolve) => { pending.push({ path, resolve }); }),
     setInterval() {}, setTimeout, navigator: {},
     testing: undefined as unknown as {
-      state: { selectedId: string | null; selectedSnapshot: unknown; live: boolean; sessionId: string | null };
+      state: { selectedId: string | null; selectedSnapshot: unknown; live: boolean; sessionId: string | null; tab: string };
       selectRound(id: string, manual: boolean): Promise<void>;
       refreshList(poll: boolean): Promise<void>;
       setLive(value: boolean): void;
@@ -48,6 +48,19 @@ test("slow old detail responses cannot overwrite a newer manual selection", asyn
   assert.equal(h.elements.get("detailTitle")!.textContent, "New");
   assert.equal(h.elements.get("detailBody")!.scrollTop, 17);
 });
+test("tool details display the shared action number separately from the native call ID", async () => {
+  const h = await harness();
+  h.state.tab = "debug";
+  const selected = h.selectRound("numbered", true);
+  h.reply("/api/rounds/numbered", {
+    id: "numbered", phase: "actioner", generationId: 1, requestTitle: "Dig", status: "completed",
+    toolExecutions: [{ actionNumber: 12, toolCallId: "call_native", name: "dig", arguments: "{}", result: '{"ok":true,"actionNumber":12}', ok: true }],
+  });
+  await selected;
+  assert.match(h.elements.get("detailBody")!.innerHTML, /Action #12/);
+  assert.match(h.elements.get("detailBody")!.innerHTML, /call_native/);
+});
+
 test("pause invalidates pending automatic selection and polling is single-flight", async () => {
   const h = await harness();
   const old = h.selectRound("old", false);

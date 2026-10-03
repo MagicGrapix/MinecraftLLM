@@ -34,8 +34,8 @@ export class PlaceCapability implements Capability<PlaceInput, PlaceOutput> {
   readonly name = "place";
   readonly inputSchema: z.ZodType<PlaceInput> = z
     .object({
-      referencePosition: BlockPositionSchema,
-      face: BlockFaceSchema,
+      referencePosition: BlockPositionSchema.describe(`${BlockPositionSchema.description} This is the existing support block, NOT the destination cell.`),
+      face: BlockFaceSchema.describe("Face of the support block to place against: top=+Y, bottom=-Y, north=-Z, south=+Z, east=+X, west=-X."),
     })
     .strict();
 

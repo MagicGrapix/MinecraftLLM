@@ -10,6 +10,7 @@ import type {
 } from "./types";
 
 export interface WorldQueries {
+  isKnownName(kind: "block" | "item", name: string): boolean;
   getSelf(): SelfState;
   getInventory(): InventoryState;
   getBlock(position: Position): BlockInfo | null;

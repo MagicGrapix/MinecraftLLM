@@ -5,7 +5,8 @@ export function actionReportForContext(report: DelegatedActionReport) {
   return {
     status: report.status,
     message: report.message,
-    outcomes: report.outcomes.map(({ task, result }) => ({
+    outcomes: report.outcomes.map(({ actionNumber, task, result }) => ({
+      ...(actionNumber === undefined ? {} : { actionNumber }),
       capability: task.capability,
       input: structuredClone(task.input),
       result: structuredClone(result),

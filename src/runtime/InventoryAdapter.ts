@@ -26,8 +26,12 @@ export function countInventoryItem(bot: Bot, itemName: string): number {
 }
 
 export function snapshotInventory(bot: Bot): Readonly<Record<string, number>> {
+  return inventoryTotals(bot.inventory.items());
+}
+
+export function inventoryTotals(items: readonly { name: string; count: number }[]): Readonly<Record<string, number>> {
   const snapshot: Record<string, number> = {};
-  for (const item of bot.inventory.items()) {
+  for (const item of items) {
     snapshot[item.name] = (snapshot[item.name] ?? 0) + item.count;
   }
   return snapshot;

@@ -14,7 +14,7 @@ export const PositionSchema: z.ZodType<Position> = z
     y: coordinateSchema,
     z: coordinateSchema,
   })
-  .strict();
+  .strict().describe('World position as an object of numeric x, y, z coordinates; decimals allowed. Example: {"x":2,"y":-60,"z":5}. Not a string or array.');
 
 export const BlockPositionSchema: z.ZodType<Position> = z
   .object({
@@ -22,7 +22,7 @@ export const BlockPositionSchema: z.ZodType<Position> = z
     y: coordinateSchema.int(),
     z: coordinateSchema.int(),
   })
-  .strict();
+  .strict().describe('Exact block cell as an object of integer x, y, z coordinates. Example: {"x":2,"y":-60,"z":5}. No decimals, strings or arrays.');
 
 export const EquipmentDestinationSchema = z.enum([
   "hand",

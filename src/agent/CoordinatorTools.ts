@@ -3,6 +3,7 @@ import type { LLMTool, LLMToolCall } from "../llm/LLMClient";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
 import { ModelResponseError } from "./ModelResponseError";
 import { toJsonSchema } from "./ToolCatalogBuilder";
+import { invalidToolArguments, parseToolArguments } from "../shared/ToolArgumentFeedback";
 
 const instruction = z.string().trim().min(1).max(1_000);
 const step = z.number().int().min(1).max(10);
@@ -46,12 +47,12 @@ export class CoordinatorTools {
       throw new ModelResponseError(`Unknown tool "${call.name}".`);
     }
     let raw: unknown;
-    try { raw = JSON.parse(call.arguments); }
-    catch { throw new ModelResponseError("Tool arguments are not valid JSON."); }
+    try { raw = parseToolArguments(call.name, call.arguments); }
+    catch (error) { throw new ModelResponseError((error as Error).message); }
     const name = call.name as keyof typeof schemas;
     const schema = Object.hasOwn(schemas, name) ? schemas[name] : this.queries.get(call.name)!.inputSchema;
     const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new ModelResponseError(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+    if (!parsed.success) throw new ModelResponseError(invalidToolArguments(call.name, raw, parsed.error.issues, schema));
     return Object.hasOwn(schemas, name)
       ? { name, input: parsed.data } as WorkflowCall
       : { name: "query", query: call.name, input: parsed.data };

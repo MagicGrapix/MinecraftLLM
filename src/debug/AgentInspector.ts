@@ -157,7 +157,7 @@ export class AgentInspector {
     trace: LLMRequestTrace,
     execution: Pick<
       InspectorToolExecution,
-      "toolCallId" | "name" | "arguments"
+      "toolCallId" | "name" | "arguments" | "actionNumber"
     >,
   ): void {
     const draft = this.requireDraft(trace);
@@ -165,6 +165,7 @@ export class AgentInspector {
       (item) => item.toolCallId === execution.toolCallId,
     );
     const row: MutableToolExecution = {
+      actionNumber: execution.actionNumber,
       toolCallId: execution.toolCallId,
       name: execution.name,
       arguments: execution.arguments,
@@ -185,6 +186,7 @@ export class AgentInspector {
       (item) => item.toolCallId === execution.toolCallId,
     );
     const row: MutableToolExecution = {
+      actionNumber: execution.actionNumber,
       toolCallId: execution.toolCallId,
       name: execution.name,
       arguments: execution.arguments,
@@ -349,6 +351,7 @@ export class AgentInspector {
 }
 
 interface MutableToolExecution {
+  actionNumber?: number;
   toolCallId: string;
   name: string;
   arguments: string;

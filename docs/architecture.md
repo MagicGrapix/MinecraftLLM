@@ -27,6 +27,10 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `WorkflowState` conserve le plan, l'étape sélectionnée et le dernier rapport de chaque étape du plan courant.
 - `CoordinatorTools.ts` et `ToolCatalogBuilder.ts` définissent les catalogues propres à chaque rôle.
   Le coordinateur possède les outils de workflow et les lectures du monde, pas les capacités physiques.
+- `execution/ToolCallJournal.ts` est partagé par les deux agents. Il attribue les numéros d'appels
+  et conserve les inventaires avant/après des capabilities et de `run_step`. La query
+  `get_inventory_diff_after` consulte ces données sans dépendre de la conversation LLM.
+  Le bootstrap injecte le même journal dans les deux agents et le registre de queries.
 - `ActionContextBuilder.ts` et `WorldContextFormatter.ts` préparent les données lisibles.
   `TaskContextFormatter.ts` partage la vue objectif/plan/étape/rapports entre coordinateur et actionneur.
   Les rapports y sont compacts ; leurs TaskResults complets restent dans l'état et les traces.
@@ -49,6 +53,9 @@ si une opération survit au retour de la méthode, l'enregistrer avec `deferCanc
 
 Pour une query : implémenter `WorldQuery`, l'enregistrer dans `defaultQueries.ts`, tester les valeurs
 inconnues et les limites. Une query ne modifie pas le monde.
+Les recherches de noms doivent vérifier le registre de la version Minecraft avec `isKnownName` :
+une requête invalide ne retourne jamais un succès vide. Les erreurs de schéma détaillées utilisent
+`shared/ToolArgumentFeedback.ts`, commun aux agents et au registre de queries.
 
 Pour une évolution d'agent : conserver la frontière `ActionDelegation -> DelegatedActionReport`.
 Adapter les tests de protocole et le contexte envoyé, pas seulement les phrases du prompt.

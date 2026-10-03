@@ -16,11 +16,11 @@ const dropInputSchema: z.ZodType<DropInput> = z.discriminatedUnion("mode", [
   z
     .object({
       mode: z.literal("item"),
-      item: z.string().trim().min(1),
-      count: z.number().int().positive().optional(),
+      item: z.string().trim().min(1).describe('Exact inventory item ID, e.g. "dirt".'),
+      count: z.number().int().positive().optional().describe("Number of items to drop; omit to drop all stacks of this item."),
     })
     .strict(),
-]);
+]).describe('Example: {"mode":"item","item":"dirt","count":2}. {"mode":"all"} drops the entire inventory.');
 
 export class DropCapability implements Capability<DropInput, DropOutput> {
   readonly name = "drop";

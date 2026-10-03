@@ -12,6 +12,9 @@ import { queryFailure, querySuccess } from "./QueryResult";
 import type { WorldQuery } from "./WorldQuery";
 import { WorldQueryRegistry } from "./WorldQueryRegistry";
 import { getDroppedItemsQuery } from "./GetDroppedItems";
+import type { ToolCallJournal } from "../../execution/ToolCallJournal";
+import { inventoryDiffQuery } from "./GetInventoryDiff";
+import { MinecraftNamesSchema, validateMinecraftNames } from "./MinecraftNames";
 
 const emptyInputSchema = z.object({}).strict();
 const getBlockInputSchema = z
@@ -19,12 +22,9 @@ const getBlockInputSchema = z
   .strict();
 const findNearestBlocksInputSchema = z
   .object({
-    names: z.union([
-      z.string().trim().min(1),
-      z.array(z.string().trim().min(1)).min(1),
-    ]),
-    maxDistance: z.number().finite().positive().max(512).optional(),
-    count: z.number().int().positive().max(128).optional(),
+    names: MinecraftNamesSchema,
+    maxDistance: z.number().finite().positive().max(512).optional().describe("Search radius in blocks from the bot. Default 32; maximum 512."),
+    count: z.number().int().positive().max(128).optional().describe("Maximum matching block positions to return, not a harvest quantity. Default 1; maximum 128."),
   })
   .strict();
 const voxelViewInputSchema = z
@@ -60,7 +60,7 @@ const getInventoryQuery: WorldQuery<
   InventoryState
 > = {
   name: "get_inventory",
-  description: "Does: Inspect the bot's inventory and selected item.\nReturns: Current item quantities.\nLimits: Does not show when or how items were acquired.\nNotes: Compare with an earlier snapshot to verify a gain.",
+  description: "Does: Inspect the bot's inventory and selected item.\nReturns: Current item quantities.\nLimits: Does not show when or how items were acquired.\nNotes: get_inventory_diff_after compares the saved before/after inventories of a numbered capability or run_step.",
   inputSchema: emptyInputSchema,
   execute: async (_input, world) => querySuccess(world.getInventory()),
 };
@@ -94,15 +94,18 @@ const findNearestBlocksQuery: WorldQuery<
   name: "find_nearest_blocks",
   description: "Does: Find placed blocks matching the requested names.\nReturns: Matching blocks known within the search radius.\nLimits: Does not check visibility, reachability, or dig access.\nNotes: count limits results. No results does not mean none exist elsewhere.",
   inputSchema: findNearestBlocksInputSchema,
-  execute: async (input, world) =>
-    querySuccess(
+  execute: async (input, world) => {
+    const invalid = validateMinecraftNames(world, "block", input.names);
+    if (invalid) return invalid;
+    return querySuccess(
       world.findNearestBlocks(input.names, {
         ...(input.maxDistance === undefined
           ? {}
           : { maxDistance: input.maxDistance }),
         ...(input.count === undefined ? {} : { count: input.count }),
       }),
-    ),
+    );
+  },
 };
 
 const getVoxelViewQuery: WorldQuery<
@@ -143,6 +146,7 @@ export const defaultWorldQueries = [
 
 export function createDefaultWorldQueryRegistry(
   world: WorldQueries,
+  journal?: ToolCallJournal,
 ): WorldQueryRegistry {
   const registry = new WorldQueryRegistry(world);
   registry.register(getSelfQuery);
@@ -152,5 +156,6 @@ export function createDefaultWorldQueryRegistry(
   registry.register(findNearestBlocksQuery);
   registry.register(getDroppedItemsQuery);
   registry.register(getVoxelViewQuery);
+  if (journal) registry.register(inventoryDiffQuery(journal));
   return registry;
 }

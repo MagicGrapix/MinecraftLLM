@@ -20,6 +20,11 @@ import type {
 export class MineflayerWorldQueries implements WorldQueries {
   constructor(private readonly runtime: MinecraftRuntime) {}
 
+  isKnownName(kind: "block" | "item", name: string): boolean {
+    const registry = this.runtime.bot.registry;
+    return Object.hasOwn(kind === "block" ? registry.blocksByName : registry.itemsByName, normalizeMinecraftName(name));
+  }
+
   getSelf(): SelfState {
     const bot = this.runtime.bot;
 
@@ -58,6 +63,8 @@ export class MineflayerWorldQueries implements WorldQueries {
   ): BlockInfo[] {
     const bot = this.runtime.bot;
     const requestedNames = typeof names === "string" ? [names] : names;
+    const unknownNames = requestedNames.filter((name) => !this.isKnownName("block", name));
+    if (unknownNames.length) throw new Error(`Unknown block names: ${unknownNames.join(", ")}. No search was performed.`);
     const blockIds = requestedNames
       .map((name) => bot.registry.blocksByName[normalizeMinecraftName(name)]?.id)
       .filter((id): id is number => id !== undefined);

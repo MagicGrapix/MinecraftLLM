@@ -1,6 +1,7 @@
 export type QueryErrorCode =
   | "QUERY_NOT_FOUND"
   | "INVALID_ARGUMENT"
+  | "OBSERVATION_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
 export interface QueryError {

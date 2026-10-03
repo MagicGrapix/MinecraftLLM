@@ -36,10 +36,11 @@ test("names filter one or multiple exact item names and excludes unknown stacks"
   const { registry } = setup(() => [
     drop(1, "oak_log", 3, 64), drop(2, "coal", 2), drop(3, null, 1), drop(4, "oak_planks", 4),
   ]);
-  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: " oak_log " })), [1]);
+  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: [" oak_log "] })), [1]);
   assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: ["coal", "oak_log"] })), [2, 1]);
-  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: "iron_ingot" })), []);
-  const result = await registry.execute("get_dropped_items", { names: "oak_log", count: 1 });
+  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: ["minecraft:oak_log"] })), [1]);
+  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: ["iron_ingot"] })), []);
+  const result = await registry.execute("get_dropped_items", { names: ["oak_log"], count: 1 });
   assert.equal(result.ok, true);
   if (result.ok) assert.equal((result.value as DroppedItemInfo[])[0]!.count, 64, "count limits entity results, not the size of their stacks.");
 });
@@ -49,8 +50,8 @@ test("distance filtering and nearest-first limit are applied after identifying m
     drop(1, "oak_log", 9), drop(2, "oak_log", 3), drop(3, "oak_log", 5),
     drop(4, "coal", 1), drop(5, "oak_log", 3),
   ]);
-  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: "oak_log", maxDistance: 5, count: 2 })), [2, 5]);
-  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: "oak_log", maxDistance: 5 })), [2, 5, 3]);
+  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: ["oak_log"], maxDistance: 5, count: 2 })), [2, 5]);
+  assert.deepEqual(ids(await registry.execute("get_dropped_items", { names: ["oak_log"], maxDistance: 5 })), [2, 5, 3]);
   assert.deepEqual(requests, [{ maxDistance: 5 }, { maxDistance: 5 }]);
 });
 
@@ -91,7 +92,7 @@ test("fresh calls observe newly received metadata and disappearance without clai
   assert.equal(before.ok, true);
   if (before.ok) assert.equal((before.value as DroppedItemInfo[])[0]!.item, null);
   entities = [drop(1, "oak_log", 1, 2)];
-  const known = await registry.execute("get_dropped_items", { names: "oak_log" });
+  const known = await registry.execute("get_dropped_items", { names: ["oak_log"] });
   assert.equal(known.ok, true);
   if (known.ok) assert.equal((known.value as DroppedItemInfo[])[0]!.count, 2);
   entities = [];
@@ -108,6 +109,7 @@ function drop(id: number, item: string | null, distance: number, count = 1, name
 function setup(observe: () => EntityInfo[]) {
   const requests: unknown[] = [];
   const world: WorldQueries = {
+    isKnownName: () => true,
     getSelf: () => ({ position: { x: 0, y: -60, z: 0 }, facing: "north", health: 20, food: 20, foodSaturation: 5, oxygenLevel: 20, onGround: true }),
     getInventory: () => ({ items: [], selectedItem: null }), getBlock: () => null,
     getBlockAccess: () => { throw new Error("Not used."); }, findNearestBlocks: () => [],

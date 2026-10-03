@@ -16,6 +16,8 @@ import {
 } from "../debug/AgentInspectorServer";
 import { resolveInspectorUiRoot } from "../debug/resolveInspectorUiRoot";
 import { Executor } from "../execution/Executor";
+import { ToolCallJournal } from "../execution/ToolCallJournal";
+import { snapshotInventory } from "../runtime/InventoryAdapter";
 import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
 import { loadWorkflowPrompts } from "../prompts/WorkflowPrompts";
@@ -43,7 +45,10 @@ export async function createAgentRuntime(
   const world = new MineflayerWorldQueries(runtime);
   const sessions = new ContainerSessionManager(runtime.bot);
   const capabilities = createCapabilityRegistry(sessions);
-  const queries = createDefaultWorldQueryRegistry(world);
+  const executor = new Executor({ registry: capabilities, runtime, world });
+  const journal = new ToolCallJournal(() =>
+    runtime.isConnected && !executor.currentTask ? snapshotInventory(runtime.bot) : null);
+  const queries = createDefaultWorldQueryRegistry(world, journal);
   const skills = await SkillRegistry.discover(
     resolve(process.cwd(), "skills"),
   );
@@ -56,11 +61,6 @@ export async function createAgentRuntime(
     (await LandmarkMemory.load(
       resolve(process.cwd(), config.landmarksFile),
     ));
-  const executor = new Executor({
-    registry: capabilities,
-    runtime,
-    world,
-  });
   const inspector = config.inspectorEnabled
     ? new AgentInspector(config.inspectorMaxRounds)
     : null;
@@ -95,6 +95,7 @@ export async function createAgentRuntime(
     contextBuilder,
     toolBridge: bridge,
     executor,
+    journal,
     maxResponseRetries: config.responseMaxRetries,
     temperature: config.llmTemperature,
     reasoningEffort: config.llmReasoningEffort,
@@ -111,6 +112,7 @@ export async function createAgentRuntime(
   const agent = new WorkflowAgent({
     llm,
     actionAgent,
+    journal,
     queries,
     world,
     landmarks,

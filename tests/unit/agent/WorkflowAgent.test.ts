@@ -6,6 +6,8 @@ import test from "node:test";
 import type { ActionAgent } from "../../../src/agent/ActionAgent";
 import type { ActionDelegation, DelegatedActionReport } from "../../../src/agent/ActionTypes";
 import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
+import { ToolCallJournal } from "../../../src/execution/ToolCallJournal";
+import { inventoryTotals } from "../../../src/runtime/InventoryAdapter";
 import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
 import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { success } from "../../../src/execution/TaskResult";
@@ -39,6 +41,29 @@ test("coordinator native tools exclude capabilities and world state is injected 
     for (const name of ["reply", "ask_planner", "run_step", "complete_step", "refresh_summary", "get_inventory", "get_voxel_view", "get_block_access", "get_dropped_items"]) assert.ok(names.includes(name));
     for (const name of ["dig", "goto", "set_plan", "add_step", "get_capability_schemas", "get_nearby_entities"]) assert.ok(!names.includes(name));
     assert.equal(h.agent.task.summary, "");
+  } finally { await h.close(); }
+});
+
+test("coordinator sees structured unknown-name failures instead of an empty search", async () => {
+  const h = await harness();
+  try {
+    let searches = 0;
+    h.world.isKnownName = (_kind, name) => name === "oak_log";
+    h.world.findNearestBlocks = () => { searches += 1; return []; };
+    tool(h.llm, "find_nearest_blocks", { names: ["oak_log", "log"] });
+    tool(h.llm, "find_nearest_blocks", { names: ["oak_log"] });
+    tool(h.llm, "reply", { outcome: "answer", message: "Valid search is empty." });
+    h.agent.submitUserMessage("owner", "Find wood.");
+    await idle(h.agent);
+    const result = JSON.parse(h.llm.requests[1]!.messages.at(-1)!.content!);
+    assert.equal(result.actionNumber, 1);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "INVALID_ARGUMENT");
+    assert.deepEqual(result.error.facts.unknownNames, ["log"]);
+    assert.match(result.error.message, /No search was performed/);
+    assert.equal(searches, 1);
+    assert.equal(h.replies.at(-1), "Valid search is empty.");
+    assert.equal(h.inspector.listRounds()[0]!.failed, true);
   } finally { await h.close(); }
 });
 
@@ -533,8 +558,9 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
     getInventory: () => ({ items: [], selectedItem: null }),
   } as unknown as WorldQueries;
   const summary = new WorkflowSummaryFile("test", root);
+  const journal = new ToolCallJournal(() => inventoryTotals(world.getInventory().items));
   const agent = new WorkflowAgent({
-    llm, actionAgent, world, inspector, queries: createDefaultWorldQueryRegistry(world),
+    llm, actionAgent, world, inspector, journal, queries: createDefaultWorldQueryRegistry(world, journal),
     landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
     prompts: {
       contextSummary: PromptTemplate.fromString("context-summary", "Compress {{summary_input}} under {{max_chars}} characters."),
@@ -548,7 +574,7 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
     toolReplayMode, contextBudget,
     summaryFile: summary, respond: async (message) => { replies.push(message); },
   });
-  return { agent, llm, inspector, replies, actions, actionInstructions, summary, world,
+  return { agent, llm, inspector, replies, actions, actionInstructions, summary, world, journal,
     close: async () => { await agent.shutdown(); await rm(root, { recursive: true, force: true }); },
   };
 }

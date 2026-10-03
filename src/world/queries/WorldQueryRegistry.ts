@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { errorMessage } from "../../shared/helper";
+import { invalidToolArguments } from "../../shared/ToolArgumentFeedback";
 import type { WorldQueries } from "../WorldQueries";
 import {
   queryFailure,
@@ -67,7 +68,7 @@ export class WorldQueryRegistry {
     if (!parsed.success) {
       return queryFailure(
         "INVALID_ARGUMENT",
-        `Invalid input for world query "${name}".`,
+        invalidToolArguments(name, input, parsed.error.issues, query.inputSchema),
         { issues: parsed.error.issues },
       );
     }

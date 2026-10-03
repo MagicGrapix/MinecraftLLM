@@ -8,6 +8,7 @@ import type { SkillRegistry } from "../skills/SkillRegistry";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
 import type { ActionFinishStatus } from "./ActionTypes";
 import { ModelResponseError } from "./ModelResponseError";
+import { invalidToolArguments, parseToolArguments } from "../shared/ToolArgumentFeedback";
 import { fixedToolSchemas, ToolCatalogBuilder } from "./ToolCatalogBuilder";
 
 export interface AgentToolResult {
@@ -54,7 +55,7 @@ export class AgentToolBridge {
       throw new ModelResponseError("Return exactly one available tool call. You may include a concise operational note with it. Use finish_step to return control.");
     }
     const call = calls[0]!;
-    const raw = parseArguments(call.arguments);
+    const raw = parseArguments(call.name, call.arguments);
     if (call.name === "finish_step") {
       const input = this.parseFixedArguments(call.name, raw);
       return { kind: "finish", status: input.status as ActionFinishStatus, message: input.message as string };
@@ -63,13 +64,13 @@ export class AgentToolBridge {
       const schema = this.options.queries.get(call.name)?.inputSchema;
       if (schema) {
         const parsed = schema.safeParse(raw);
-        if (!parsed.success) throw new ModelResponseError(invalidArgumentsMessage(call.name, parsed.error.issues));
+        if (!parsed.success) throw new ModelResponseError(invalidToolArguments(call.name, raw, parsed.error.issues, schema));
       } else this.parseFixedArguments(call.name, raw);
       return { kind: "read" };
     }
     if (this.options.capabilities.has(call.name)) {
       const validation = this.options.capabilities.validateInput(call.name, raw);
-      if (!validation.ok) throw new ModelResponseError(invalidArgumentsMessage(call.name, validation.issues));
+      if (!validation.ok) throw new ModelResponseError(invalidToolArguments(call.name, raw, validation.issues, this.options.capabilities.get(call.name)!.inputSchema));
       return { kind: "action", task: { capability: call.name, input: validation.input } };
     }
     throw new ModelResponseError('Unknown tool "' + call.name + '". Call a capability directly using its supplied input schema, a world query, or finish_step.');
@@ -80,7 +81,7 @@ export class AgentToolBridge {
     let result: unknown;
     try {
       if (!this.isReadTool(call.name)) throw new ModelResponseError('Tool "' + call.name + '" is not a read/query tool.');
-      result = await this.dispatchRead(call.name, parseArguments(call.arguments));
+      result = await this.dispatchRead(call.name, parseArguments(call.name, call.arguments));
     } catch (error: unknown) {
       if (error instanceof ModelResponseError) throw error;
       result = failure("TOOL_ERROR", error instanceof Error ? error.message : String(error));
@@ -96,7 +97,7 @@ export class AgentToolBridge {
       ? fixedToolSchemas[name as keyof typeof fixedToolSchemas] as z.ZodTypeAny : undefined;
     if (!schema) throw new ModelResponseError('Unknown tool "' + name + '".');
     const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new ModelResponseError(invalidArgumentsMessage(name, parsed.error.issues));
+    if (!parsed.success) throw new ModelResponseError(invalidToolArguments(name, raw, parsed.error.issues, schema));
     return parsed.data as Record<string, unknown>;
   }
 
@@ -124,18 +125,9 @@ export class AgentToolBridge {
   }
 }
 
-function parseArguments(raw: string): Record<string, unknown> {
-  let parsed: unknown;
-  try { parsed = JSON.parse(raw); }
-  catch { throw new ModelResponseError("Tool arguments are not valid JSON."); }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new ModelResponseError("Tool arguments must be a JSON object.");
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function invalidArgumentsMessage(name: string, issues: readonly { path: (string | number)[]; message: string }[]): string {
-  return 'Invalid arguments for "' + name + '": ' + issues.map((issue) => (issue.path.join(".") || "input") + ": " + issue.message).join("; ");
+function parseArguments(name: string, raw: string): Record<string, unknown> {
+  try { return parseToolArguments(name, raw); }
+  catch (error) { throw new ModelResponseError((error as Error).message); }
 }
 
 function success(value: unknown) { return { ok: true, value }; }

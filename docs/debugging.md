@@ -3,6 +3,10 @@
 L'interface locale est http://127.0.0.1:3001/, démarrée avec le bot en mode agent.
 Une request est une demande du joueur ; un call est un appel LLM dans cette request.
 Les numéros de call suivent leur démarrage, pas leur fin.
+Les cartes et les détails des tools affichent aussi `Action #N`, le numéro partagé de l'appel de tool.
+Ne pas le confondre avec `Call N` (appel LLM) ou `Step N` (checklist). Une délégation reçoit son numéro
+avant les tools enfants, même si elle se termine après eux. Clear ne réinitialise pas ce compteur
+et n'efface pas le journal d'inventaire de la demande courante.
 
 Un clic manuel coupe le suivi live. Les réponses réseau d'anciennes sélections ne remplacent plus
 le détail choisi, et le polling ne se chevauche pas. Clear efface les cartes en mémoire,
@@ -17,6 +21,9 @@ pas les fichiers sur disque. Il est refusé lorsqu'un call est en cours.
 Ces fichiers partagent le même identifiant de session. Chaque ligne JSONL est un événement JSON
 avec `timestamp`, `event` et `data`. Événements utiles :
 `llm.request`, `llm.raw_response`, `llm.error`, `inspector.round`, `context.compacted`.
+`tool.started` et `tool.completed` conservent le numéro, le nom du tool, son statut et les inventaires
+avant/après lorsqu'ils sont suivis. Ils sont écrits même sans serveur inspecteur si la trace est activée.
+Un snapshot `null` signifie indisponible, pas vide. Les fichiers existants sont réutilisés, sans fichier par action.
 Les réponses tronquées ou invalides sont conservées, même quand le parsing échoue.
 
 La trace complète est activée par défaut ; `LOG_FULL_TRACE=false` la désactive.

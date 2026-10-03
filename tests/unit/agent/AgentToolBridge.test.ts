@@ -19,6 +19,7 @@ import { MessageHistory } from "../../../src/agent/MessageHistory";
 import { ToolCatalogBuilder } from "../../../src/agent/ToolCatalogBuilder";
 
 const world: WorldQueries = {
+  isKnownName: () => true,
   getSelf: () => ({
     position: { x: 0, y: 64, z: 0 },
     facing: "north",

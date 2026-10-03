@@ -3,6 +3,7 @@ import type { AgentInspector } from "../debug/AgentInspector";
 import type { Executor } from "../execution/Executor";
 import type { Task } from "../execution/Task";
 import { TaskFactory } from "../execution/TaskFactory";
+import { numberedToolResult, type ToolCallJournal } from "../execution/ToolCallJournal";
 import type { TaskResult } from "../execution/TaskResult";
 import type { LLMClient, LLMRequestTrace, LLMResponse, LLMToolCall } from "../llm/LLMClient";
 import type { ActionContextBuilder } from "./ActionContextBuilder";
@@ -20,6 +21,7 @@ interface ActionAgentOptions {
   readonly contextBuilder: ActionContextBuilder;
   readonly toolBridge: AgentToolBridge;
   readonly executor: Executor;
+  readonly journal: ToolCallJournal;
   readonly maxToolCalls?: number;
   readonly maxResponseRetries: number;
   readonly temperature: number;
@@ -123,7 +125,8 @@ export class ActionAgent implements ActionRunner {
         this.mode = "thinking";
         const { response, validated, trace } = await this.completeValidatedCall(session);
         const call = response.message.toolCalls![0]!;
-        this.options.inspector?.recordToolStarted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments });
+        const actionNumber = this.options.journal.start(call.name, validated.kind === "action");
+        this.options.inspector?.recordToolStarted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments });
         let report: DelegatedActionReport | undefined;
         try {
           let content: string;
@@ -142,7 +145,9 @@ export class ActionAgent implements ActionRunner {
             const startedAt = Date.now();
             console.info("Action capability started.", { step: session.delegation.step.step, capability: task.capability, input: task.input });
             const result = await this.options.executor.execute(task);
-            const outcome = { task: structuredClone(task), result: structuredClone(result) };
+            // Capture before observers or another call can change the inventory.
+            this.options.journal.complete(actionNumber, result.ok);
+            const outcome = { actionNumber, task: structuredClone(task), result: structuredClone(result) };
             session.outcomes.push(outcome);
             session.lastTask = outcome.task;
             session.lastResult = outcome.result;
@@ -157,13 +162,16 @@ export class ActionAgent implements ActionRunner {
             content = JSON.stringify({ ok: true, value: { status: validated.status, message: validated.message } });
             ok = true;
           }
-          this.options.inspector?.recordToolCompleted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments, result: content, ok });
+          this.options.journal.complete(actionNumber, ok);
+          content = numberedToolResult(actionNumber, content);
+          this.options.inspector?.recordToolCompleted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments, result: content, ok });
           session.history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id, content }]);
           this.options.inspector?.finalizeRound(trace, signal.aborted ? "aborted" : "completed");
         } catch (error: unknown) {
+          this.options.journal.complete(actionNumber, false);
           this.options.inspector?.recordToolCompleted(trace, {
-            toolCallId: call.id, name: call.name, arguments: call.arguments,
-            result: JSON.stringify({ ok: false, error: { message: errorMessage(error) } }), ok: false,
+            actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments,
+            result: JSON.stringify({ actionNumber, ok: false, error: { message: errorMessage(error) } }), ok: false,
           });
           this.options.inspector?.finalizeRound(trace, signal.aborted ? "aborted" : "error");
           throw error;

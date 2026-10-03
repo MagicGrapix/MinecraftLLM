@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ToolCallJournal } from "../execution/ToolCallJournal";
 import type { AgentInspector } from "../debug/AgentInspector";
 import type { LLMClient, LLMMessage } from "../llm/LLMClient";
 import type { LandmarkMemory } from "../memory/LandmarkMemory";
@@ -8,6 +9,7 @@ import type { WorldQueries } from "../world/WorldQueries";
 import type { ActionRunner } from "./ActionTypes";
 import { actionReportForContext } from "./ActionReportFormatter";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
+import type { QueryError } from "../world/queries/QueryResult";
 import { callCoordinator } from "./CoordinatorCall";
 import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
 import { MessageHistory, type ToolReplayMode } from "./MessageHistory";
@@ -29,6 +31,7 @@ export interface WorkflowAgentOptions {
   readonly world: WorldQueries;
   readonly landmarks: LandmarkMemory;
   readonly queries: WorldQueryRegistry;
+  readonly journal: ToolCallJournal;
   readonly prompts: WorkflowPrompts;
   readonly inspector?: AgentInspector;
   readonly temperature: number;
@@ -79,6 +82,7 @@ export class WorkflowAgent {
 
   submitUserMessage(username: string, text: string): void {
     if (this.shutdownRequested || this.mode !== "idle" || !text.trim()) return;
+    this.options.journal.startRequest();
     this.generationId += 1;
     this.reflection = 0;
     this.delegation = 0;
@@ -149,7 +153,8 @@ export class WorkflowAgent {
       for (let turn = 0; turn < 64 && !this.stopRequested && !this.shutdownRequested; turn += 1) {
         this.mode = "thinking";
         const { call, parsed, message, trace } = await this.askCoordinator(signal);
-        this.options.inspector?.recordToolStarted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments });
+        const actionNumber = this.options.journal.start(call.name, parsed.name === "run_step");
+        this.options.inspector?.recordToolStarted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments });
         let result: { ok: boolean; value?: unknown; error?: { message: string } };
         let terminal = false;
         try {
@@ -158,13 +163,14 @@ export class WorkflowAgent {
           result = { ok: true, value: executed.value };
           terminal = executed.terminal ?? false;
         } catch (error: unknown) {
-          result = { ok: false, error: { message: error instanceof Error ? error.message : String(error) } };
+          result = { ok: false, error: error instanceof QueryToolError ? error.details : { message: error instanceof Error ? error.message : String(error) } };
         }
-        const rawContent = JSON.stringify(result);
+        this.options.journal.complete(actionNumber, result.ok);
+        const rawContent = JSON.stringify({ ...result, actionNumber });
         const content = rawContent;
         // Even aborted tools get a result: resume must never replay an orphan call.
         this.transcript.appendExchange(message, [{ role: "tool", toolCallId: call.id, content }]);
-        this.options.inspector?.recordToolCompleted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments, result: rawContent, ok: result.ok });
+        this.options.inspector?.recordToolCompleted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments, result: rawContent, ok: result.ok });
         this.options.inspector?.finalizeRound(trace, signal.aborted ? "aborted" : "completed");
         await this.options.summaryFile.save(this.task);
         if (signal.aborted || this.stopRequested) { this.mode = "stopped"; return; }
@@ -298,7 +304,7 @@ export class WorkflowAgent {
       case "query": {
         const result = await this.options.queries.execute(call.query, call.input);
         signal.throwIfAborted();
-        if (!result.ok) throw new Error(JSON.stringify(result.error));
+        if (!result.ok) throw new QueryToolError(result.error);
         return { value: result.value };
       }
       case "ask_planner": {
@@ -372,4 +378,8 @@ export class WorkflowAgent {
     this.activeUsername = null;
     this.stopRequested = false;
   }
+}
+
+class QueryToolError extends Error {
+  constructor(readonly details: QueryError) { super(details.message); }
 }

@@ -9,6 +9,8 @@ export type InspectorRoundStatus =
   | "error";
 
 export interface InspectorToolExecution {
+  /** Session-wide tool number, distinct from an LLM call or checklist step. */
+  readonly actionNumber?: number;
   readonly toolCallId: string;
   readonly name: string;
   readonly arguments: string;

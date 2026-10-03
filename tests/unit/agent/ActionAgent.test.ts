@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { z } from "zod";
 import { ActionAgent } from "../../../src/agent/ActionAgent";
+import { ToolCallJournal } from "../../../src/execution/ToolCallJournal";
+import { inventoryTotals } from "../../../src/runtime/InventoryAdapter";
 import { ActionContextBuilder } from "../../../src/agent/ActionContextBuilder";
 import { actionReportForContext } from "../../../src/agent/ActionReportFormatter";
 import type { ActionDelegation, ActionTaskOutcome } from "../../../src/agent/ActionTypes";
@@ -87,7 +89,7 @@ test("a direct capability is awaited before any next LLM call", async () => {
   h.llm.enqueue((request) => {
     assert.equal(h.executor.currentTask, null);
     assert.equal(h.executor.started.length, 1);
-    assert.deepEqual(JSON.parse(request.messages.at(-1)!.content!), { ok: true, value: { block: "oak_log" } });
+    assert.deepEqual(JSON.parse(request.messages.at(-1)!.content!), { actionNumber: 1, ok: true, value: { block: "oak_log" } });
     return response("finish_step", { status: "needs_user", message: "Block broken, pickup not verified." });
   });
   const pending = h.agent.runDelegatedStep(delegation());
@@ -252,7 +254,7 @@ test("stop waits for the physical result and records the actual native tool fail
   assert.deepEqual(report.outcomes[0]!.result, failure("INTERRUPTED", "Dig aborted."));
   assert.equal(h.executor.started.length, 1);
   assert.equal(h.llm.requests.length, 1);
-  const row = h.inspector.listRounds().find((r) => r.activity.startsWith("dig"))!;
+  const row = h.inspector.listRounds().find((r) => r.activity.startsWith("Action #1 · dig"))!;
   assert.equal(row.status, "aborted");
   assert.equal(row.failed, true);
 });
@@ -288,6 +290,48 @@ test("stop through the real Executor waits for registered physical cleanup befor
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.code, "INTERRUPTED");
   assert.equal(h.llm.requests.length, 1);
+});
+
+test("a still-settling interrupted action keeps an unknown after snapshot even after late completion", async () => {
+  let release!: () => void;
+  let began = false;
+  const physical = new Promise<void>((resolve) => { release = resolve; });
+  const h = await harness({ cancellationGraceMs: 0, execute: async () => {
+    began = true;
+    await physical;
+    return success(null);
+  } });
+  action(h.llm, "dig", 1);
+  const pending = h.agent.runDelegatedStep(delegation());
+  try {
+    await until(() => began);
+    await h.agent.requestStop();
+    assert.equal((await pending).status, "interrupted");
+    assert.equal(h.journal.get(1)!.after, null);
+    assert.notEqual(h.physicalExecutor.currentTask, null);
+  } finally { release(); }
+  await until(() => h.physicalExecutor.currentTask === null);
+  const read = await h.toolBridge.executeRead({ id: "diff", name: "get_inventory_diff_after", arguments: '{"actionNumber":1}' });
+  assert.equal(read.ok, false);
+  assert.equal(JSON.parse(read.content).error.code, "OBSERVATION_UNAVAILABLE");
+  assert.equal(h.journal.get(1)!.after, null);
+});
+
+test("failed capabilities still retain observed inventory changes", async () => {
+  let count = 2;
+  const h = await harness({ execute: async () => { count = 1; return failure("WORLD_CHANGED", "Partial operation."); } });
+  h.world.getInventory = () => ({ items: [{ name: "dirt", displayName: "Dirt", type: 1, metadata: 0, count, slot: 36 }], selectedItem: null });
+  action(h.llm, "goto", 1);
+  call(h.llm, "get_inventory_diff_after", { actionNumber: 1 });
+  h.llm.enqueue((request) => {
+    const result = JSON.parse(request.messages.at(-1)!.content!);
+    assert.equal(result.value.toolSucceeded, false);
+    assert.match(result.value.diff, /- dirt: 2\n\+ dirt: 1/);
+    return response("finish_step", { status: "failure", message: "One dirt consumed before failure." });
+  });
+  const report = await h.agent.runDelegatedStep(delegation());
+  assert.equal(report.status, "failure");
+  assert.equal(report.outcomes[0]!.actionNumber, 1);
 });
 
 test("stop between validation and physical dispatch never starts the capability", async () => {
@@ -406,6 +450,79 @@ test("coordinator report projection retains observations and errors without task
   assert.deepEqual(report, before);
 });
 
+test("coordinator and actioner share numbering and can inspect individual and whole-delegation diffs", async () => {
+  for (const mode of ["native", "compact"] as const) {
+    let inventoryCount = 1;
+    const h = await harness({ toolReplayMode: mode, execute: async () => {
+      inventoryCount += 1;
+      return success({ block: "oak_log" });
+    } });
+    h.world.getInventory = () => ({ items: [{ name: "oak_log", displayName: "Oak Log", count: inventoryCount, slot: 36, type: 1, metadata: 0 }], selectedItem: null });
+    const workflow = workflowHarness(h);
+    call(h.llm, "ask_planner", { instruction: "Collect a new log." }); // #1
+    h.llm.enqueue({ message: { role: "assistant", content: JSON.stringify({ steps: [{ title: "Collect log", successCriteria: "One new log." }] }) }, finishReason: "stop" });
+    call(h.llm, "run_step", { step: 1, instruction: "Collect the observed log." }); // #2, finishes after children
+    call(h.llm, "get_inventory", {}); // #3
+    action(h.llm, "dig", 1); // #4
+    call(h.llm, "get_inventory_diff_after", { actionNumber: 4 }); // #5
+    h.llm.enqueue((request) => {
+      const result = JSON.parse(request.messages.at(-1)!.content!);
+      assert.equal(result.actionNumber, 5);
+      assert.equal(result.value.actionNumber, 4);
+      assert.match(result.value.diff, /- oak_log: 1\n\+ oak_log: 2/);
+      return response("finish_step", { status: "success", message: "One new log confirmed by action #4." }); // #6
+    });
+    h.llm.enqueue((request) => {
+      const result = JSON.parse(request.messages.at(-1)!.content!);
+      assert.equal(result.actionNumber, 2);
+      assert.equal(result.value.report.outcomes[0].actionNumber, 4);
+      return response("get_inventory_diff_after", { actionNumber: 2 }); // #7
+    });
+    h.llm.enqueue((request) => {
+      const result = JSON.parse(request.messages.at(-1)!.content!);
+      assert.equal(result.actionNumber, 7);
+      assert.equal(result.value.actionNumber, 2);
+      assert.match(result.value.diff, /- oak_log: 1\n\+ oak_log: 2/);
+      return response("reply", { outcome: "answer", message: "Observed the gain." }); // #8
+    });
+    workflow.agent.submitUserMessage("owner", "Collect one additional log.");
+    await until(() => (workflow.agent.state() as { mode: string }).mode === "idle");
+    assert.deepEqual(workflow.replies, ["Observed the gain."]);
+    const executions = h.inspector.listRounds().flatMap((r) => h.inspector.getRound(r.id)!.toolExecutions);
+    assert.deepEqual(executions.map((e) => e.actionNumber), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.equal(h.journal.get(4)!.completed, true);
+    assert.match(h.inspector.listRounds().find((r) => r.activity.includes("dig"))!.activity, /Action #4/);
+    call(h.llm, "reply", { outcome: "answer", message: "New request." });
+    workflow.agent.submitUserMessage("owner", "Hello again.");
+    await until(() => (workflow.agent.state() as { mode: string }).mode === "idle");
+    assert.equal(h.journal.get(4), undefined);
+    assert.equal(h.journal.get(9)!.tool, "reply");
+    await workflow.agent.shutdown();
+  }
+});
+
+test("actioner receives concrete rejected arguments and corrects them without executing an invalid call", async () => {
+  const h = await harness({ maxResponseRetries: 1 });
+  call(h.llm, "goto", { position: "[2, -60, 5]" });
+  h.llm.enqueue((request) => {
+    const feedback = request.messages[0]!.content!;
+    assert.match(feedback, /Invalid arguments for "goto"/);
+    assert.match(feedback, /Field position:/);
+    assert.match(feedback, /\[2, -60, 5\]/);
+    assert.match(feedback, /Expected schema:/);
+    assert.match(feedback, /No tool was executed/);
+    assert.match(feedback, /Example:/);
+    assert.equal(h.executor.started.length, 0);
+    return response("goto", { position: { x: 2, y: -60, z: 5 } });
+  });
+  h.executor.enqueue(success({ position: { x: 2, y: -60, z: 5 } }));
+  call(h.llm, "finish_step", { status: "success", message: "Arrived." });
+  const report = await h.agent.runDelegatedStep(delegation());
+  assert.equal(report.status, "success");
+  assert.equal(report.outcomes[0]!.actionNumber, 1);
+  assert.equal(h.executor.started.length, 1);
+});
+
 function delegation(userObjective = "Collect one more log"): ActionDelegation {
   return { step: { step: 1, title: "Collect a log", successCriteria: "Bot inventory increases by one log." }, instruction: "Collect a new log, then verify the inventory.", userObjective, checklist: "- [ ] 1. Collect a log", projectSummary: "", reports: [] };
 }
@@ -441,6 +558,7 @@ async function until(check: () => boolean): Promise<void> {
 async function harness(options: {
   contextBudget?: ContextBudget;
   maxResponseRetries?: number; maxToolCalls?: number; toolReplayMode?: "native" | "compact";
+  cancellationGraceMs?: number;
   onTaskFinished?: (outcome: ActionTaskOutcome) => Promise<void>;
   execute?: (name: string, input: unknown, context: ExecutionContext) => Promise<TaskResult>;
 } = {}) {
@@ -449,6 +567,7 @@ async function harness(options: {
   const inspector = new AgentInspector(100);
   const retries: string[] = [];
   const world: WorldQueries = {
+    isKnownName: () => true,
     getSelf: () => ({ position: { x: 0, y: -60, z: 0 }, facing: "north", health: 20, food: 20, foodSaturation: 5, oxygenLevel: 20, onGround: true }),
     getInventory: () => ({ items: [], selectedItem: null }), getBlock: () => null,
     getBlockAccess: () => { throw new Error("Block access was not stubbed."); },
@@ -461,20 +580,21 @@ async function harness(options: {
     execute: async (input, context) => options.execute ? options.execute(name, input, context) : success(null),
   });
   const physicalExecutor = options.execute
-    ? new Executor({ registry: capabilities, world, runtime: {} as MinecraftRuntime })
+    ? new Executor({ registry: capabilities, world, runtime: {} as MinecraftRuntime, cancellationGraceMs: options.cancellationGraceMs })
     : executor as unknown as Executor;
   const landmarks = { pinned: () => [], list: () => [] } as unknown as LandmarkMemory;
+  const journal = new ToolCallJournal(() => physicalExecutor.currentTask ? null : inventoryTotals(world.getInventory().items));
   const skills = { list: () => [] } as unknown as SkillRegistry;
-  const toolBridge = new AgentToolBridge({ capabilities, queries: createDefaultWorldQueryRegistry(world), skills, skillLoader: {} as SkillLoader, landmarks });
+  const toolBridge = new AgentToolBridge({ capabilities, queries: createDefaultWorldQueryRegistry(world, journal), skills, skillLoader: {} as SkillLoader, landmarks });
   const prompts = await loadWorkflowPrompts(resolve(process.cwd(), "prompts"));
   const agent = new ActionAgent({
-    llm, executor: physicalExecutor, inspector, toolBridge, contextSummaryPrompt: prompts.contextSummary, contextBudget: options.contextBudget,
+    llm, journal, executor: physicalExecutor, inspector, toolBridge, contextSummaryPrompt: prompts.contextSummary, contextBudget: options.contextBudget,
     contextBuilder: new ActionContextBuilder({ world, landmarks, systemPrompt: prompts.actioner, conversationSummaryPrompt: prompts.conversationSummary }),
     maxToolCalls: options.maxToolCalls, maxResponseRetries: options.maxResponseRetries ?? 0,
     toolReplayMode: options.toolReplayMode, onTaskFinished: options.onTaskFinished,
     temperature: 0, maxTokens: 4096, onRetry: async (message) => { retries.push(message); },
   });
-  return { agent, llm, executor, physicalExecutor, inspector, retries, world, toolBridge, prompts, landmarks };
+  return { agent, llm, executor, physicalExecutor, inspector, retries, world, toolBridge, prompts, landmarks, journal };
 }
 
 test("actioner compresses its private history and keeps its delegation and latest outcome", async () => {
@@ -502,8 +622,8 @@ test("actioner compresses its private history and keeps its delegation and lates
 function workflowHarness(h: Awaited<ReturnType<typeof harness>>) {
   const replies: string[] = [];
   const agent = new WorkflowAgent({
-    llm: h.llm, actionAgent: h.agent, world: h.world, landmarks: h.landmarks,
-    queries: createDefaultWorldQueryRegistry(h.world), prompts: h.prompts, inspector: h.inspector,
+    llm: h.llm, actionAgent: h.agent, world: h.world, landmarks: h.landmarks, journal: h.journal,
+    queries: createDefaultWorldQueryRegistry(h.world, h.journal), prompts: h.prompts, inspector: h.inspector,
     temperature: 0, maxTokens: 4096, maxRetries: 0,
     summaryFile: { path: "test-only", save: async () => undefined } as unknown as WorkflowSummaryFile,
     respond: async (message) => { replies.push(message); },

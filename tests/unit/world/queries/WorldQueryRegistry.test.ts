@@ -15,6 +15,7 @@ import type { WorldQuery } from "../../../../src/world/queries/WorldQuery";
 import { WorldQueryRegistry } from "../../../../src/world/queries/WorldQueryRegistry";
 
 const world: WorldQueries = {
+  isKnownName: () => true,
   getSelf: () => ({
     position: { x: 1, y: 64, z: 2 },
     facing: "north",
@@ -85,6 +86,29 @@ test("get_block_access delegates strict integer coordinates to the world adapter
     if (!result.ok) assert.equal(result.error.code, "INVALID_ARGUMENT");
   }
   assert.equal(observed.length, 1, "Invalid inputs must not execute the query.");
+});
+
+test("searches reject strings, compound names and unknown IDs rather than returning empty results", async () => {
+  const searches: string[] = [];
+  const registry = createDefaultWorldQueryRegistry({ ...world,
+    isKnownName: (_kind, name) => ["oak_log", "birch_log", "minecraft:oak_log"].includes(name),
+    findNearestBlocks: () => { searches.push("blocks"); return []; },
+    getNearbyEntities: () => { searches.push("drops"); return []; },
+  });
+  for (const query of ["find_nearest_blocks", "get_dropped_items"]) {
+    for (const names of ["oak_log", "oak_log,log,oak_planks", ["oak_log,log"], ["log"], ["oak_log", "invented_wood"]]) {
+      const result = await registry.execute(query, { names });
+      assert.equal(result.ok, false, JSON.stringify({ query, names }));
+      if (!result.ok) assert.equal(result.error.code, "INVALID_ARGUMENT");
+    }
+    const invalid = await registry.execute(query, { names: ["log"] });
+    if (!invalid.ok) assert.match(invalid.error.message, /Unknown.*log.*No search was performed/);
+  }
+  assert.deepEqual(searches, []);
+  for (const query of ["find_nearest_blocks", "get_dropped_items"]) {
+    assert.deepEqual(await registry.execute(query, { names: ["oak_log"] }), { ok: true, value: [] });
+  }
+  assert.deepEqual(searches, ["blocks", "drops"]);
 });
 
 test("unexpected query exceptions become INTERNAL_ERROR", async () => {

@@ -10,7 +10,9 @@ process.on("message", (input: WorkerCommand) => {
     armed = true;
     process.send!({ type: "event", event: "accepted", data: {} });
   }
-  process.send!({ type: "reply", id: input.id, value: input.command === "snapshot" ? observation({ inventory: { oak_log: armed ? 2 : 0 } }) : undefined }, () => {
+  process.send!({ type: "reply", id: input.id, value: input.command === "snapshot" ? observation({
+    inventory: { oak_log: armed ? 2 : 0 }, blocks: (input.positions ?? []).map((position) => ({ position, name: "air" })),
+  }) : undefined }, () => {
     if (input.command === "shutdown") process.disconnect();
   });
 });

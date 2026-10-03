@@ -20,6 +20,8 @@ interface TrialOptions {
 /** Pure lifecycle driver; controller reset/process ownership stay outside this loop. */
 export async function runTrial(options: TrialOptions): Promise<TrialResult> {
   const { scenario, agent, initial, timeoutMs, signal } = options;
+  // Keep the same targets even if the bot turns or moves during the request.
+  const positions = initial.blocks.map((block) => block.position);
   const now = options.now ?? (() => performance.now());
   const wait = options.wait ?? ((ms) => delay(ms, undefined, { signal }));
   const result: TrialResult = {
@@ -47,7 +49,7 @@ export async function runTrial(options: TrialOptions): Promise<TrialResult> {
       let timer: NodeJS.Timeout | undefined;
       let observation: Observation | null;
       try {
-        observation = await Promise.race([agent.snapshot(), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), remaining); })]);
+        observation = await Promise.race([agent.snapshot(positions), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), remaining); })]);
       } finally { clearTimeout(timer); }
       if (observation === null) { result.durationMs = now() - start; result.status = "timeout"; break; }
       result.final = observation;

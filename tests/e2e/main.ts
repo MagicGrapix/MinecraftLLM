@@ -52,7 +52,8 @@ async function campaign(options: CampaignOptions, selected: readonly Scenario[],
           signal.throwIfAborted();
           bot = new AgentProcess(config, trialDirectory, prompts, trace);
           await bot.waitReady(scenarioConfig.startupTimeoutMs, signal);
-          const initial = await world.preparePlayer(scenario, () => bot!.snapshot(), signal);
+          const positions = scenario.observeBlocks?.(config) ?? [];
+          const initial = await world.preparePlayer(scenario, () => bot!.snapshot(positions), signal);
           const setupMs = performance.now() - setupStarted;
           result = await runTrial({
             scenario, agent: bot, initial, timeoutMs,

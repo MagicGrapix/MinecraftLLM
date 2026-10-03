@@ -18,6 +18,8 @@ test("fresh child processes reset state and IPC reports acceptance; owned stuck 
       await child.waitReady(15_000);
       sessions.push(child.sessionId!);
       assert.equal((await child.snapshot()).inventory.oak_log, 0);
+      const positions = [{ x: 0, y: -60, z: 1 }];
+      assert.deepEqual((await child.snapshot(positions)).blocks, [{ position: positions[0], name: "air" }]);
       assert.equal(child.acceptedAt, null);
       await child.arm("Collect wood.");
       assert.equal((await child.snapshot()).inventory.oak_log, 2);

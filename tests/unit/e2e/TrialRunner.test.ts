@@ -78,3 +78,30 @@ test("a late completion cannot convert a deadline into a pass", async () => {
   });
   assert.equal(result.status, "timeout");
 });
+
+test("placement observations follow the initial fixed cell through trial snapshots", async () => {
+  const scenario = scenarios.find((s) => s.id === "place_block_in_front")!;
+  const positions = [{ x: 0, y: -60, z: 1 }];
+  let snapshots = 0;
+  let time = 0;
+  const agent: TrialAgent = {
+    acceptedAt: 0, finished: null, failure: null, arm: async () => undefined,
+    snapshot: async (requested) => {
+      assert.deepEqual(requested, positions);
+      snapshots++;
+      if (snapshots === 2) agent.finished = { at: time };
+      return observation({ blocks: [{ position: positions[0]!, name: snapshots === 2 ? "oak_planks" : "air" }] });
+    },
+  };
+  const result = await runTrial({
+    scenario, agent,
+    initial: observation({ inventory: { oak_planks: 1 }, blocks: [{ position: positions[0]!, name: "air" }] }),
+    timeoutMs: 500, acceptanceTimeoutMs: 200, pollMs: 50,
+    now: () => time, wait: async (ms) => { time += ms; },
+    sendChat: async () => undefined, record: () => undefined, inArena: () => true,
+  });
+  assert.equal(snapshots, 2);
+  assert.equal(result.status, "passed");
+  assert.equal(result.goalReachedAtMs, 50);
+  assert.deepEqual(result.final?.blocks, [{ position: positions[0], name: "oak_planks" }]);
+});

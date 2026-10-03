@@ -19,10 +19,12 @@ Depuis la racine du projet :
 npm.cmd run test:scenarios -- --list
 npm.cmd run test:scenarios -- --scenario craft_table
 npm.cmd run test:scenarios -- --scenario collect_two_logs --timeout 300 --repeat 3
+npm.cmd run test:scenarios -- --scenario collect_four_logs --timeout 300
+npm.cmd run test:scenarios -- --scenario place_block_in_front
 npm.cmd run test:scenarios
 ```
 
-La dernière commande lance les deux scénarios. Le reset modifie l'arène configurée du world builder
+La dernière commande lance les quatre scénarios. Le reset modifie l'arène configurée du world builder
 (par défaut X/Z -48..48, Y -64..-30), y compris ses blocs souterrains et ses entités hors joueurs.
 Le profil restauré est bedrock -64, terre -63/-62, herbe -61, air au-dessus.
 Éviter les interventions manuelles et les autres bots actifs dans cette zone pendant une campagne.
@@ -34,6 +36,18 @@ Les options de connexion Minecraft et Ollama restent celles du projet. Le délai
 est son `timeoutMs`, avec 300 000 ms par défaut ; `--timeout` surcharge ce délai en secondes.
 Un message de scénario est limité à 220 caractères, sans slash initial ni saut de ligne, pour rester
 une seule demande dans le chat actuel. `--help` et `--list` ne contactent ni Minecraft ni Ollama.
+
+Scénarios disponibles :
+
+- `craft_table` : quatre planches fournies ; obtenir une table de craft dans l'inventaire.
+- `collect_two_logs` : inventaire vide, un chêne fixe ; gagner au moins deux bûches.
+- `collect_four_logs` : inventaire vide, trois chênes aux positions X/Z (5, 0), (-5, 4), (3, 9) ;
+  gagner au moins quatre bûches. Les arbres contiennent chacun quatre blocs de tronc. Le bot peut
+  récolter un seul arbre ou plusieurs ; casser les blocs sans ramasser leur loot ne suffit pas.
+- `place_block_in_front` : une planche de chêne fournie ; la poser au sol juste devant la position
+  initiale du bot. Il démarre face au sud (+Z), donc la cible est (0, surfaceY+1, 1), soit (0, -60, 1)
+  par défaut. Le critère vérifie le passage air → `oak_planks` à cet endroit **et** la consommation
+  d'un bloc d'inventaire. Tourner ou se déplacer ne déplace pas la cible ; jeter l'objet ne valide pas le test.
 
 Pour une série périodique, sans chevauchement :
 
@@ -78,7 +92,7 @@ Après le nettoyage, il pose toute la couche d'herbe, puis les deux couches de t
 puis la bedrock. La terre est ainsi couverte dès sa pose, même lorsque les `/fill` sont découpés,
 pour éviter une propagation d'herbe pendant le reset. La vérification exacte des blocs reste inchangée.
 Le reset manuel existant combine toujours terrain, joueur, temps et météo.
-Les arbres de scénario ont une géométrie fixe et des feuilles persistantes, posées avec deux `/fill`.
+Les arbres de scénario ont une géométrie fixe et des feuilles persistantes, posées avec deux `/fill` par arbre.
 La génération naturelle `/place feature` reste disponible dans le world builder manuel.
 
 Le bot de test accepte le chat normalement. Le worker détecte une demande acceptée d'un autre émetteur
@@ -86,6 +100,10 @@ ou différente de la demande attendue comme une contamination. Il n'ajoute aucun
 au bot normal. Une intervention physique d'un joueur n'est pas automatiquement détectée.
 
 L'IPC du worker transporte uniquement readiness, événements de workflow, observations et fermeture.
+Un snapshot peut demander une liste de cellules fixes (64 maximum), lues avec `blockAt` dans les chunks
+reçus du serveur. Une cellule indisponible vaut `null`, pas `air` ; la préparation attend leur disponibilité.
+Les mêmes positions sont relues pendant l'essai et conservées dans `blocks` des observations.
+Cette instrumentation de test ne donne aucun outil, coordonnée cible ou critère supplémentaire aux agents.
 Les objectifs viennent du controller via Minecraft, jamais d'une commande IPC d'action.
 La déconnexion seule n'efface pas les données joueur côté serveur ; le reset du joueur est donc obligatoire.
 Les recettes/découvertes/advancements du compte serveur ne sont pas effacés.
@@ -116,7 +134,7 @@ Les sources UI sont dans `tests/e2e/report/`, incorporées par `Report.ts` dans 
 - `skills/`, `source/`, `working-tree.patch` : copie de référence du code, des skills et changements locaux.
 - `results.json` : essais et statistiques cumulés, consommables ultérieurement par une autre UI.
 - `<essai>/scenario.json` : demande, délai et inventaire initial.
-- `<essai>/events.jsonl` : événements du lanceur et observations de l'inventaire/état.
+- `<essai>/events.jsonl` : événements du lanceur et observations de l'inventaire/état/cellules suivies.
 - `<essai>/trace_<session>.jsonl` : requêtes LLM, réponses brutes et appels de tools de production.
 - `<essai>/result.json` : verdict, critère, observations initiale/finale, temps et statistiques.
 - `<essai>/process.log`, `log_<session>.log`, `agent_summary_<session>.md` : sorties et checklist.
@@ -129,7 +147,8 @@ Ils ne sont donc pas des identifiants globaux de campagne. Utiliser essai/sessio
 
 Statuts : `passed`, `failed` (workflow terminé mais critère faux), `timeout`, `error` (préparation,
 workflow en erreur, observation perdue ou infrastructure). Un « success » du modèle ne valide rien seul.
-Les critères actuels mesurent des gains d'inventaire depuis l'état initial, pas seulement une présence.
+Les critères de craft/récolte mesurent des gains d'inventaire depuis l'état initial, pas seulement une présence.
+Le placement compare aussi la cellule cible observée au début et à la fin, sans faire confiance au rapport du modèle.
 Un objectif atteint sans workflow terminé avant le délai reste un timeout, avec `goalReachedAtMs` renseigné.
 Le temps de setup est séparé du temps de demande. Les observations et IPC ont une granularité de quelques
 centaines de millisecondes ; un état observé après le délai ne transforme pas un timeout en réussite.
@@ -154,6 +173,6 @@ Les vrais scénarios ne sont jamais exécutés par cette commande.
 
 Pour ajouter un scénario, définir un `Scenario` dans `scenarios.ts` avec demande, inventaire,
 fixture bornée facultative, liste de blocs attendus et `verify(initial, current)`.
-Les critères restent de petites fonctions déterministes ; les observations disponibles aujourd'hui
-couvrent surtout l'inventaire et l'état du bot. Ajouter explicitement les observations nécessaires
-avant un scénario de construction ou de validation de blocs plus complexe.
+`expectedBlocks` décrit la fixture à vérifier avant l'essai ; `observeBlocks(config)` sélectionne,
+si nécessaire, les cellules à suivre pendant l'essai. Les critères restent de petites fonctions
+déterministes, basées sur l'inventaire, l'état du bot et ces observations explicites de blocs.

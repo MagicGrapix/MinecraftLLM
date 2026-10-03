@@ -4,7 +4,9 @@ import { createAgentRuntime, type RunningAgentRuntime } from "../../src/bootstra
 import { snapshotInventory } from "../../src/runtime/InventoryAdapter";
 import { MinecraftRuntime, type MinecraftRuntimeOptions } from "../../src/runtime/MinecraftRuntime";
 import { SESSION_ID, subscribeTrace } from "../../src/TraceLog";
+import type { Position } from "../../src/shared/types";
 import { bounded, message } from "./async";
+import { observeBlocks } from "./BlockObservations";
 import type { Observation, WorkerCommand, WorkerEvent, WorkerReply } from "./types";
 
 interface Options extends MinecraftRuntimeOptions { controllerUsername: string; promptsDirectory: string; landmarksFile: string }
@@ -30,12 +32,13 @@ subscribeTrace((name, data) => {
   if (name === "workflow.finished") event("finished", data);
 });
 
-function snapshot(): Observation {
+function snapshot(positions: readonly Position[] = []): Observation {
   if (!agentRuntime || !runtime.isConnected) throw new Error("Bot is not connected and ready.");
   const bot = runtime.bot;
   const state = agentRuntime.agent.state() as { mode: string };
   return {
     inventory: snapshotInventory(bot), position: { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z },
+    blocks: observeBlocks(bot, positions),
     yaw: bot.entity.yaw, pitch: bot.entity.pitch, health: bot.health, food: bot.food,
     effects: Object.keys(bot.entity.effects).length, onGround: bot.entity.onGround,
     physicalIdle: agentRuntime.isPhysicallyIdle(), mode: state.mode,
@@ -66,7 +69,7 @@ process.on("message", (input: WorkerCommand) => {
     try {
       if (!Number.isSafeInteger(input.id)) throw new Error("Invalid IPC request.");
       let value: unknown;
-      if (input.command === "snapshot") value = snapshot();
+      if (input.command === "snapshot") value = snapshot(input.positions);
       else if (input.command === "arm") {
         if (!agentRuntime || closing || armed || !input.text?.trim()) throw new Error("Cannot arm trial.");
         expectedPrompt = input.text.trim();

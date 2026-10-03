@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { bounded, message, until } from "./async";
 import type { Observation, TrialAgent, WorkerCommand, WorkerEvent, WorkerReply } from "./types";
 import type { WorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
+import type { Position } from "../../src/shared/types";
 
 /** Owns exactly one Node child, never a shell or a user's existing bot process. */
 export class AgentProcess implements TrialAgent {
@@ -53,7 +54,7 @@ export class AgentProcess implements TrialAgent {
   async waitReady(timeoutMs: number, signal?: AbortSignal): Promise<void> {
     await until(() => { this.assertHealthy(); return this.ready; }, timeoutMs, "Bot readiness", signal);
   }
-  snapshot(): Promise<Observation> { return this.call("snapshot", 3_000); }
+  snapshot(positions: readonly Position[] = []): Promise<Observation> { return this.call("snapshot", 3_000, { positions }); }
   async arm(text: string): Promise<void> { await this.call("arm", 3_000, { text }); }
 
   async close(graceMs: number): Promise<boolean> {

@@ -124,6 +124,7 @@ export function playerReady(observed: Observation, scenario: Scenario, y: number
   const actual = Object.entries(observed.inventory).filter(([, n]) => n > 0).sort();
   const expected = Object.entries(scenario.initialInventory).sort();
   return JSON.stringify(actual) === JSON.stringify(expected) && observed.physicalIdle && observed.mode === "idle"
+    && observed.blocks.every((block) => block.name !== null)
     && observed.health === 20 && observed.food === 20 && observed.effects === 0 && observed.onGround
     && Math.abs(observed.position.x - 0.5) < 0.05 && Math.abs(observed.position.y - y) < 0.05 && Math.abs(observed.position.z - 0.5) < 0.05
     && Math.abs(observed.pitch) < 0.01 && Math.abs(Math.abs(observed.yaw) - Math.PI) < 0.01;

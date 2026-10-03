@@ -69,6 +69,9 @@ des producteurs de tâches. Le runtime expose cette attente pour le lanceur de s
 Le monde de test actuel est l'Overworld standard : Y=-64 à 319.
 L'arène par défaut va de (-48,-64,-48) à (48,-30,48).
 Le reset restaure bedrock à -64, terre à -63/-62 et herbe à -61 ; le bot est téléporté à Y=-60.
+Après avoir vidé l'arène, il reconstruit les couches du haut vers le bas : herbe, terre supérieure,
+terre inférieure, bedrock. Chaque couche est entièrement posée avant la suivante pour éviter
+la propagation d'herbe sur de la terre temporairement exposée entre les commandes espacées.
 Les poches de minerai restent au-dessus de -64 : sur ce profil très mince, elles s'étalent horizontalement
 sous l'herbe, avec une couche de pierre et la bedrock dessous. Pour un vrai sous-sol profond,
 il faudra un profil de surface plus haut ; le générateur ne le déplace pas implicitement.
@@ -82,6 +85,8 @@ La console annonce « Plan sent » : absence d'erreur observée ne signifie pas 
 de toutes les modifications. Un retour tardif peut échapper à la fenêtre ; ce n'est pas un protocole d'ACK.
 Les changements déjà effectués ne sont pas annulés si une commande ultérieure échoue.
 Le contrôleur est OP ; le bot principal reste sans privilèges administratifs.
+Sa physique Mineflayer est désactivée dès sa création. Il reste spectateur, immobile au-dessus
+de l'arène pendant le reset ; ce réglage ne concerne pas la physique du bot agent.
 
 Le reset de terrain peut être construit séparément du reset du joueur pour un bot hors ligne.
 Le lanceur de [scénarios](scenario-testing.md) vérifie l'état initial observé avant d'envoyer la demande ;

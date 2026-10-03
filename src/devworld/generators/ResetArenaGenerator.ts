@@ -34,21 +34,23 @@ export class ResetArenaGenerator {
         this.options.arena,
         DEV_WORLD_BLOCKS.air,
       ),
+      // Rebuild top-down: cover dirt before placing it so neighboring grass
+      // cannot spread onto an exposed layer between throttled commands.
       ...this.options.fill.generate(
-        horizontalLayer(this.options.arena, profile.bedrockY),
-        DEV_WORLD_BLOCKS.bedrock,
-      ),
-      ...this.options.fill.generate(
-        horizontalLayer(this.options.arena, profile.lowerDirtY),
-        DEV_WORLD_BLOCKS.dirt,
+        horizontalLayer(this.options.arena, profile.grassY),
+        DEV_WORLD_BLOCKS.grass,
       ),
       ...this.options.fill.generate(
         horizontalLayer(this.options.arena, profile.upperDirtY),
         DEV_WORLD_BLOCKS.dirt,
       ),
       ...this.options.fill.generate(
-        horizontalLayer(this.options.arena, profile.grassY),
-        DEV_WORLD_BLOCKS.grass,
+        horizontalLayer(this.options.arena, profile.lowerDirtY),
+        DEV_WORLD_BLOCKS.dirt,
+      ),
+      ...this.options.fill.generate(
+        horizontalLayer(this.options.arena, profile.bedrockY),
+        DEV_WORLD_BLOCKS.bedrock,
       ),
       entityCleanupCommand(this.options.arena),
     ];

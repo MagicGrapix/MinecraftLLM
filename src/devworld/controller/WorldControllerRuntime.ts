@@ -54,6 +54,9 @@ export class WorldControllerRuntime {
       username: this.config.controllerUsername,
       version: this.config.version,
       auth: "offline",
+      // An admin observer must not fall while fill removes the arena floor.
+      // Spectator mode alone does not disable Mineflayer's local gravity.
+      physicsEnabled: false,
     });
     this.botInstance = bot;
 

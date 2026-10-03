@@ -62,7 +62,21 @@ Le code de sortie est 0 si tous les essais réussissent, 1 sinon.
 9. `stop` dans le chat, arrêt du workflow, attente de libération du verrou physique, fermeture du processus
    et confirmation de départ du joueur par le controller avant le prochain reset.
 
+Le controller est créé avec `physicsEnabled: false` et placé en spectateur au-dessus de l'arène.
+Il n'applique pas de gravité locale pendant que le reset supprime le sol. Le bot agent garde sa physique normale.
+Une mort du controller est une erreur d'infrastructure, jamais une observation valide après respawn.
+
+La vérification du terrain/fixture conserve l'attente de dix secondes pour les mises à jour serveur.
+Au timeout, le message précise la première anomalie du **dernier scan** : position, bloc attendu,
+bloc observé (`unknown` si indisponible), ou entité non-joueur encore présente. Une seule entrée
+`world.verification_failed` est écrite dans les événements de campagne avec ce diagnostic et l'état
+du controller. L'erreur apparaît aussi dans `result.json`, le rapport HTML et la console ; chaque poll
+n'écrit pas un log. Annuler la campagne ne génère pas ce diagnostic de timeout.
+
 `ResetArenaGenerator.generateTerrainReset` ne cible pas un joueur connecté.
+Après le nettoyage, il pose toute la couche d'herbe, puis les deux couches de terre du haut vers le bas,
+puis la bedrock. La terre est ainsi couverte dès sa pose, même lorsque les `/fill` sont découpés,
+pour éviter une propagation d'herbe pendant le reset. La vérification exacte des blocs reste inchangée.
 Le reset manuel existant combine toujours terrain, joueur, temps et météo.
 Les arbres de scénario ont une géométrie fixe et des feuilles persistantes, posées avec deux `/fill`.
 La génération naturelle `/place feature` reste disponible dans le world builder manuel.

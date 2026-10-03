@@ -137,6 +137,53 @@ test("reset restores exact flat layers and clear preserves underground", () => {
   );
 });
 
+for (const { surfaceY, resetArena, maxFillBlocks } of [
+  { surfaceY: -61, resetArena: loadWorldBuilderConfig({}).arena, maxFillBlocks: 32_768 },
+  {
+    surfaceY: 10,
+    resetArena: createArenaBounds({ x: -2, y: 7, z: -2 }, { x: 2, y: 13, z: 2 }),
+    maxFillBlocks: 16,
+  },
+]) {
+  test(`terrain reset covers dirt before placing it at surface Y=${surfaceY}`, () => {
+    const reset = new ResetArenaGenerator({
+      arena: resetArena,
+      surfaceY,
+      agentUsername: "bot",
+      fill: new FillCommandGenerator(maxFillBlocks),
+    });
+    const commands = reset.generateTerrainReset();
+    const fills = commands.filter(command => command.text.startsWith("fill "));
+    const layers = [
+      { y: surfaceY, block: DEV_WORLD_BLOCKS.grass },
+      { y: surfaceY - 1, block: DEV_WORLD_BLOCKS.dirt },
+      { y: surfaceY - 2, block: DEV_WORLD_BLOCKS.dirt },
+      { y: surfaceY - 3, block: DEV_WORLD_BLOCKS.bedrock },
+    ];
+    const airFills = fills.filter(command => command.text.endsWith(` ${DEV_WORLD_BLOCKS.air} replace`));
+    let offset = airFills.length;
+    assert.deepEqual(fills.slice(0, offset), airFills, "Clear all cells before rebuilding any layer");
+
+    for (const { y, block } of layers) {
+      const expected = new FillCommandGenerator(maxFillBlocks).generate(
+        createArenaBounds(
+          { x: resetArena.min.x, y, z: resetArena.min.z },
+          { x: resetArena.max.x, y, z: resetArena.max.z },
+        ),
+        block,
+      );
+      assert.deepEqual(
+        fills.slice(offset, offset + expected.length), expected,
+        `Complete the entire layer at Y=${y} before placing the layer below`,
+      );
+      offset += expected.length;
+    }
+    assert.equal(offset, fills.length, "Do not clear or rebuild layers again afterwards");
+    assert.match(commands[0]!.text, /^kill /);
+    assert.match(commands.at(-1)!.text, /^kill /);
+  });
+}
+
 test("world plan validation rejects unsafe text and out-of-arena effects", () => {
   const factory = new WorldPlanFactory({
     arena,

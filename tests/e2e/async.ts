@@ -9,12 +9,15 @@ export async function bounded<T>(operation: Promise<T>, ms: number, label: strin
   } finally { clearTimeout(timer); }
 }
 
-export async function until(check: () => boolean | Promise<boolean>, ms: number, label: string, signal?: AbortSignal): Promise<void> {
+export async function until(check: () => boolean | Promise<boolean>, ms: number, label: string, signal?: AbortSignal, timeoutDetails?: () => string): Promise<void> {
   const deadline = performance.now() + ms;
   while (true) {
     signal?.throwIfAborted();
     if (await check()) return;
-    if (performance.now() >= deadline) throw new Error(`${label} timed out after ${ms} ms`);
+    if (performance.now() >= deadline) {
+      const details = timeoutDetails?.();
+      throw new Error(`${label} timed out after ${ms} ms${details ? `. ${details}` : ""}`);
+    }
     await delay(50, undefined, { signal });
   }
 }

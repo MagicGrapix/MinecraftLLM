@@ -1,4 +1,3 @@
-import { Vec3 } from "vec3";
 import { WorldBuilder } from "../../src/devworld/WorldBuilder";
 import { WorldPlanFactory, type WorldPlan } from "../../src/devworld/WorldPlan";
 import type { WorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
@@ -6,7 +5,8 @@ import { WorldControllerRuntime } from "../../src/devworld/controller/WorldContr
 import { MineflayerCommandTransport } from "../../src/devworld/controller/MineflayerCommandTransport";
 import { CommandExecutor } from "../../src/devworld/execution/CommandExecutor";
 import { containsPosition, createArenaBounds } from "../../src/devworld/ArenaBounds";
-import { bounded, until } from "./async";
+import { bounded, until, message } from "./async";
+import { firstTerrainMismatch, formatTerrainMismatch, type ExpectedBlock, type TerrainMismatch } from "./TerrainVerification";
 import type { Observation, Scenario } from "./types";
 
 export class TestWorld {
@@ -21,6 +21,7 @@ export class TestWorld {
     await bounded(this.runtime.connect(), 20_000, "World controller connection");
     this.runtime.bot.on("error", (error) => { this.failure = error.message; });
     this.runtime.bot.on("end", () => { this.failure ??= "World controller disconnected."; });
+    this.runtime.bot.on("death", () => { this.failure ??= "World controller died; terrain observations are no longer reliable."; });
     this.transport = new MineflayerCommandTransport(this.runtime.bot, this.config.commandResponseWindowMs);
     await this.runtime.initialize(this.transport);
     this.executor = new CommandExecutor({ ...this.config, transport: this.transport });
@@ -32,9 +33,9 @@ export class TestWorld {
   async prepareTerrain(scenario: Scenario, signal?: AbortSignal): Promise<void> {
     await this.execute(new WorldBuilder({ config: this.config }).resetTerrain(), signal);
     // Verify every cell: a missing chunk is unknown, never interpreted as air.
-    await until(() => this.matchesTerrain([]), 10_000, "Superflat reset verification", signal);
+    await this.verifyTerrain([], "Superflat reset verification", signal);
     if (scenario.fixture) await this.execute(scenario.fixture(this.config), signal);
-    await until(() => this.matchesTerrain(scenario.expectedBlocks?.(this.config) ?? []), 10_000, "Scenario fixture verification", signal);
+    await this.verifyTerrain(scenario.expectedBlocks?.(this.config) ?? [], "Scenario fixture verification", signal);
   }
 
   async preparePlayer(scenario: Scenario, snapshot: () => Promise<Observation>, signal?: AbortSignal): Promise<Observation> {
@@ -94,20 +95,28 @@ export class TestWorld {
       if (result.status !== "completed") throw new Error(result.error ?? "World preparation failed.");
     } finally { signal?.removeEventListener("abort", stop); }
   }
-  private matchesTerrain(blocks: readonly { position: { x: number; y: number; z: number }; name: string }[]): boolean {
-    this.assertHealthy();
-    if (Object.values(this.runtime.bot.entities).some((entity) => entity.type !== "player" && this.inArena(entity.position))) return false;
-    const overrides = new Map(blocks.map((b) => [`${b.position.x},${b.position.y},${b.position.z}`, b.name]));
-    const { arena, surfaceY } = this.config;
-    for (let x = arena.min.x; x <= arena.max.x; x++) {
-      for (let z = arena.min.z; z <= arena.max.z; z++) {
-        for (let y = arena.min.y; y <= arena.max.y; y++) {
-          const expected = overrides.get(`${x},${y},${z}`) ?? (y === surfaceY ? "grass_block" : y === surfaceY - 1 || y === surfaceY - 2 ? "dirt" : y === surfaceY - 3 ? "bedrock" : "air");
-          if (this.runtime.bot.blockAt(new Vec3(x, y, z))?.name !== expected) return false;
-        }
+  private async verifyTerrain(blocks: readonly ExpectedBlock[], label: string, signal?: AbortSignal): Promise<void> {
+    let mismatch: TerrainMismatch | null = null;
+    try {
+      await until(() => {
+        this.assertHealthy();
+        mismatch = firstTerrainMismatch(this.runtime.bot, this.config, blocks);
+        return mismatch === null;
+      }, 10_000, label, signal, () => mismatch ? formatTerrainMismatch(mismatch) : "");
+    } catch (error) {
+      if (!signal?.aborted) {
+        const bot = this.runtime.bot;
+        this.record("world.verification_failed", {
+          label, error: message(error), firstMismatch: mismatch,
+          controller: {
+            position: bot.entity?.position
+              ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null,
+            health: bot.health, gameMode: bot.game.gameMode,
+          },
+        });
       }
+      throw error;
     }
-    return true;
   }
 }
 

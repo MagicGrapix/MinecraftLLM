@@ -21,7 +21,8 @@ test("inventory reset requires OP initialization and targets only the configured
     world: { getColumnAt: () => ({}) },
     quit: () => undefined,
   }) as unknown as Bot;
-  const runtime = new WorldControllerRuntime(config, () => {
+  const runtime = new WorldControllerRuntime(config, (options) => {
+    assert.equal(options.physicsEnabled, false, "Only the admin observer is created without gravity.");
     queueMicrotask(() => emitter.emit("spawn"));
     return bot;
   });

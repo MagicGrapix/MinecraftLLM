@@ -251,6 +251,14 @@ avec ouverture, entrée, sortie, fermeture et nouvelle vérification indépendan
 Il utilise `build_test_bot` et une petite zone vide autour de (-24,-60,-24), nettoyée ensuite.
 Voir [les prérequis et limites](blueprints.md#smoke-minecraft-explicite). Ce n'est pas encore un scénario conversationnel avec Architect.
 
+`npm.cmd run smoke:architect` teste séparément le rôle de conception avec le LLM configuré et les noms
+du registre Minecraft configuré. Aucun serveur Minecraft/controller n'est contacté. Le blueprint accepté
+est sauvegardé puis relu, sans construction ; les soumissions rejetées ne deviennent pas des fichiers acceptés.
+Le prompt de l'essai est dans `tests/fixtures/prompts/architect-request.md`, séparé du prompt de rôle.
+Les traces sont celles du logger normal, pas un rapport de campagne. Un dessin valide peut encore être
+inadapté à la demande ou inaccessible à la construction : cet essai ne prouve ni l'un ni l'autre.
+Le workflow coordinateur -> Architect -> approvisionnement -> Builder reste à intégrer et tester.
+
 Pour ajouter un scénario, définir un `Scenario` dans `scenarios.ts` avec demande, inventaire,
 fixture bornée facultative, liste de blocs attendus et `verify(initial, current)`.
 `expectedBlocks` décrit la fixture à vérifier avant l'essai ; `observeBlocks(config)` sélectionne,

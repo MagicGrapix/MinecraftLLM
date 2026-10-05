@@ -6,7 +6,7 @@ import test, { type TestContext } from "node:test";
 import minecraftData from "minecraft-data";
 import { BlueprintStore } from "../../../src/building/BlueprintStore";
 import { BlueprintValidator } from "../../../src/building/BlueprintValidator";
-import { BLUEPRINT_LIMITS } from "../../../src/building/BuildingConfig";
+import { BLUEPRINT_LIMITS, BLUEPRINT_SOLID_BLOCKS } from "../../../src/building/BuildingConfig";
 import type { TaskResult } from "../../../src/execution/TaskResult";
 import { MaterialCatalog } from "../../../src/world/MaterialCatalog";
 import { blueprintFixture } from "../../support/blueprints";
@@ -47,6 +47,18 @@ test("door dependencies survive save/load with their single-item material count"
   const saved = value(await store.save(await blueprintFixture(true)));
   assert.deepEqual(value(await store.load(saved.id)), saved);
   assert.deepEqual(saved.materials.find(m => m.item === "oak_door"), { item: "oak_door", quantity: 1 });
+});
+
+test("the full palette plus a door remains reloadable: the material bill is larger than the palette", async t => {
+  const { store } = await setup(t);
+  const saved = value(await store.save({
+    name: "full_palette", description: "Sixteen cube materials and a door item.", width: 8, depth: 3,
+    palette: Object.fromEntries(BLUEPRINT_SOLID_BLOCKS.slice(0, 16).map((name, i) => [String.fromCharCode(65 + i), name])),
+    layers: [["ABCDEFGH", "IJKLMNOP", "AAAAAAAA"], [".._.....", "........", "........"], [".._.....", "........", "........"]],
+    dependencies: { doors: [{ item: "oak_door", position: { x: 2, y: 1, z: 0 }, facing: "north" }] },
+  }));
+  assert.equal(saved.materials.length, 17);
+  assert.deepEqual(value(await store.load(saved.id)), saved);
 });
 
 test("revision creates another reference without changing the original", async (t) => {

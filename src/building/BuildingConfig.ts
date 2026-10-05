@@ -26,3 +26,10 @@ export const BUILD_LIMITS = Object.freeze({
   placementReach: 4.5,
   confirmationMs: 3_000,
 });
+
+/** Includes invalid responses/corrections; summary calls use the shared bounded compactor. */
+export const ARCHITECT_LIMITS = Object.freeze({
+  maxCalls: 8,
+  maxTokens: 4_096,
+  summaryRetries: 2,
+});

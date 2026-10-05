@@ -4,7 +4,8 @@ Le lot 1 fournit le format, la validation, les suggestions de noms, le calcul de
 Ces opérations hors ligne ne connectent aucun bot, ne contactent aucun LLM et ne modifient pas Minecraft.
 Le lot 2 ajoute la capability `build`, qui exécute une référence sauvegardée dans Minecraft, sans LLM interne.
 Le lot 3 ajoute les dépendances `oak_door` (un item, deux moitiés vérifiées).
-L'Architect, `submit_blueprint` et `lookup_material` côté agent restent dans les lots suivants du [plan](plans/blueprint-builder.md).
+Le lot 4 ajoute l'Architect isolé, avec `submit_blueprint` et `lookup_material`.
+Son raccordement au coordinateur reste au lot 5 du [plan](plans/blueprint-builder.md).
 
 ## Composants
 
@@ -14,6 +15,7 @@ L'Architect, `submit_blueprint` et `lookup_material` côté agent restent dans l
 - `src/building/BlueprintStore.ts` enregistre et relit les blueprints acceptés.
 - `src/building/BuildingConfig.ts` contient les limites et la liste explicite des blocs pleins admis.
 - `BlueprintDoors.ts` compile les portes ; `BuildDoor.ts` contrôle leur géométrie de pose ; `PlaceBuildDoor.ts` gère rotation et confirmation serveur.
+- `src/agent/ArchitectAgent.ts` et `ArchitectTools.ts` orchestrent la conception hors jeu avec le prompt `prompts/architect.md`.
 
 Exemple d'utilisation dans un script, sans démarrer Minecraft :
 
@@ -155,7 +157,7 @@ Ces tests chargent les données locales de Minecraft et utilisent des répertoir
 Appel : `build({ blueprintId: "bp_<uuid>", origin: { x: -24, y: -60, z: -24 } })`.
 Le script de smoke montre la sauvegarde d'une fixture et l'appel via `TaskFactory` / `Executor`.
 Le chargement revalide fichier, version et matériaux avant tout déplacement.
-Le dessin doit déjà avoir été enregistré : la création par un agent Architect appartient à un autre lot.
+Le dessin doit déjà avoir été enregistré, par exemple par un script ou par l'Architect isolé du lot 4.
 
 ### Parcours
 
@@ -218,3 +220,36 @@ La zone réservée est (-24,-60,-24) à (-20,-57,-20), avec deux blocs de marge 
 Le script ne reset pas l'arène et ne touche pas à l'inventaire de l'agent habituel.
 Il retire ses blocs de test et restaure l'herbe du petit sol de test (la couverture peut naturellement la transformer en terre),
 puis déconnecte les deux bots. Les blueprints temporaires sont supprimés. Aucune construction de test n'est conservée.
+
+## Architect (lot 4)
+
+`ArchitectAgent` reçoit un client LLM, deux templates (`architect.md`, `context-summary.md`),
+un `ArchitectTools` et éventuellement l'inspecteur. `ArchitectTools` partage le `MaterialCatalog`
+et le `BlueprintStore` construits pour la même version Minecraft. Aucun objet Mineflayer n'est requis.
+La boucle est décrite dans [agents et contexte](agent-workflow.md#architect-isolé-lot-4).
+
+- `lookup_material({ query, kind?: "block" | "item" })` : `kind` vaut `block` par défaut.
+  Retourne version, `exact` ou null, et au plus cinq suggestions. Chaque entrée indique `blueprintSupport` :
+  `palette_cube`, `door_dependency` ou `unsupported`. Un nom connu ne prouve ni recette ni disponibilité.
+- `submit_blueprint(blueprint)` : les arguments sont directement l'objet Blueprint complet.
+  Réutilise `BlueprintStore.save`, donc le validateur déterministe avant toute publication.
+  `INVALID_BLUEPRINT` est renvoyé au modèle pour correction ; une panne de stockage termine l'appel.
+  Aucun champ `blueprintId`, chemin, facture ou grille compilée n'est fourni par le modèle.
+
+Une soumission acceptée retourne `blueprintId`, `formatVersion`, `minecraftVersion`, `name`,
+`description`, `dimensions: { width, depth, height }`, `materials`. La facture est calculée en code.
+L'acceptation prouve le format et les matériaux supportés, pas l'habitabilité ni la conformité sémantique
+à une demande de maison. Le Builder devra encore vérifier le site et le stock avant de construire.
+
+Essai réel facultatif, sans connexion Minecraft :
+
+```powershell
+npm.cmd run smoke:architect
+npm.cmd run smoke:architect -- "Design a low 3 by 3 shelter made of oak planks."
+```
+
+Le script utilise la configuration LLM actuelle, le registre `MINECRAFT_VERSION`, puis relit le fichier
+accepté pour confirmer sa persistance. Le scénario par défaut reste dans `tests/fixtures/prompts/architect-request.md`.
+Les fichiers générés restent dans `data/blueprints/` ; les logs courts et les traces complètes (requêtes,
+soumissions, erreurs et rounds d'inspecteur) restent dans `logs/`. Ctrl+C demande un arrêt attendu.
+Il ne démarre pas de serveur debug et n'ajoute rien à la session de l'interface 3001 déjà ouverte.

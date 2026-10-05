@@ -17,7 +17,7 @@ const fileSchema = z.object({
   materials: z.array(z.object({
     item: z.string().min(1).max(128),
     quantity: z.number().int().min(1).max(BLUEPRINT_LIMITS.maxWidth * BLUEPRINT_LIMITS.maxDepth * BLUEPRINT_LIMITS.maxHeight),
-  }).strict()).max(BLUEPRINT_LIMITS.maxPalette),
+  }).strict()).max(BLUEPRINT_LIMITS.maxPalette + BLUEPRINT_LIMITS.maxDoors),
 }).strict();
 
 export interface StoredBlueprint {

@@ -21,14 +21,16 @@ export const BlueprintDoorSchema = z.object({
 export const BlueprintSchema = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().trim().max(500),
-  width: z.number().int().min(1).max(limits.maxWidth),
-  depth: z.number().int().min(1).max(limits.maxDepth),
+  width: z.number().int().min(1).max(limits.maxWidth).describe("X dimension: exactly this many characters in every row."),
+  depth: z.number().int().min(1).max(limits.maxDepth).describe("Z dimension: exactly this many row strings in EVERY layer."),
   palette: z.record(z.string().regex(/^[A-Z]$/, "Use one uppercase ASCII letter."), MinecraftNameSchema.max(128))
     .refine((palette) => Object.keys(palette).length >= 1 && Object.keys(palette).length <= limits.maxPalette,
       `Palette must contain 1 to ${limits.maxPalette} materials.`),
   layers: z.array(z.array(z.string().min(1).max(limits.maxWidth)
-    .regex(/^[A-Z._]+$/, "Rows use uppercase ASCII letters, . (required air), or _ (ignored)."))
-    .min(1).max(limits.maxDepth)).min(1).max(limits.maxHeight),
+    .regex(/^[A-Z._]+$/, "Rows use uppercase ASCII letters, . (required air), or _ (ignored).")
+    .describe("One row along X: width characters. Letters are palette blocks, . requires air, _ is ignored/reserved for a door."))
+    .min(1).max(limits.maxDepth).describe("One horizontal layer at Y: an array of depth rows ordered north (z=0) to south."))
+    .min(1).max(limits.maxHeight).describe("All horizontal layers, bottom to top. layers[y][z][x]. Example width=3, depth=2, height=2: [[\"AAA\",\"AAA\"],[\"A.A\",\"AAA\"]]. Write every row explicitly; no repetition notation."),
   dependencies: z.object({ doors: z.array(BlueprintDoorSchema).max(limits.maxDoors) }).strict(),
 }).strict();
 

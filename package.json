@@ -11,6 +11,7 @@
     "dev:give": "ts-node scripts/dev/give-items.ts",
     "dev:world": "ts-node scripts/dev/world-builder.ts",
     "smoke:ollama": "ts-node scripts/smoke/ollama.ts",
+    "smoke:architect": "ts-node scripts/smoke/architect.ts",
     "smoke:build": "ts-node scripts/smoke/build.ts",
     "smoke:doors": "ts-node scripts/smoke/build.ts --doors",
     "check:ollama": "ts-node scripts/diagnostics/check-ollama-context.ts",

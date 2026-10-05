@@ -9,7 +9,7 @@ import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRole
 export async function summarizeBounded(input: {
   options: StructuredRoleOptions; prompt: PromptTemplate; source: unknown;
   previousSummary: string; maxChars: number; generationId: number; reflection: number;
-  round?: number; phase: "summary" | "context_summary" | "actioner_context_summary";
+  round?: number; phase: "summary" | "context_summary" | "actioner_context_summary" | "architect_context_summary";
   signal: AbortSignal; context: unknown;
   allowEmpty?: boolean;
 }): Promise<string> {

@@ -31,7 +31,8 @@ export function describeInspectorRound(round: PresentationInput): InspectorPrese
     : calls.length
       ? calls.map((call) => describeCall(text(call.name), parseObject(call.arguments))).join(" · ")
       : round.phase === "planner" ? "Create checklist"
-        : round.phase === "context_summary" || round.phase === "actioner_context_summary" ? "Compress conversation"
+        : round.phase === "context_summary" || round.phase === "actioner_context_summary" || round.phase === "architect_context_summary" ? "Compress conversation"
+        : round.phase === "architect" ? "Design blueprint"
         : round.phase === "summary" ? "Update summary"
           : round.phase === "coordinator" ? "Choose next sequence"
             : "Choose next action";
@@ -110,6 +111,7 @@ function describeCall(name: string, input: Record<string, unknown>): string {
 function agentLabel(phase: InspectorRound["phase"]): string {
   if (phase === "context_summary") return "Coordinator context summary";
   if (phase === "actioner_context_summary") return "Actioner context summary";
+  if (phase === "architect_context_summary") return "Architect context summary";
   return phase.charAt(0).toUpperCase() + phase.slice(1);
 }
 

@@ -47,6 +47,17 @@ Commandes du contrôleur : `tree`, `forest 10 25`, `ore iron 8`, `preview forest
 `inventory clear all` détruit uniquement son inventaire.
 Voir [le contrat du contrôleur](docs/contracts.md).
 
+Pour tester uniquement la conception de blueprints avec Ollama, sans connexion Minecraft :
+
+```powershell
+npm.cmd run smoke:architect
+```
+
+L'Architect peut chercher des matériaux et corriger/sauvegarder un dessin ; il ne construit rien et
+n'est pas encore relié au coordinateur. Ses limites sont dans `src/building/BuildingConfig.ts`,
+son prompt dans `prompts/architect.md`. Un dessin valide ne garantit pas que le modèle a respecté
+toutes les consignes : consulter [le bilan des essais du lot 4](docs/plans/blueprint-builder.md#lot-4--architect-isolé).
+
 ## Où lire / modifier
 
 - [Architecture](docs/architecture.md) : composants et points d'extension.
@@ -55,6 +66,7 @@ Voir [le contrat du contrôleur](docs/contracts.md).
 - [Debug et logs](docs/debugging.md) : retrouver les requêtes/réponses exactes.
 - [Descriptions des tools](docs/tools.md) : emplacements des descriptions et format retenu.
 - [Accès aux blocs](docs/block-access.md) : portée et visibilité.
+- [Blueprints, Architect et Builder](docs/blueprints.md) : dessin, matériaux, stockage et construction.
 
 Les prompts réellement chargés sont dans `prompts/`. Les prompts de smoke sont dans
 `tests/fixtures/prompts/`, les faux clients dans `tests/support/`.

@@ -44,7 +44,11 @@ Un échec conserve les blocs posés et un bilan partiel ; rappeler avec la même
 Les dépendances `oak_door` sont posées après les cubes : un item, deux moitiés confirmées (orientation, charnière, fermée/non alimentée).
 Une porte existante incompatible est un conflit, pas une invitation à la démolir. Le succès ne prouve pas l'habitabilité.
 Il n'y a ni collecte/craft, ni démolition, ni échafaudage automatique dans ce lot.
-La génération de blueprints par un Architect viendra plus tard : aucun tool de soumission n'est exposé pour l'instant.
+L'Architect isolé (lot 4) dispose de `lookup_material({ query, kind? })` et `submit_blueprint(blueprint)`.
+Le second reçoit directement le dessin complet et termine la délégation après validation/sauvegarde.
+Le premier distingue noms connus et support Blueprint, sans garantir disponibilité ou craftabilité.
+Ces deux tools ne sont pas encore ajoutés au coordinateur ou à l'actionneur ; leur intégration est le lot 5.
+Voir [Architect](blueprints.md#architect-lot-4) pour le rapport, les limites et le smoke sans Minecraft.
 
 ## Recherches et sessions
 

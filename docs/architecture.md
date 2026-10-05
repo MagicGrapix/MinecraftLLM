@@ -61,7 +61,11 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `BuildExit` écarte les postures sans retour conservateur au sol après la prochaine pose.
   `BlueprintDoors` développe une porte en deux cellules et un item ; `BuildDoor`/`PlaceBuildDoor` assurent sa pose orientée et la confirmation des deux moitiés.
   `GotoMovements` reconnaît les formes des portes déjà ouvertes ; l'ouverture reste une action `use_block` séparée.
-  L'Architect et la création de blueprints par les agents ne sont pas encore implémentés.
+  `agent/ArchitectAgent.ts` fournit maintenant une délégation isolée : `lookup_material` puis
+  `submit_blueprint`, avec corrections et retour automatique après validation/sauvegarde.
+  `ArchitectTools.ts` ne reçoit ni runtime, ni Executor, ni controller : il ne peut pas construire.
+  Il n'est pas encore assemblé dans `WorkflowAgent` ; `ask_architect` et le contexte de construction
+  du coordinateur restent au lot 5. Le smoke séparé permet déjà de tester le rôle avec Ollama.
   Voir [Blueprints](blueprints.md) pour les contrats et limites réellement disponibles.
 - `tests/e2e/` orchestre les campagnes Minecraft : controller réutilisé, bot enfant neuf par essai,
   consignes dans le chat, observations IPC, critères déterministes et rapport HTML persistant.

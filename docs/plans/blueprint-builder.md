@@ -2,7 +2,7 @@
 
 Date : 5 octobre 2026.
 
-Statut : **lots 1 à 3 implémentés et vérifiés ; lots 4 à 7 restant à faire**.
+Statut : **lots 1 à 4 implémentés ; lots 5 à 7 restant à faire**. Le lot 4 est vérifié unitairement ; la génération de maisons avec Qwen reste à fiabiliser (voir son bilan).
 Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprints.md) décrivent ce qui est réellement disponible.
 
 ## Utiliser ce document
@@ -13,7 +13,7 @@ Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprin
 - Mettre à jour les docs de comportement actuel lorsque le code correspondant existe, pas avant.
 - Conserver les prompts personnels de Quentin ; ne modifier que les passages nécessaires à l'intégration.
 
-**Prochaine étape : lot 4 — Architect isolé.**
+**Prochaine étape : lot 5 — intégration de l'Architect dans le workflow existant.**
 
 ## 1. Décisions retenues
 
@@ -30,7 +30,7 @@ Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprin
 - [x] Tester d'abord le constructeur sans LLM, puis la génération, puis le workflow complet.
 
 Le format, le catalogue de matériaux, le store et le Builder avec portes existent désormais. `build` est exposé à l'actionneur.
-Les intégrations Architect et les tools de soumission/recherche ci-dessous restent à implémenter.
+L'Architect isolé et ses deux tools de soumission/recherche existent aussi ; son intégration au workflow reste à implémenter.
 
 ### Hors périmètre initial
 
@@ -406,13 +406,30 @@ Les fixtures sont retirées, le sol de test restauré et les deux bots déconnec
 
 ### Lot 4 — Architect isolé
 
-- [ ] Ajouter prompt, schémas de tools et boucle de délégation bornée.
-- [ ] Réutiliser le catalogue et la validation ; terminer sur une soumission acceptée.
-- [ ] Appliquer les garanties de budget, annulation et logs, sans prompts inline ni ancienne phase planning/review.
-- [ ] Tests avec faux LLM : erreur puis correction, matériau inconnu, limite atteinte, réponse tronquée, stop et store en erreur.
-- [ ] Ajouter une expérience optionnelle avec le vrai LLM et le registre configuré, sans monde Minecraft ni outil physique.
+- [x] Ajouter prompt, schémas de tools et boucle de délégation bornée.
+- [x] Réutiliser le catalogue et la validation ; terminer sur une soumission acceptée.
+- [x] Appliquer les garanties de budget, annulation et logs, sans prompts inline ni ancienne phase planning/review.
+- [x] Tests avec faux LLM : erreur puis correction, matériau inconnu, limite atteinte, réponse tronquée, stop et store en erreur.
+- [x] Ajouter une expérience optionnelle avec le vrai LLM et le registre configuré, sans monde Minecraft ni outil physique.
 
 Sortie : une demande peut produire un blueprint accepté et un rapport compact ; aucune construction automatique.
+
+Livré le 2026-10-05 : `ArchitectAgent`, `ArchitectTools`, `prompts/architect.md`, `smoke:architect`.
+`npm.cmd test` réussi : **448 tests, dont 19 nouveaux**, compilation et typechecks inclus.
+Huit appels maximum, réponses invalides incluses ; contextes frais, replay natif, compactor partagé à 20k.
+Les erreurs de validation sont corrigibles ; stockage en erreur, troncature et stop sont terminaux.
+Un stop durant la publication attend l'écriture : fichier valide éventuellement conservé, référence signalée,
+mais délégation `INTERRUPTED`, pas acceptée. Pas de connexion Minecraft ni de changement des prompts existants.
+
+Essais réels Qwen3.5:9b (4096 tokens de sortie) :
+
+- `1791201126960_16836` : maison 5×5, mauvais nombre de lignes, correction inefficace puis limite de sortie au troisième appel. Aucun fichier accepté.
+- `1791201240250_10416` : après clarification des dimensions dans le schéma/exemple, grille à la bonne taille mais conflit de porte ; limite de sortie au deuxième appel. Aucun fichier accepté.
+- `1791201406081_49760` : plateforme acceptée/sauvegardée/relue en un appel, référence `bp_1bf4dd51-9893-4ea9-adfb-4706e2c6cd62`.
+  **Limite sémantique : deux couches produites pour une seule demandée.** Le format est valide, pas le respect de toutes les consignes.
+
+Le validateur ne devient pas un juge de la demande naturelle. Fiabiliser le prompt/dessin avant de conclure
+à une capacité de conception de maisons ; l'expérience isolée permet justement d'itérer sans modifier le monde.
 
 ### Lot 5 — Intégration dans le workflow existant
 
@@ -456,7 +473,7 @@ Les essais Minecraft et LLM restent séparés, explicites et limités à une ar�
 
 La première version complète correspond aux lots 1 à 6 :
 
-- [ ] L'Architect corrige une soumission invalide puis rend une référence fiable.
+- [x] L'Architect corrige une soumission invalide puis rend une référence fiable (test avec faux LLM ; fiabilité du modèle réel non acquise).
 - [ ] Les besoins sont calculés, conservés et communiqués sans recompter le dessin par le LLM.
 - [ ] Le planner organise l'approvisionnement, l'actionneur appelle `build`, le Builder ne récolte pas lui-même.
 - [x] Une petite maison avec porte est construite sans commandes administrateur par le bot.
@@ -478,5 +495,13 @@ La première version complète correspond aux lots 1 à 6 :
 - 2026-10-05, lot 3 livré : `BlueprintDoors`, `BuildDoor`, `PlaceBuildDoor`, comparaison des deux moitiés, adaptations ciblées de `goto` et du curseur `use_block`.
   429 tests réussis et smoke réel quatre orientations + maison avec passage vérifié. Détails en section 10, lot 3.
   Limites : `oak_door` isolée, fermée/non alimentée, terrain plat, pas de réparation destructive ni échafaudages. Prochain lot : 4, Architect isolé.
+
+- 2026-10-05, lot 4 livré : boucle Architect isolée, deux tools hors jeu, prompt séparé, feedback du validateur,
+  rapport compact, budget d'entrée/compaction, arrêt attendu, logs et smoke LLM optionnel.
+  `npm.cmd test` : 448 tests réussis ; 18 nouveaux tests Architect et un test de persistance palette + porte.
+  Régression de stockage corrigée : une facture peut dépasser 16 items distincts quand une porte s'ajoute à la palette.
+  Essais réels et limites de conception détaillés ci-dessus. Aucun serveur/bot Minecraft lancé pour ce lot.
+  Commit de sauvegarde préalable demandé : `167199b` (`architecture lot 3`), poussé sur `refactor-redo`.
+  Prochain lot : 5 ; ne pas confondre succès technique d'une soumission et respect sémantique de la demande.
 
 À compléter après chaque lot : date, tâches cochées, fichiers principaux, vérifications réalisées, limitations restantes et prochaine étape.

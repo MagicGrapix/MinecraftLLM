@@ -29,7 +29,7 @@ export class ContextCompactor {
     generationId: number;
     reflection: number;
     round?: number;
-    phase?: "context_summary" | "actioner_context_summary";
+    phase?: "context_summary" | "actioner_context_summary" | "architect_context_summary";
     requestTitle?: string;
     signal: AbortSignal;
   }): Promise<readonly LLMMessage[]> {

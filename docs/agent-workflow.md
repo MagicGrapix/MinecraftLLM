@@ -34,6 +34,34 @@ Une nouvelle tentative reçoit le rapport précédent comme contexte, mais l'inv
 seul le nouveau rapport peut autoriser `complete_step`. Un échec ou une exception ne laisse pas un ancien
 succès utilisable. Une nouvelle demande joueur ou un nouveau plan vide les rapports et l'étape sélectionnée.
 
+## Architect isolé (lot 4)
+
+`ArchitectAgent.run(delegation, { signal?, generationId?, reflection? })` reçoit une demande utilisateur,
+une instruction de délégation, des contraintes et, facultativement, des observations et un extrait de discussion.
+Il crée une conversation privée neuve. `prompts/architect.md` est son unique prompt de rôle.
+Son system contient l'instruction, les limites et matériaux réellement supportés ; la demande utilisateur
+reste un message user protégé. Les observations ne lui donnent aucun droit de lecture du monde ou d'action.
+
+À chaque appel : un tool natif parmi `lookup_material` et `submit_blueprint`, puis le résultat réel dans
+un échange assistant/tool. Le replay reste natif pour préserver les grilles lors des corrections.
+Une soumission valide et enregistrée termine immédiatement la délégation : référence, nom/description,
+dimensions, facture et versions. Ni grille ni conversation privée ne partent dans le rapport.
+Le contexte est abandonné après ce retour, même en échec ; les traces restent disponibles.
+
+`ARCHITECT_LIMITS` dans `BuildingConfig.ts` fixe huit appels maximum, réponses mal formées et corrections
+comprises, et 4096 tokens de sortie par défaut. Il n'y a pas de seconde boucle de huit retries.
+Les résumés utilisent le compactor partagé et ses appels séparés bornés (deux retries maximum ici).
+Le plafond d'entrée de 20k inclut aussi le schéma Blueprint et le feedback de validation.
+Les phases de trace sont `architect` et `architect_context_summary`, pas des modes planning/review.
+
+`requestStop()` interrompt le signal et attend la promesse en cours. Une nouvelle délégation est refusée
+tant que celle-ci n'est pas terminée. Une écriture déjà commencée reste attendue : elle peut laisser un
+fichier valide immuable, mais le rapport reste `INTERRUPTED` avec `savedBlueprintId`, jamais un succès.
+Une limite, une sortie tronquée ou une erreur de stockage ne produit pas de référence acceptée.
+
+Ce rôle est utilisable dans `scripts/smoke/architect.ts`, **pas encore appelé par le coordinateur**.
+Le coordinateur, le planner et l'actionneur existants gardent leur fonctionnement actuel.
+
 ## Ordre des messages
 
 ```text
@@ -77,7 +105,7 @@ Une observation inconnue ne devient jamais de l'air.
 L'estimation inclut les messages, le system et les schémas des tools. Ce n'est ni un tokenizer,
 ni le réglage de fenêtre d'Ollama. Les sorties ont leur propre budget, 4 096 tokens par défaut.
 
-Avant un nouveau call du coordinateur, du planner ou de l'actionneur, `ContextCompactor` vérifie le budget.
+Avant un nouveau call du coordinateur, du planner, de l'actionneur ou de l'Architect isolé, `ContextCompactor` vérifie le budget.
 Si le seuil est atteint, un appel LLM séparé résume les anciens échanges avec le résumé précédent.
 Il conserve les faits utiles, contraintes, échecs et incertitudes. Il remplace ensuite le premier message assistant.
 La demande active et le dernier échange complet restent intacts, et les messages récents gardent leur ordre.

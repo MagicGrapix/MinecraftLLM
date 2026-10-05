@@ -2,8 +2,8 @@
 
 Date : 5 octobre 2026.
 
-Statut : **plan de travail, pas une description de fonctionnalités déjà implémentées**.
-La création de ce document ne modifie ni le bot, ni ses prompts, ni le monde Minecraft.
+Statut : **lot 1 implémenté et vérifié ; lots 2 à 7 restant à faire**.
+Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprints.md) décrivent ce qui est réellement disponible.
 
 ## Utiliser ce document
 
@@ -13,7 +13,7 @@ La création de ce document ne modifie ni le bot, ni ses prompts, ni le monde Mi
 - Mettre à jour les docs de comportement actuel lorsque le code correspondant existe, pas avant.
 - Conserver les prompts personnels de Quentin ; ne modifier que les passages nécessaires à l'intégration.
 
-**Prochaine étape : lot 1 — format, validation, catalogue des matériaux et stockage.**
+**Prochaine étape : lot 2 — Builder de blocs pleins, sans LLM.**
 
 ## 1. Décisions retenues
 
@@ -29,7 +29,7 @@ La création de ce document ne modifie ni le bot, ni ses prompts, ni le monde Mi
 - [x] Ne pas ajouter `get_blueprint_layer`, `get_build_progress` ou `get_next` au catalogue LLM initial.
 - [x] Tester d'abord le constructeur sans LLM, puis la génération, puis le workflow complet.
 
-Les noms de champs et limites ci-dessous sont des choix de départ à implémenter et tester. Ils ne sont pas des API existantes.
+Les noms de tools et les intégrations ci-dessous restent des choix à implémenter. Le format, le catalogue de matériaux et le store du lot 1 existent désormais ; ils ne sont pas encore exposés aux agents.
 
 ### Hors périmètre initial
 
@@ -349,15 +349,18 @@ Ne créer chaque fichier que lorsque le lot correspondant est commencé ; pas de
 
 ### Lot 1 — Blueprint, noms et stockage, sans Minecraft ni LLM
 
-- [ ] Définir le schéma et les conventions de coordonnées ; créer la fixture 5x5 ci-dessus et une variante sans porte.
-- [ ] Implémenter le catalogue de matériaux et les suggestions bornées.
-- [ ] Valider les couches, noms et fonctionnalités prises en charge avec feedback localisé.
-- [ ] Calculer les opérations attendues et la facture d'objets, sans appel LLM.
-- [ ] Implémenter le store avec IDs générés, validation à la lecture et écriture atomique.
-- [ ] Tester dimensions incorrectes, caractères inconnus, fautes de noms, blocs reconnus mais non supportés, fichiers invalides et référence absente.
-- [ ] Mettre à jour les docs des nouveaux contrats réellement disponibles.
+- [x] Définir le schéma et les conventions de coordonnées ; créer la fixture 5x5 ci-dessus et une variante sans porte.
+- [x] Implémenter le catalogue de matériaux et les suggestions bornées.
+- [x] Valider les couches, noms et fonctionnalités prises en charge avec feedback localisé.
+- [x] Calculer les opérations attendues et la facture d'objets, sans appel LLM.
+- [x] Implémenter le store avec IDs générés, validation à la lecture et écriture atomique.
+- [x] Tester dimensions incorrectes, caractères inconnus, fautes de noms, blocs reconnus mais non supportés, fichiers invalides et référence absente.
+- [x] Mettre à jour les docs des nouveaux contrats réellement disponibles.
 
 Sortie : une fixture déterministe peut être validée, enregistrée et relue ; aucun bloc Minecraft n'a été modifié.
+
+Vérifié le 2026-10-05 : `npm.cmd test` réussi, **383 tests dont 53 nouveaux**. Schéma de porte réservé mais rejet fonctionnel explicite jusqu'au lot 3.
+Le catalogue est un service hors ligne ; `lookup_material` n'est pas encore enregistré comme tool. Voir `docs/blueprints.md` pour l'API utilisable dès maintenant.
 
 ### Lot 2 — Builder de blocs pleins, sans LLM
 
@@ -446,5 +449,9 @@ La première version complète correspond aux lots 1 à 6 :
 ## 12. Journal de suivi
 
 - 2026-10-05 : plan rédigé après lecture des frontières agents/exécution, de `goto`/`place`, des noms Minecraft et du lanceur E2E. Aucun lot de code commencé.
+- 2026-10-05, lot 1 livré : `src/building/{Blueprint,BuildingConfig,BlueprintValidator,BlueprintStore}.ts`, `src/world/MaterialCatalog.ts`, schéma de nom partagé et fixtures versionnées.
+  53 nouveaux tests : compilation/axes/matériaux, suggestions, erreurs bornées, stockage atomique sans écrasement, corruption, références et versions.
+  `npm.cmd test` : build, typecheck tests/scripts et 383 tests unitaires réussis. Aucun appel Minecraft/Ollama ni changement des prompts.
+  Limites : blocs pleins explicitement listés seulement ; portes refusées ; pas d'Architect, de `build` ou de tool de recherche exposé. Prochain lot : 2.
 
 À compléter après chaque lot : date, tâches cochées, fichiers principaux, vérifications réalisées, limitations restantes et prochaine étape.

@@ -38,6 +38,9 @@ coverage/
 data/landmarks.json
 data/landmarks.json.corrupt-*
 
+# Generated building blueprints (handwritten fixtures are versioned under tests/fixtures).
+data/blueprints/
+
 # eslint
 .eslintcache
 

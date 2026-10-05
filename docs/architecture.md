@@ -53,6 +53,10 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `src/debug/` contient le serveur local, les snapshots et leur projection UI.
 - `src/devworld/` est un processus séparé : WorldBuilder -> WorldPlan -> CommandExecutor -> bot OP.
   Il ne passe jamais par les tools de l'agent.
+- `src/building/` fournit actuellement seulement le format Blueprint, sa validation/compilation et son store JSON immuable.
+  `world/MaterialCatalog.ts` résout les noms et suggère des alternatives à partir d'un registre de version injecté.
+  Cette bibliothèque hors ligne n'est pas encore branchée aux agents et ne construit rien dans Minecraft.
+  Voir [Blueprints](blueprints.md) pour les contrats et limites réellement disponibles.
 - `tests/e2e/` orchestre les campagnes Minecraft : controller réutilisé, bot enfant neuf par essai,
   consignes dans le chat, observations IPC, critères déterministes et rapport HTML persistant.
   Les observations de coffres/drops sont ajoutées par le controller ; les lectures NBT OP sont isolées dans
@@ -106,5 +110,5 @@ Actualiser la page concernée lorsque ces frontières changent ; les détails lo
 
 ## Travaux planifiés
 
-Le [plan Blueprint / Architect / Builder](plans/blueprint-builder.md) décrit une évolution future et son suivi par lots.
-Il ne décrit pas des fonctionnalités déjà présentes ; les sections ci-dessus restent la référence du comportement actuel.
+Le [plan Blueprint / Architect / Builder](plans/blueprint-builder.md) suit cette évolution par lots.
+Seuls les lots cochés sont livrés ; les sections ci-dessus et [les contrats Blueprint](blueprints.md) décrivent le comportement actuel.

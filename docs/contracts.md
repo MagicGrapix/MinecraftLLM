@@ -92,6 +92,9 @@ Poser de la terre sur une ancienne table ne confirme pas cette table ; une cellu
 
 ## Contrôleur de monde
 
+Le format de construction hors ligne et son stockage sont distincts du contrôleur OP : voir
+[les contrats Blueprint](blueprints.md). Ils ne donnent encore accès à aucun outil de construction.
+
 Le monde de test actuel est l'Overworld standard : Y=-64 à 319.
 L'arène par défaut va de (-48,-64,-48) à (48,-30,48).
 Le reset restaure bedrock à -64, terre à -63/-62 et herbe à -61 ; le bot est téléporté à Y=-60.

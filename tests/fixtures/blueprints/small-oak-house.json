@@ -1,0 +1,16 @@
+{
+  "name": "small_oak_house",
+  "description": "Small oak shelter with a north-facing entrance.",
+  "width": 5,
+  "depth": 5,
+  "palette": { "A": "oak_planks", "B": "cobblestone" },
+  "layers": [
+    ["BBBBB", "BBBBB", "BBBBB", "BBBBB", "BBBBB"],
+    ["AA_AA", "A...A", "A...A", "A...A", "AAAAA"],
+    ["AA_AA", "A...A", "A...A", "A...A", "AAAAA"],
+    ["AAAAA", "AAAAA", "AAAAA", "AAAAA", "AAAAA"]
+  ],
+  "dependencies": {
+    "doors": [{ "item": "oak_door", "position": { "x": 2, "y": 1, "z": 0 }, "facing": "north" }]
+  }
+}

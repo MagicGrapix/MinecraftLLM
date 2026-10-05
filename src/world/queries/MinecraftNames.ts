@@ -2,8 +2,10 @@ import { z } from "zod";
 import type { WorldQueries } from "../WorldQueries";
 import { queryFailure } from "./QueryResult";
 
-export const MinecraftNamesSchema = z.array(z.string().trim().min(1)
-  .regex(/^(minecraft:)?[a-z0-9_]+$/, 'Use one exact Minecraft ID per entry, e.g. "oak_log"; no comma-separated names, aliases or wildcards.'))
+export const MinecraftNameSchema = z.string().trim().min(1)
+  .regex(/^(minecraft:)?[a-z0-9_]+$/, 'Use one exact Minecraft ID per entry, e.g. "oak_log"; no comma-separated names, aliases or wildcards.');
+
+export const MinecraftNamesSchema = z.array(MinecraftNameSchema)
   .min(1).max(128)
   .describe('Array of exact Minecraft IDs, even for one name. Example: ["oak_log", "birch_log"]. Never "oak_log,birch_log" or "log" as a category. Optional minecraft: prefix is accepted.');
 

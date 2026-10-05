@@ -237,6 +237,15 @@ export class ActionAgent implements ActionRunner {
         const calls = response.message.toolCalls ?? [];
         validateCallIds(calls);
         const validated = this.options.toolBridge.validateResponseCalls(calls);
+        if (validated.kind === "action" && validated.task.capability === "build") {
+          const selected = session.delegation.construction?.blueprint.blueprintId;
+          const input = validated.task.input as { blueprintId: string };
+          if (!selected || input.blueprintId !== selected) {
+            throw new ModelResponseError(selected
+              ? `Use the CURRENT selected blueprintId ${selected}. No build was executed.`
+              : "No blueprint is selected for this request. Return the blocker with finish_step; ask_architect must run before construction.");
+          }
+        }
         // Reserve the final slot for a report instead of forcing a fabricated success.
         if (session.round >= this.maxToolCalls - 1 && validated.kind !== "finish") {
           throw new ModelResponseError("Delegation tool call limit reached (" + this.maxToolCalls + "). Return finish_step with the observed facts and any blocker; never claim unverified success.");

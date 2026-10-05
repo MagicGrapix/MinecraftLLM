@@ -6,6 +6,7 @@
 MinecraftChatAdapter
   -> WorkflowAgent / coordinator
        -> reply : réponse au joueur
+       -> ArchitectAgent : dessin privé, validation/sauvegarde, référence et facture
        -> planner : JSON de checklist, un seul appel logique
        -> ActionRunner / ActionAgent : une étape, conversation privée
             -> WorldQueryRegistry : observations
@@ -25,14 +26,16 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `WorkflowAgent.ts` dirige les délégations et garde `WorkflowState`. `ActionRunner` dans `ActionTypes.ts`
   est sa frontière avec l'actionneur : un changement d'implémentation ne demande pas de réécrire le coordinateur.
   `WorkflowState` conserve le plan, l'étape sélectionnée et le dernier rapport de chaque étape du plan courant.
+  Il conserve aussi la référence Blueprint sélectionnée, sa facture calculée et la consigne de conception.
+  `ConstructionContext.ts` la présente aux trois rôles, indépendamment de l'historique compactable.
 - `CoordinatorTools.ts` et `ToolCatalogBuilder.ts` définissent les catalogues propres à chaque rôle.
   Le coordinateur possède les outils de workflow et les lectures du monde, pas les capacités physiques.
   Le bootstrap transmet aussi le catalogue de l'actionneur au planner comme documentation dans son system,
   sans tools appelables. Les descriptions et schémas restent issus des mêmes registres.
-- `execution/ToolCallJournal.ts` est partagé par les deux agents. Il attribue les numéros d'appels
+- `execution/ToolCallJournal.ts` est partagé par le coordinateur, l'Architect et l'actionneur. Il attribue les numéros d'appels
   et conserve les inventaires avant/après des capabilities et de `run_step`. La query
   `get_inventory_diff_after` consulte ces données sans dépendre de la conversation LLM.
-  Le bootstrap injecte le même journal dans les deux agents et le registre de queries.
+  Les tools Architect et `ask_architect` sont numérotés mais ne capturent pas l'inventaire (aucune action physique).
 - `ActionContextBuilder.ts` et `WorldContextFormatter.ts` préparent les données lisibles.
   `TaskContextFormatter.ts` partage la vue objectif/plan/étape/rapports entre coordinateur et actionneur.
   Les rapports y sont compacts ; leurs TaskResults complets restent dans l'état et les traces.
@@ -64,8 +67,11 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `agent/ArchitectAgent.ts` fournit maintenant une délégation isolée : `lookup_material` puis
   `submit_blueprint`, avec corrections et retour automatique après validation/sauvegarde.
   `ArchitectTools.ts` ne reçoit ni runtime, ni Executor, ni controller : il ne peut pas construire.
-  Il n'est pas encore assemblé dans `WorkflowAgent` ; `ask_architect` et le contexte de construction
-  du coordinateur restent au lot 5. Le smoke séparé permet déjà de tester le rôle avec Ollama.
+  Le bootstrap l'assemble maintenant avec le même client LLM et le registre de la connexion Minecraft.
+  `ask_architect` sélectionne un dessin accepté avant le planner. `lookup_material` partage son schéma
+  et sa logique dans `world/queries/LookupMaterial.ts`, réutilisés par l'Architect et les queries existantes.
+  Le coordinateur ne reçoit ni `build` ni `submit_blueprint`. L'actionneur refuse un `build` sans référence
+  sélectionnée pour la demande ou visant un ancien dessin. Le Builder reste utilisable hors agents pour les smokes.
   Voir [Blueprints](blueprints.md) pour les contrats et limites réellement disponibles.
 - `tests/e2e/` orchestre les campagnes Minecraft : controller réutilisé, bot enfant neuf par essai,
   consignes dans le chat, observations IPC, critères déterministes et rapport HTML persistant.

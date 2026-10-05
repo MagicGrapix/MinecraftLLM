@@ -24,6 +24,7 @@ import { containsPosition } from "../../src/devworld/ArenaBounds";
 import { cleanupSteps } from "../../src/runtime/cleanup";
 import { blueprintFixture } from "../../tests/support/blueprints";
 import { bounded, until } from "../../tests/e2e/async";
+import { runBuildingWorkflowSmoke } from "./build-workflow";
 
 /** Explicit live test. No LLM, no whole-arena reset, no changes to player inventories. */
 async function main() {
@@ -72,6 +73,15 @@ async function main() {
     await command(`gamemode survival ${username}`);
     await command(`tp ${username} ${origin.x - 1.5} ${origin.y} ${origin.z - 1.5}`);
     await until(() => runtime.bot.entity.onGround && runtime.bot.entity.position.distanceTo(origin) < 4, 5000, "Builder arrival");
+    if (process.argv.includes("--workflow")) {
+      await command(`clear ${username}`);
+      await command(`give ${username} oak_planks 55`);
+      await command(`give ${username} cobblestone 25`);
+      await command(`give ${username} oak_door 1`);
+      await until(() => runtime.bot.inventory.items().some(i => i.name === "oak_door" && i.count === 1), 3000, "Workflow stock");
+      await runBuildingWorkflowSmoke(runtime, controller.bot, origin, directory);
+      return;
+    }
     const validator = new BlueprintValidator(new MaterialCatalog(runtime.bot.registry));
     const store = new BlueprintStore(validator, { directory });
     const registry = new CapabilityRegistry(); registry.register(new BuildCapability(directory));

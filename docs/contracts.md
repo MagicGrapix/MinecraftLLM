@@ -94,8 +94,8 @@ Poser de la terre sur une ancienne table ne confirme pas cette table ; une cellu
 
 Le format Blueprint, son stockage et la capability survival `build` sont distincts du contrôleur OP : voir
 [les contrats Blueprint](blueprints.md). `build` ne peut ni donner des items, ni effacer le terrain,
-ni utiliser des commandes serveur. L'Architect isolé du lot 4 ne possède que la recherche de noms
-et la soumission de dessins ; il n'est pas encore raccordé au coordinateur. Une soumission acceptée
+ni utiliser des commandes serveur. L'Architect ne possède que la recherche de noms
+et la soumission de dessins ; `ask_architect` le raccorde au coordinateur sans capacité physique. Une soumission acceptée
 prouve validation et sauvegarde, pas conformité à la demande naturelle ni constructibilité sur un site.
 
 Le monde de test actuel est l'Overworld standard : Y=-64 à 319.

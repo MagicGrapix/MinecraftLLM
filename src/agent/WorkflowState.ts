@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import type { DelegatedActionReport, StepReportSummary } from "./ActionTypes";
 import { formatStepReports } from "./TaskContextFormatter";
+import { formatConstructionContext, type ConstructionContext } from "./ConstructionContext";
 
 export const PlanStepSchema = z.object({
   title: z.string().trim().min(1).max(160),
@@ -34,9 +35,11 @@ export class WorkflowState {
   steps: WorkflowStep[] = [];
   currentStep: number | null = null;
   reports: Record<number, WorkflowStepReport> = {};
+  construction: ConstructionContext | null = null;
 
   start(objective: string): void {
     this.objective = objective;
+    this.construction = null;
     this.steps = [];
     this.currentStep = null;
     this.reports = {};
@@ -48,6 +51,12 @@ export class WorkflowState {
     this.steps = steps.map((step, index) => ({ ...step, step: index + 1, status: "pending" }));
     this.currentStep = null;
     this.reports = {};
+  }
+
+  selectBlueprint(construction: ConstructionContext): void {
+    this.construction = structuredClone(construction);
+    // Reports/checkmarks refer to the old design. Existing world blocks are untouched.
+    this.applyPlan([]);
   }
 
   reportSummaries(): StepReportSummary[] {
@@ -73,6 +82,7 @@ export class WorkflowState {
       checklist: this.checklist(),
       currentStep: this.currentStep,
       reports: structuredClone(this.reports),
+      construction: structuredClone(this.construction),
     };
   }
 }
@@ -96,6 +106,10 @@ export class WorkflowSummaryFile {
       state.checklist() || "No steps yet.",
       "",
       `Current step: ${state.currentStep ?? "none selected"}`,
+      "",
+      "## Construction",
+      "",
+      formatConstructionContext(state.construction),
       "",
       "## Step reports (claims, not checklist verification)",
       "",

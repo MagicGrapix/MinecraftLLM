@@ -8,6 +8,11 @@ Ne pas le confondre avec `Call N` (appel LLM) ou `Step N` (checklist). Une dél�
 avant les tools enfants, même si elle se termine après eux. Clear ne réinitialise pas ce compteur
 et n'efface pas le journal d'inventaire de la demande courante.
 
+L'Architect et `ask_architect` partagent cette numérotation avec le coordinateur et l'actionneur.
+Un dessin accepté affiche « Blueprint validated, not built » ; seul `build` est physique et affiche
+sa référence et son origine. Les soumissions complètes restent dans les détails/traces de l'Architect,
+pas dans le rapport compact du coordinateur. Une erreur Architect conserve son code et ses facts.
+
 Un clic manuel coupe le suivi live. Les réponses réseau d'anciennes sélections ne remplacent plus
 le détail choisi, et le polling ne se chevauche pas. Clear efface les cartes en mémoire,
 pas les fichiers sur disque. Il est refusé lorsqu'un call est en cours.
@@ -16,7 +21,7 @@ pas les fichiers sur disque. Il est refusé lorsqu'un call est en cours.
 
 - `logs/log_<session>.log` : journal console lisible.
 - `logs/trace_<session>.jsonl` : requêtes exactes, réponses brutes avant parsing, erreurs et rounds finalisés.
-- `logs/agent_summary_<session>.md` : dernière checklist, étape sélectionnée, rapports compacts et résumé factuel de tâche.
+- `logs/agent_summary_<session>.md` : dernière checklist, étape sélectionnée, rapports compacts, blueprint sélectionné/facture et résumé factuel de tâche.
 
 Ces fichiers partagent le même identifiant de session. Chaque ligne JSONL est un événement JSON
 avec `timestamp`, `event` et `data`. Événements utiles :

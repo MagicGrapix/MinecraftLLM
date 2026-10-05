@@ -8,6 +8,7 @@ import type { ActionDelegation } from "./ActionTypes";
 import { formatWorldContext } from "./WorldContextFormatter";
 import { formatTaskContext } from "./TaskContextFormatter";
 import type { ContainerSession } from "../runtime/ContainerSessionManager";
+import { formatConstructionContext } from "./ConstructionContext";
 
 export interface ActionContextRequest {
   readonly delegation: ActionDelegation;
@@ -40,6 +41,7 @@ export class ActionContextBuilder {
     const messages: LLMMessage[] = [
       { role: "system", content: this.dependencies.systemPrompt.render({
         task_context: taskContext,
+        construction_context: formatConstructionContext(snapshot.delegation.construction),
         task_summary_section: projectSummary ? `## Task Summary\n\n${projectSummary}` : "",
         world_context: formatWorldContext({ self: snapshot.self, inventory: snapshot.inventory, landmarks: snapshot.pinnedLandmarks }) +
           (snapshot.containerSession ? `\nOpen container: sessionId=${snapshot.containerSession.sessionId}; type=${snapshot.containerSession.windowType}; position=${JSON.stringify(snapshot.containerSession.blockPosition)}. Use this session for transfer_item or close_container.` : ""),

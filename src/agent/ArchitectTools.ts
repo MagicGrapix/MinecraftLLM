@@ -1,18 +1,13 @@
-import { z } from "zod";
 import { BlueprintSchema, type MaterialRequirement } from "../building/Blueprint";
 import type { BlueprintStore } from "../building/BlueprintStore";
 import { SUPPORTED_DOORS } from "../building/BlueprintDoors";
 import { BLUEPRINT_SOLID_BLOCKS } from "../building/BuildingConfig";
 import { failure, success, type TaskResult } from "../execution/TaskResult";
 import type { LLMTool, LLMToolCall } from "../llm/LLMClient";
-import type { MaterialCatalog, MaterialMatch } from "../world/MaterialCatalog";
+import type { MaterialCatalog } from "../world/MaterialCatalog";
+import { LookupMaterialSchema, LOOKUP_MATERIAL_DESCRIPTION, lookupMaterial, blueprintSupport } from "../world/queries/LookupMaterial";
 import { invalidToolArguments, parseToolArguments } from "../shared/ToolArgumentFeedback";
 import { toJsonSchema } from "./ToolCatalogBuilder";
-
-const LookupMaterialSchema = z.object({
-  query: z.string().trim().min(1).max(128).describe("Exact Minecraft name or partial/spelled name, e.g. oak_planks or oak_plate."),
-  kind: z.enum(["block", "item"]).default("block"),
-}).strict();
 
 /** Handoff contains only validated metadata, never the grid or private transcript. */
 export interface ArchitectReport {
@@ -36,7 +31,7 @@ export class ArchitectTools {
   readonly definitions: readonly LLMTool[] = [
     {
       name: "lookup_material",
-      description: "Does: Find exact Minecraft block/item names and up to five alternatives.\nSuccess: Reports names known by this registry and blueprint support.\nLimits: Does not prove inventory, recipes or world availability.\nNotes: Exact names are required; suggestions never auto-correct a blueprint. kind defaults to block.",
+      description: LOOKUP_MATERIAL_DESCRIPTION,
       parameters: toJsonSchema(LookupMaterialSchema),
     },
     {
@@ -50,8 +45,8 @@ export class ArchitectTools {
 
   supportedMaterials(): { cubes: string[]; doors: string[] } {
     return {
-      cubes: BLUEPRINT_SOLID_BLOCKS.filter(name => this.support(name) === "palette_cube"),
-      doors: SUPPORTED_DOORS.filter(name => this.support(name) === "door_dependency"),
+      cubes: BLUEPRINT_SOLID_BLOCKS.filter(name => blueprintSupport(this.catalog, name) === "palette_cube"),
+      doors: SUPPORTED_DOORS.filter(name => blueprintSupport(this.catalog, name) === "door_dependency"),
     };
   }
 
@@ -74,9 +69,7 @@ export class ArchitectTools {
       if (!parsed.success) return { result: failure("INVALID_ARGUMENT", invalidToolArguments(call.name, args, parsed.error.issues, LookupMaterialSchema), {
         facts: { issues: parsed.error.issues.slice(0, 5).map(issue => ({ path: issue.path.join("."), message: issue.message })) },
       }) };
-      const found = this.catalog.search(parsed.data.query, parsed.data.kind);
-      const describe = (match: MaterialMatch) => ({ ...match, blueprintSupport: this.support(match.name) });
-      return { result: success({ ...found, exact: found.exact ? describe(found.exact) : null, suggestions: found.suggestions.map(describe) }) };
+      return { result: success(lookupMaterial(this.catalog, parsed.data)) };
     }
 
     // Store validates before publishing. Await publication even if stop arrives during filesystem I/O.
@@ -89,11 +82,5 @@ export class ArchitectTools {
       materials: structuredClone(materials),
     };
     return { result: success(accepted), accepted };
-  }
-
-  private support(name: string): "palette_cube" | "door_dependency" | "unsupported" {
-    if (!this.catalog.resolve("block", name) || !this.catalog.resolve("item", name)) return "unsupported";
-    if (SUPPORTED_DOORS.includes(name)) return "door_dependency";
-    return BLUEPRINT_SOLID_BLOCKS.includes(name) && this.catalog.isFullBlock(name) ? "palette_cube" : "unsupported";
   }
 }

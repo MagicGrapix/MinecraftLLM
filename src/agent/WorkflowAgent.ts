@@ -10,6 +10,9 @@ import type { ActionRunner } from "./ActionTypes";
 import { actionReportForContext } from "./ActionReportFormatter";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
 import type { QueryError } from "../world/queries/QueryResult";
+import type { TaskError } from "../execution/TaskResult";
+import type { ArchitectAgent } from "./ArchitectAgent";
+import { formatConstructionContext } from "./ConstructionContext";
 import { callCoordinator } from "./CoordinatorCall";
 import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
 import { MessageHistory, type ToolReplayMode } from "./MessageHistory";
@@ -25,11 +28,12 @@ import {
   WorkflowSummaryFile,
 } from "./WorkflowState";
 
-export type WorkflowMode = "idle" | "thinking" | "planning" | "executing" | "stopped";
+export type WorkflowMode = "idle" | "thinking" | "designing" | "planning" | "executing" | "stopped";
 
 export interface WorkflowAgentOptions {
   readonly llm: LLMClient;
   readonly actionAgent: ActionRunner;
+  readonly architectAgent: Pick<ArchitectAgent, "run">;
   readonly actionTools: readonly LLMTool[];
   readonly world: WorldQueries;
   readonly landmarks: LandmarkMemory;
@@ -169,7 +173,7 @@ export class WorkflowAgent {
           result = { ok: true, value: executed.value };
           terminal = executed.terminal ?? false;
         } catch (error: unknown) {
-          result = { ok: false, error: error instanceof QueryToolError ? error.details : { message: error instanceof Error ? error.message : String(error) } };
+          result = { ok: false, error: error instanceof WorkflowToolError ? error.details : { message: error instanceof Error ? error.message : String(error) } };
         }
         this.options.journal.complete(actionNumber, result.ok, JSON.stringify(result));
         const rawContent = JSON.stringify({ ...result, actionNumber });
@@ -285,6 +289,7 @@ export class WorkflowAgent {
     const messages: LLMMessage[] = [
       { role: "system", content: prompt.render({
         task_context: taskContext,
+        construction_context: formatConstructionContext(task.construction),
         task_summary_section: task.summary ? `## Task Summary\n\n${task.summary}` : "",
         instruction: instruction ?? "",
         world_context: formatWorldContext(world),
@@ -321,7 +326,7 @@ export class WorkflowAgent {
       case "query": {
         const result = await this.options.queries.execute(call.query, call.input, signal);
         signal.throwIfAborted();
-        if (!result.ok) throw new QueryToolError(result.error);
+        if (!result.ok) throw new WorkflowToolError(result.error);
         return { value: result.value };
       }
       case "ask_planner": {
@@ -331,6 +336,24 @@ export class WorkflowAgent {
         signal.throwIfAborted();
         this.task.applyPlan(plan.steps);
         return { value: { planVersion: this.task.planVersion, steps: this.task.steps, replacesPreviousPlan: true } };
+      }
+      case "ask_architect": {
+        this.mode = "designing";
+        const conversation = this.transcript.conversation().messages;
+        // Architect appends the current player request itself; do not duplicate it.
+        const result = await this.options.architectAgent.run({
+          userRequest: this.task.objective,
+          instruction: call.input.instruction,
+          conversation: conversation.slice(0, -1).flatMap(m => m.role === "user" || m.role === "assistant"
+            ? [{ role: m.role, content: m.content ?? "" }] : []),
+          conversationSummary: this.transcript.summary,
+          observations: formatWorldContext(this.commonContext().world),
+        }, { signal, generationId: this.generationId, reflection: ++this.reflection });
+        if (!result.ok) throw new WorkflowToolError(result.error);
+        signal.throwIfAborted();
+        this.task.selectBlueprint({ blueprint: result.value, instruction: call.input.instruction });
+        this.plansWithoutAction = 0;
+        return { value: { ...result.value, planVersion: this.task.planVersion, previousPlanCleared: true } };
       }
       case "run_step": {
         const step = this.task.steps[call.input.step - 1];
@@ -348,6 +371,7 @@ export class WorkflowAgent {
           checklist: this.task.checklist(),
           projectSummary: this.task.summary,
           reports,
+          construction: structuredClone(this.task.construction),
         }, { generationId: this.generationId, delegation: ++this.delegation }).catch((error: unknown) => {
           if (this.task.planVersion === planVersion) step.status = "blocked";
           throw error;
@@ -399,6 +423,6 @@ export class WorkflowAgent {
   }
 }
 
-class QueryToolError extends Error {
-  constructor(readonly details: QueryError) { super(details.message); }
+class WorkflowToolError extends Error {
+  constructor(readonly details: QueryError | TaskError) { super(details.message); }
 }

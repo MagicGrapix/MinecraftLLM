@@ -3,7 +3,7 @@
 ## Coordinateur, planner, actionneur
 
 Le coordinateur est la conversation du joueur. Il choisit un tool par tour : répondre, demander un plan,
-déléguer une étape, consulter le monde, cocher une étape ou mettre à jour le résumé de tâche.
+déléguer une étape, demander un blueprint, consulter le monde, cocher une étape ou mettre à jour le résumé de tâche.
 Il n'exécute aucune capability Minecraft lui-même.
 
 Le planner reçoit la conversation joueur/assistant restante, son résumé compacté, le monde actuel,
@@ -59,13 +59,38 @@ tant que celle-ci n'est pas terminée. Une écriture déjà commencée reste att
 fichier valide immuable, mais le rapport reste `INTERRUPTED` avec `savedBlueprintId`, jamais un succès.
 Une limite, une sortie tronquée ou une erreur de stockage ne produit pas de référence acceptée.
 
-Ce rôle est utilisable dans `scripts/smoke/architect.ts`, **pas encore appelé par le coordinateur**.
-Le coordinateur, le planner et l'actionneur existants gardent leur fonctionnement actuel.
+Le rôle reste testable seul dans `scripts/smoke/architect.ts`. Depuis le lot 5, le coordinateur
+le délègue aussi via `ask_architect({ instruction })`, avec demande active, discussion joueur/assistant,
+résumé compacté et instantané du monde. Il ne transmet pas ses anciens tools ni les grilles d'autres dessins.
+Les limites Architect restent celles de `BuildingConfig.ts`, sans réutiliser les 256 tours de l'actionneur.
+
+## Construction dans le workflow (lot 5)
+
+- Dessin demandé : `ask_architect` puis `reply(answer)`. Aucun planner/build automatique.
+- Construction demandée : `ask_architect`, puis `ask_planner` avec référence et facture, puis `run_step`.
+  L'actionneur collecte/crafte selon le plan, ou utilise directement le stock fourni, et appelle `build`.
+  Le coordinateur vérifie les résultats comme pour toute autre étape avant `complete_step`.
+- `WorkflowState.construction` contient `{ blueprint: ArchitectReport, instruction }`, sans grille.
+  `ConstructionContext` est reconstruit dans le system du coordinateur, du planner et de l'actionneur.
+  Il ne dépend ni du résumé de conversation ni de la conservation du tool `ask_architect` dans l'historique.
+- Un replan conserve ce blueprint. Une nouvelle soumission acceptée remplace la référence, vide la
+  checklist et les rapports, et incrémente `planVersion`. Elle n'efface aucun bloc déjà construit.
+  Un échec laisse la sélection précédente intacte ; le coordinator reçoit l'erreur structurée, pas un succès.
+- Une nouvelle demande efface la sélection. Les anciennes références peuvent rester dans la conversation,
+  mais le contexte précise qu'elles sont inactives et l'actionneur refuse de les construire.
+- Stop/shutdown propage le signal et attend le retour de l'Architect (y compris une écriture déjà lancée).
+  Une réponse tardive ne peut pas modifier l'état de la demande. Resume conserve les échanges appariés.
+
+La distinction dessin/construction reste une décision du coordinateur guidée par son prompt, pas un
+classificateur déterministe. L'acceptation d'un dessin n'appelle jamais le Builder par elle-même.
+La facture correspond aux items finis pour une construction neuve ; les recettes et leur rendement
+restent à planifier. L'origine physique est choisie par l'actionneur d'après la demande/les observations,
+puis conservée dans les arguments/résultats pour les reprises ; elle n'est pas inventée par l'Architect.
 
 ## Ordre des messages
 
 ```text
-system    : prompt du rôle + Task Context + Task Summary éventuel + World Context actuel
+system    : prompt du rôle + Task Context + Task Summary éventuel + Construction Context + World Context actuel
 assistant : résumé de conversation antérieure (vide au départ)
 user      : demande active, conservée telle quelle
 assistant / tool : échanges suivants, dans leur ordre

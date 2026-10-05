@@ -32,6 +32,7 @@ test("all runtime agent prompts load from Markdown and render", async () => {
   const system = prompts.actioner.render({
     task_context: "Delegated step 1: collect wood.",
     task_summary_section: "",
+    construction_context: "No blueprint selected for this request.",
     world_context: "Inventory: empty.",
   });
   assert.ok(system.length > 0);
@@ -40,10 +41,10 @@ test("all runtime agent prompts load from Markdown and render", async () => {
   assert.match(system, /Delegated step 1: collect wood/);
   assert.doesNotMatch(system, /{{\s*\w+\s*}}/); // Editable prose is not an exact-string contract.
   assert.doesNotMatch(system, /## Last Action Result|## Local Plan|## Available Capabilities|set_plan|continue_plan|get_capability_schemas/);
-  const values = { task_context: "No plan yet.", task_summary_section: "", world_context: "Inventory: empty." };
+  const values = { task_context: "No plan yet.", task_summary_section: "", world_context: "Inventory: empty.", construction_context: "No blueprint selected for this request." };
   const coordinator = prompts.coordinator.render(values);
   assert.match(coordinator, /ONE native tool call/);
-  assert.match(coordinator, /## Task Context\s+No plan yet\.\s+## World Context/);
+  assert.match(coordinator, /## Task Context\s+No plan yet\.\s+## Construction Context\s+No blueprint selected for this request\./);
   assert.doesNotMatch(coordinator, /## Instruction|## Task Summary|task\.objective|runtime_context/);
   const planner = prompts.planner.render({ ...values, instruction: "Plan one log collection.", action_tools: "### dig\nBreak one block." });
   assert.match(planner, /Reply with exactly one JSON object/);

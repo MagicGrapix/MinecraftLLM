@@ -14,6 +14,7 @@
     "smoke:architect": "ts-node scripts/smoke/architect.ts",
     "smoke:build": "ts-node scripts/smoke/build.ts",
     "smoke:doors": "ts-node scripts/smoke/build.ts --doors",
+    "smoke:build-workflow": "ts-node scripts/smoke/build.ts --workflow",
     "check:ollama": "ts-node scripts/diagnostics/check-ollama-context.ts",
     "start": "node dist/main.js",
     "test": "npm run build && npm run typecheck:tests && npm run typecheck:scripts && npm run test:unit",

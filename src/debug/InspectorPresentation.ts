@@ -82,6 +82,10 @@ function describeExecution(execution: InspectorToolExecution) {
       : claimedStatus === "success" ? "Success" : claimedStatus === "answer" ? "Reply sent" : claimedStatus
   }${text(report.message) || text(input.message) ? ` — ${text(report.message) || text(input.message)}` : ""}`;
   else if (execution.result === undefined) outcome = "In progress";
+  else if (["ask_architect", "submit_blueprint"].includes(execution.name) && text(value.blueprintId)) {
+    const size = record(value.dimensions);
+    outcome = `Blueprint validated, not built — ${text(value.name)} (${size.width} × ${size.depth} × ${size.height})`;
+  }
   else if (Array.isArray(value.steps)) outcome = `Checklist created — ${value.steps.length} steps`;
   else if (execution.name === "complete_step") outcome = `Step ${input.step} marked complete`;
   else if (execution.name === "refresh_summary") outcome = "Summary updated";
@@ -95,6 +99,12 @@ function describeExecution(execution: InspectorToolExecution) {
 }
 
 function describeCall(name: string, input: Record<string, unknown>): string {
+  if (name === "lookup_material") return `${name} → ${text(input.query)}`;
+  if (name === "submit_blueprint") return `${name} → ${text(input.name)}`;
+  if (name === "build") {
+    const origin = record(input.origin);
+    return `${name} → ${text(input.blueprintId)} at (${origin.x}, ${origin.y}, ${origin.z})`;
+  }
   if (name === "get_inventory_diff_after") return `${name} → Action #${input.actionNumber ?? "?"}`;
   if (["goto", "dig", "get_block", "get_block_access", "use_block", "open_container"].includes(name)) {
     const position = record(input.position);

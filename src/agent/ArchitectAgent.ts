@@ -1,12 +1,13 @@
 import { ARCHITECT_LIMITS, BLUEPRINT_LIMITS } from "../building/BuildingConfig";
 import type { AgentInspector } from "../debug/AgentInspector";
 import { failure, success, type TaskResult } from "../execution/TaskResult";
+import type { ToolCallJournal } from "../execution/ToolCallJournal";
 import { completeWithinBudget } from "../llm/InputBudget";
 import type { LLMClient, LLMMessage, LLMRequestTrace } from "../llm/LLMClient";
 import { LLMError } from "../llm/LLMError";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import { writeTrace } from "../TraceLog";
-import { ArchitectTools, type ArchitectReport } from "./ArchitectTools";
+import { ArchitectTools, type ArchitectReport, type ArchitectToolOutcome } from "./ArchitectTools";
 import { ContextCompactor, type ContextBudget } from "./ContextCompactor";
 import { MessageHistory, withValidationFeedback } from "./MessageHistory";
 
@@ -17,6 +18,7 @@ export interface ArchitectDelegation {
   /** Optional factual terrain/inventory notes, not a limit to available stock. */
   readonly observations?: string;
   readonly conversation?: readonly { readonly role: "user" | "assistant"; readonly content: string }[];
+  readonly conversationSummary?: string;
 }
 
 export interface ArchitectOptions {
@@ -25,6 +27,7 @@ export interface ArchitectOptions {
   readonly prompt: PromptTemplate;
   readonly contextSummaryPrompt: PromptTemplate;
   readonly inspector?: AgentInspector;
+  readonly journal?: ToolCallJournal;
   readonly maxCalls?: number;
   readonly maxTokens?: number;
   readonly temperature?: number;
@@ -82,6 +85,7 @@ export class ArchitectAgent {
   private async process(delegation: ArchitectDelegation, generationId: number, reflection: number,
     signal: AbortSignal): Promise<TaskResult<ArchitectReport>> {
     const history = new MessageHistory("native");
+    history.summary = delegation.conversationSummary ?? "";
     let trace: LLMRequestTrace | undefined;
     let calls = 0;
     try {
@@ -135,11 +139,18 @@ export class ArchitectAgent {
           continue;
         }
         correction = null;
-        this.options.inspector?.recordToolStarted(trace, { toolCallId: call.id, name: call.name, arguments: call.arguments });
-        const outcome = await this.options.tools.execute(call, signal);
+        const actionNumber = this.options.journal?.start(call.name, false, {
+          agent: "architect", generationId, toolCallId: call.id, arguments: call.arguments,
+        });
+        this.options.inspector?.recordToolStarted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments });
+        const outcome: ArchitectToolOutcome = await this.options.tools.execute(call, signal).catch((error: unknown) => ({
+          result: failure(signal.aborted ? "INTERRUPTED" : "INTERNAL_ERROR", error instanceof Error ? error.message : String(error)), fatal: true,
+        }));
+        const content = JSON.stringify({ ...outcome.result, ...(actionNumber === undefined ? {} : { actionNumber }) });
+        if (actionNumber !== undefined) this.options.journal!.complete(actionNumber, outcome.result.ok, content);
         this.options.inspector?.recordToolCompleted(trace, {
-          toolCallId: call.id, name: call.name, arguments: call.arguments,
-          result: JSON.stringify(outcome.result), ok: outcome.result.ok,
+          actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments,
+          result: content, ok: outcome.result.ok,
         });
         writeTrace("architect.tool_result", { generationId, round, call, ...outcome });
         // A published immutable file may survive cancellation; it is not handed off as accepted.
@@ -148,7 +159,7 @@ export class ArchitectAgent {
           return failure("INTERRUPTED", "Architect stopped.", { facts: { calls,
             ...(outcome.accepted ? { savedBlueprintId: outcome.accepted.blueprintId } : {}) } });
         }
-        history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id, content: JSON.stringify(outcome.result) }]);
+        history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id, content }]);
         this.options.inspector?.finalizeRound(trace, outcome.fatal ? "error"
           : !outcome.accepted && round === this.maxCalls - 1 ? "tool_round_limit" : "completed");
         console.info("Architect tool completed.", { tool: call.name, ok: outcome.result.ok });

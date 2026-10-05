@@ -257,7 +257,12 @@ est sauvegardé puis relu, sans construction ; les soumissions rejetées ne devi
 Le prompt de l'essai est dans `tests/fixtures/prompts/architect-request.md`, séparé du prompt de rôle.
 Les traces sont celles du logger normal, pas un rapport de campagne. Un dessin valide peut encore être
 inadapté à la demande ou inaccessible à la construction : cet essai ne prouve ni l'un ni l'autre.
-Le workflow coordinateur -> Architect -> approvisionnement -> Builder reste à intégrer et tester.
+`npm.cmd run smoke:build-workflow` teste maintenant les délégations réelles avec réponses LLM scriptées,
+stock fourni et construction physique : demande de dessin sans modification, puis maison et checklist
+vérifiées. Le bootstrap de production, les prompts, le store et l'Executor sont conservés ; seul le client
+LLM est remplacé. Les observations indépendantes contrôlent aussi les propriétés des portes.
+Il utilise le même coin et le même nettoyage que `smoke:doors`, et des traces JSONL, pas une campagne HTML.
+Ce smoke ne mesure ni les capacités du modèle réel ni l'approvisionnement : ces campagnes restent au lot 6.
 
 Pour ajouter un scénario, définir un `Scenario` dans `scenarios.ts` avec demande, inventaire,
 fixture bornée facultative, liste de blocs attendus et `verify(initial, current)`.

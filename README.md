@@ -53,10 +53,15 @@ Pour tester uniquement la conception de blueprints avec Ollama, sans connexion M
 npm.cmd run smoke:architect
 ```
 
-L'Architect peut chercher des matériaux et corriger/sauvegarder un dessin ; il ne construit rien et
-n'est pas encore relié au coordinateur. Ses limites sont dans `src/building/BuildingConfig.ts`,
+L'Architect peut chercher des matériaux et corriger/sauvegarder un dessin ; il ne construit rien lui-même.
+Le coordinateur l'appelle via `ask_architect`, puis transmet le dessin accepté au planner et à l'actionneur.
+Ses limites sont dans `src/building/BuildingConfig.ts`,
 son prompt dans `prompts/architect.md`. Un dessin valide ne garantit pas que le modèle a respecté
 toutes les consignes : consulter [le bilan des essais du lot 4](docs/plans/blueprint-builder.md#lot-4--architect-isolé).
+
+`npm.cmd run smoke:build-workflow` teste la chaîne complète dans Minecraft avec stock fourni et
+réponses LLM scriptées (aucun Ollama). Le test utilise un bot dédié et nettoie sa petite zone ensuite.
+Voir [prérequis et limites](docs/blueprints.md#intégration-lot-5).
 
 ## Où lire / modifier
 

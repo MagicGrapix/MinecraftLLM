@@ -11,7 +11,9 @@ Emplacements à modifier :
 - `src/world/queries/defaultQueries.ts` : lectures du monde.
 - `src/world/queries/GetDroppedItems.ts` : items au sol.
 - `src/agent/ToolCatalogBuilder.ts` : skills, landmarks, finish_step.
-- `src/agent/CoordinatorTools.ts` : reply, ask_planner, run_step, complete_step, refresh_summary.
+- `src/agent/CoordinatorTools.ts` : reply, ask_architect, ask_planner, run_step, complete_step, refresh_summary.
+- `src/world/queries/LookupMaterial.ts` : lookup_material (schéma, description et recherche partagés).
+- `src/agent/ArchitectTools.ts` : submit_blueprint, strictement réservé à l'Architect.
 
 Les dix descriptions clarifiées utilisent des lignes courtes :
 
@@ -47,7 +49,11 @@ Il n'y a ni collecte/craft, ni démolition, ni échafaudage automatique dans ce 
 L'Architect isolé (lot 4) dispose de `lookup_material({ query, kind? })` et `submit_blueprint(blueprint)`.
 Le second reçoit directement le dessin complet et termine la délégation après validation/sauvegarde.
 Le premier distingue noms connus et support Blueprint, sans garantir disponibilité ou craftabilité.
-Ces deux tools ne sont pas encore ajoutés au coordinateur ou à l'actionneur ; leur intégration est le lot 5.
+Depuis le lot 5, `lookup_material` est aussi une query du coordinateur et de l'actionneur, avec le même contrat.
+`submit_blueprint` reste réservé à l'Architect. Le coordinateur possède `ask_architect({ instruction })`
+et reçoit seulement le rapport compact ; ce succès invalide la checklist précédente, sans construire.
+Le planner voit `build` et `lookup_material` comme documentation, jamais comme tools appelables.
+L'actionneur ne peut appeler `build` qu'avec le blueprint sélectionné dans sa délégation actuelle.
 Voir [Architect](blueprints.md#architect-lot-4) pour le rapport, les limites et le smoke sans Minecraft.
 
 ## Recherches et sessions

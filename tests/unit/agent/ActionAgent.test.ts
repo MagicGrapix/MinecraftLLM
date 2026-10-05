@@ -13,6 +13,7 @@ import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
 import type { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
 import type { ExecutionContext } from "../../../src/capabilities/Capability";
 import { CapabilityRegistry } from "../../../src/capabilities/CapabilityRegistry";
+import { BuildCapability } from "../../../src/capabilities/Build";
 import { ACTION_MAX_TOOL_CALLS } from "../../../src/config";
 import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { Executor } from "../../../src/execution/Executor";
@@ -30,6 +31,25 @@ import type { SkillRegistry } from "../../../src/skills/SkillRegistry";
 import { BlockPositionSchema } from "../../../src/shared/types";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
+
+test("actioner rejects a missing or stale blueprint before physical execution and accepts the selected reference", async () => {
+  const id = "bp_12345678-1234-1234-1234-123456789abc";
+  const other = "bp_22345678-1234-1234-1234-123456789abc";
+  for (const mode of ["missing", "stale", "selected"] as const) {
+    const h = await harness();
+    call(h.llm, "build", { blueprintId: mode === "stale" ? other : id, origin: { x: 0, y: -60, z: 0 } });
+    if (mode === "selected") call(h.llm, "finish_step", { status: "success", message: "Verified structure." });
+    const d: ActionDelegation = { ...delegation(), ...(mode === "missing" ? {} : {
+      construction: { instruction: "Small house", blueprint: { blueprintId: id, name: "house", description: "House", formatVersion: 1,
+        minecraftVersion: "1.21.11", dimensions: { width: 5, depth: 5, height: 4 }, materials: [{ item: "oak_planks", quantity: 55 }] } },
+    }) };
+    const report = await h.agent.runDelegatedStep(d);
+    assert.equal(h.executor.started.length, mode === "selected" ? 1 : 0);
+    assert.equal(report.status, mode === "selected" ? "success" : "failure");
+    if (mode !== "selected") assert.match(report.message, /blueprint/);
+    else assert.match(h.llm.requests[1]!.messages[0]!.content!, /oak_planks x55/);
+  }
+});
 
 test("delegation uses one actioner prompt and explicit private handoff without intent or memory calls", async () => {
   const h = await harness();
@@ -574,6 +594,7 @@ async function harness(options: {
     findNearestBlocks: async () => [], getNearbyEntities: () => [],
   };
   const capabilities = new CapabilityRegistry();
+  capabilities.register(new BuildCapability());
   for (const name of ["dig", "goto"]) capabilities.register({
     name, description: "Test " + name + ".",
     inputSchema: z.object({ position: BlockPositionSchema }).strict(),
@@ -623,6 +644,7 @@ function workflowHarness(h: Awaited<ReturnType<typeof harness>>) {
   const replies: string[] = [];
   const agent = new WorkflowAgent({
     llm: h.llm, actionAgent: h.agent, world: h.world, landmarks: h.landmarks, journal: h.journal,
+    architectAgent: { run: async () => { throw new Error("Unexpected Architect delegation in this test."); } },
     actionTools: h.toolBridge.catalog.build(),
     queries: createDefaultWorldQueryRegistry(h.world, h.journal), prompts: h.prompts, inspector: h.inspector,
     temperature: 0, maxTokens: 4096, maxRetries: 0,

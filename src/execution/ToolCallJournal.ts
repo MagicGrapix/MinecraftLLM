@@ -14,7 +14,7 @@ export interface ToolCallRecord {
   readonly context?: { agent: string; generationId: number; toolCallId: string; arguments: string };
 }
 
-/** Shared by both agents. Numbers last for the session; records last for the request. */
+/** Shared by coordinator, Architect and actioner. Numbers last for the session; records last for the request. */
 export class ToolCallJournal {
   private nextNumber = 0;
   private readonly records = new Map<number, ToolCallRecord>();

@@ -1,5 +1,6 @@
 import type { Task } from "../execution/Task";
 import type { TaskResult } from "../execution/TaskResult";
+import type { ConstructionContext } from "./ConstructionContext";
 
 export type ActionFinishStatus = "success" | "failure" | "needs_user";
 
@@ -21,6 +22,7 @@ export interface ActionDelegation {
   readonly checklist: string;
   readonly projectSummary: string;
   readonly reports: readonly StepReportSummary[];
+  readonly construction?: ConstructionContext | null;
 }
 
 export interface DelegatedActionReport {

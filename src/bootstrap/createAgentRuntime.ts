@@ -5,6 +5,13 @@ import { AgentToolBridge } from "../agent/AgentToolBridge";
 import { ActionAgent } from "../agent/ActionAgent";
 import type { ActionTaskOutcome } from "../agent/ActionTypes";
 import { WorkflowAgent } from "../agent/WorkflowAgent";
+import { ArchitectAgent } from "../agent/ArchitectAgent";
+import { ArchitectTools } from "../agent/ArchitectTools";
+import { BlueprintStore } from "../building/BlueprintStore";
+import { BlueprintValidator } from "../building/BlueprintValidator";
+import { MaterialCatalog } from "../world/MaterialCatalog";
+import { createLookupMaterialQuery } from "../world/queries/LookupMaterial";
+import type { LLMClient } from "../llm/LLMClient";
 import { WorkflowSummaryFile } from "../agent/WorkflowState";
 import { SESSION_ID } from "../TraceLog";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
@@ -45,14 +52,18 @@ export async function createAgentRuntime(
   runtime: MinecraftRuntime,
   config: AgentConfig,
   preloadedLandmarks?: LandmarkMemory,
+  dependencies: { llm?: LLMClient; blueprintsDirectory?: string } = {},
 ): Promise<RunningAgentRuntime> {
   const world = new MineflayerWorldQueries(runtime);
   const sessions = new ContainerSessionManager(runtime.bot);
-  const capabilities = createCapabilityRegistry(sessions);
+  const capabilities = createCapabilityRegistry(sessions, dependencies.blueprintsDirectory);
   const executor = new Executor({ registry: capabilities, runtime, world });
   const journal = new ToolCallJournal(() =>
     runtime.isConnected && !executor.currentTask ? snapshotInventory(runtime.bot) : null);
   const queries = createDefaultWorldQueryRegistry(world, journal);
+  const materials = new MaterialCatalog(runtime.bot.registry);
+  const blueprints = new BlueprintStore(new BlueprintValidator(materials), { directory: dependencies.blueprintsDirectory });
+  queries.register(createLookupMaterialQuery(materials));
   const skills = await SkillRegistry.discover(
     resolve(process.cwd(), "skills"),
   );
@@ -69,7 +80,7 @@ export async function createAgentRuntime(
     ? new AgentInspector(config.inspectorMaxRounds)
     : null;
   let inspectorServer: AgentInspectorServerHandle | null = null;
-  const llm = new OpenAICompatibleLLMClient({
+  const llm = dependencies.llm ?? new OpenAICompatibleLLMClient({
     baseUrl: config.llmBaseUrl,
     apiKey: config.llmApiKey,
     model: config.llmModel,
@@ -117,6 +128,11 @@ export async function createAgentRuntime(
   const agent = new WorkflowAgent({
     llm,
     actionAgent,
+    architectAgent: new ArchitectAgent({
+      llm, tools: new ArchitectTools(materials, blueprints), prompt: prompts.architect,
+      contextSummaryPrompt: prompts.contextSummary, inspector: inspector ?? undefined, journal,
+      temperature: config.llmTemperature, reasoningEffort: config.llmReasoningEffort,
+    }),
     actionTools: bridge.catalog.build(),
     journal,
     queries,

@@ -594,12 +594,14 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
   const actionTools = new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries).build();
   const agent = new WorkflowAgent({
     llm, actionAgent, actionTools, world, inspector, journal, queries,
+    architectAgent: { run: async () => { throw new Error("Unexpected Architect delegation in this test."); } },
     landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
     prompts: {
       contextSummary: PromptTemplate.fromString("context-summary", "Compress {{summary_input}} under {{max_chars}} characters."),
       coordinator: PromptTemplate.fromString("coordinator", "Coordinator\n## Task Context\n{{task_context}}\n{{task_summary_section}}\n## World Context\n{{world_context}}"),
       planner: await PromptTemplate.load(join(process.cwd(), "prompts/planner.md")),
       actioner: PromptTemplate.fromString("actioner", "Actioner {{task_context}}"),
+      architect: await PromptTemplate.load(join(process.cwd(), "prompts/architect.md")),
       summary: PromptTemplate.fromString("summary", "Summary limit {{max_chars}}\n{{summary_input}}"),
       conversationSummary: PromptTemplate.fromString("conversation-summary", "Previous conversation summary: {{summary}}"),
     },

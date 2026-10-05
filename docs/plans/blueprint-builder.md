@@ -2,7 +2,7 @@
 
 Date : 5 octobre 2026.
 
-Statut : **lots 1 à 4 implémentés ; lots 5 à 7 restant à faire**. Le lot 4 est vérifié unitairement ; la génération de maisons avec Qwen reste à fiabiliser (voir son bilan).
+Statut : **lots 1 à 5 implémentés ; lots 6 et 7 restant à faire**. Le workflow est vérifié dans Minecraft avec réponses LLM scriptées ; la génération de maisons avec Qwen reste à fiabiliser (voir le bilan du lot 4).
 Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprints.md) décrivent ce qui est réellement disponible.
 
 ## Utiliser ce document
@@ -13,7 +13,7 @@ Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprin
 - Mettre à jour les docs de comportement actuel lorsque le code correspondant existe, pas avant.
 - Conserver les prompts personnels de Quentin ; ne modifier que les passages nécessaires à l'intégration.
 
-**Prochaine étape : lot 5 — intégration de l'Architect dans le workflow existant.**
+**Prochaine étape : lot 6 — campagnes de bout en bout et approvisionnement.**
 
 ## 1. Décisions retenues
 
@@ -433,15 +433,28 @@ Le validateur ne devient pas un juge de la demande naturelle. Fiabiliser le prom
 
 ### Lot 5 — Intégration dans le workflow existant
 
-- [ ] Ajouter `ask_architect` au coordinator et l'état de construction de la demande.
-- [ ] Transmettre référence, matériaux et contraintes au planner puis à l'actionneur.
-- [ ] Exposer `build` et `lookup_material` aux bons rôles ; vérifier que le coordinator n'acquiert pas de capacité physique.
-- [ ] Adapter légèrement les prompts concernés, sans réécrire les parties personnelles de Quentin.
-- [ ] Tester la conservation de la référence après compression/replanning, et sa gestion lors d'une nouvelle demande.
-- [ ] Tester « dessine une maison » sans construction, et « construis une maison » avec délégations dans le bon ordre.
-- [ ] Adapter les labels de l'inspecteur et la documentation courante.
+- [x] Ajouter `ask_architect` au coordinator et l'état de construction de la demande.
+- [x] Transmettre référence, matériaux et contraintes au planner puis à l'actionneur.
+- [x] Exposer `build` et `lookup_material` aux bons rôles ; vérifier que le coordinator n'acquiert pas de capacité physique.
+- [x] Adapter légèrement les prompts concernés, sans réécrire les parties personnelles de Quentin.
+- [x] Tester la conservation de la référence après compression/replanning, et sa gestion lors d'une nouvelle demande.
+- [x] Tester « dessine une maison » sans construction, et « construis une maison » avec délégations dans le bon ordre.
+- [x] Adapter les labels de l'inspecteur et la documentation courante.
 
 Sortie : maison de référence avec matériaux fournis via le vrai workflow ; toutes les preuves d'exécution restent inspectables.
+
+Livré le 2026-10-05 : `WorkflowAgent` délègue à l'Architect, `ConstructionContext` conserve le rapport
+validé hors historique, les queries partagent `lookup_material`. Le coordinator ne peut pas construire ;
+l'actionneur refuse un build sans référence active ou sur un ancien dessin. Changer de blueprint invalide
+la checklist et ses rapports, sans toucher aux blocs existants. Échec/stop ne sélectionnent aucun nouveau dessin.
+
+Vérifications : `npm.cmd test` — 455 tests réussis. `npm.cmd run smoke:build-workflow` réussi dans
+Minecraft 1.21.11 : dessin sans effet, nouvelle demande, délégations complètes, maison de 81 poses
+(55 planches + 25 cobblestone + une porte) en environ 37 s pour la capability, puis vérification indépendante
+des 100 cellules et de l'inventaire. Checklist cochée, zone nettoyée et bots de test déconnectés.
+Trace : `logs/trace_1791206349780_15172.jsonl`. Le client LLM est scripté, tous les autres composants sont réels.
+Le prompt Architect n'a pas été modifié : l'amélioration de la conception Qwen reste à Quentin.
+Ce test ne prouve pas que Qwen choisit ces délégations ni qu'il sait s'approvisionner seul.
 
 ### Lot 6 — Campagnes de bout en bout et approvisionnement
 
@@ -503,5 +516,11 @@ La première version complète correspond aux lots 1 à 6 :
   Essais réels et limites de conception détaillés ci-dessus. Aucun serveur/bot Minecraft lancé pour ce lot.
   Commit de sauvegarde préalable demandé : `167199b` (`architecture lot 3`), poussé sur `refactor-redo`.
   Prochain lot : 5 ; ne pas confondre succès technique d'une soumission et respect sémantique de la demande.
+
+- 2026-10-05, lot 5 livré : `ask_architect`, sélection de blueprint par demande, contexte partagé,
+  recherche de noms partagée, garde des références de build, journal numéroté et labels d'inspecteur.
+  455 tests réussis et smoke Minecraft du workflow avec client LLM scripté ; voir le bilan ci-dessus.
+  Commit de sauvegarde préalable : `ba7a5cb` (`architecture lot 4`), poussé sur `refactor-redo`.
+  Prochain lot : 6 ; aucun réglage du prompt Architect ni campagne Qwen effectué dans ce lot.
 
 À compléter après chaque lot : date, tâches cochées, fichiers principaux, vérifications réalisées, limitations restantes et prochaine étape.

@@ -253,3 +253,27 @@ accepté pour confirmer sa persistance. Le scénario par défaut reste dans `tes
 Les fichiers générés restent dans `data/blueprints/` ; les logs courts et les traces complètes (requêtes,
 soumissions, erreurs et rounds d'inspecteur) restent dans `logs/`. Ctrl+C demande un arrêt attendu.
 Il ne démarre pas de serveur debug et n'ajoute rien à la session de l'interface 3001 déjà ouverte.
+
+## Intégration (lot 5)
+
+`createAgentRuntime` partage client LLM, catalogue connecté et répertoire Blueprint entre Architect et Builder.
+Son dernier paramètre facultatif `{ llm, blueprintsDirectory }` est une injection applicative pour les tests,
+jamais un argument modifiable par le modèle. Par défaut : client configuré et `data/blueprints/`.
+Voir [le cycle de sélection/remplacement/arrêt](agent-workflow.md#construction-dans-le-workflow-lot-5).
+Les prompts coordinator/planner/actioner reçoivent `{{construction_context}}` ; le prompt Architect est inchangé.
+`agent_summary_<session>.md` inclut désormais la référence sélectionnée et les matériaux, sans grille.
+L'inspecteur distingue « blueprint validated, not built » et les appels physiques `build` à leur origine.
+
+```powershell
+npm.cmd run smoke:build-workflow
+```
+
+Même serveur, bots, coin de test et nettoyage que `smoke:build`. Les matériaux sont fournis par le
+controller : 55 planches, 25 blocs de cobblestone et une porte. Le test appelle le vrai
+bootstrap/workflow avec un client LLM **scripté**, pas Ollama : conception sans modification du monde,
+puis nouvelle demande avec Architect → planner → actionneur → build → complétion.
+Le controller vérifie indépendamment les 100 cellules contraintes, dont les états des deux moitiés de porte.
+L'inspecteur de ce smoke utilise le port 3003 pendant l'essai ; ses rounds, arguments et résultats
+sont conservés dans les traces JSONL normales. Les modèles sont étiquetés `scripted-fixture-no-llm`.
+Cela valide l'intégration et l'exécution Minecraft, **pas** la fiabilité des décisions de Qwen.
+Les campagnes conversationnelles avec modèle réel et approvisionnement restent au lot 6.

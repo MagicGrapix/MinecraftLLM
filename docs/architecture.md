@@ -103,3 +103,8 @@ Le shutdown est idempotent ; il ne lance pas une deuxième série de libération
 `npm.cmd test` vérifie code, scripts et tests. Les smoke restent séparés car ils contactent Minecraft ou Ollama.
 Ne pas remettre des anciens agents ou prompts de test dans `src/` ou `prompts/`.
 Actualiser la page concernée lorsque ces frontières changent ; les détails locaux restent en commentaires.
+
+## Travaux planifiés
+
+Le [plan Blueprint / Architect / Builder](plans/blueprint-builder.md) décrit une évolution future et son suivi par lots.
+Il ne décrit pas des fonctionnalités déjà présentes ; les sections ci-dessus restent la référence du comportement actuel.

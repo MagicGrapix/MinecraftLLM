@@ -115,7 +115,8 @@ export class UseBlockCapability
 
     try {
       context.signal.throwIfAborted();
-      await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true);
+      const cursor = input.cursor ?? { x: 0.5, y: 0.5, z: 0.5 };
+      await bot.lookAt(block.position.offset(cursor.x, cursor.y, cursor.z), true);
       context.signal.throwIfAborted();
 
       const raycastBlock = bot.blockAtCursor(5);
@@ -127,7 +128,6 @@ export class UseBlockCapability
         );
       }
 
-      const cursor = input.cursor ?? { x: 0.5, y: 0.5, z: 0.5 };
       await bot.activateBlock(
         block,
         faceVectors[input.face ?? "top"],

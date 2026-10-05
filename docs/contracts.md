@@ -92,8 +92,9 @@ Poser de la terre sur une ancienne table ne confirme pas cette table ; une cellu
 
 ## Contrôleur de monde
 
-Le format de construction hors ligne et son stockage sont distincts du contrôleur OP : voir
-[les contrats Blueprint](blueprints.md). Ils ne donnent encore accès à aucun outil de construction.
+Le format Blueprint, son stockage et la capability survival `build` sont distincts du contrôleur OP : voir
+[les contrats Blueprint](blueprints.md). `build` ne peut ni donner des items, ni effacer le terrain,
+ni utiliser des commandes serveur. L'Architect n'est pas encore livré.
 
 Le monde de test actuel est l'Overworld standard : Y=-64 à 319.
 L'arène par défaut va de (-48,-64,-48) à (48,-30,48).

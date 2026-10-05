@@ -1,8 +1,10 @@
-# Blueprints — bibliothèque hors ligne
+# Blueprints et Builder
 
 Le lot 1 fournit le format, la validation, les suggestions de noms, le calcul des matériaux et le stockage.
-Il ne connecte aucun bot, ne contacte aucun LLM et ne modifie pas Minecraft. Aucun nouveau tool n'est encore exposé aux agents.
-L'Architect, `submit_blueprint`, `lookup_material` côté agent et `build` restent dans les lots suivants du [plan](plans/blueprint-builder.md).
+Ces opérations hors ligne ne connectent aucun bot, ne contactent aucun LLM et ne modifient pas Minecraft.
+Le lot 2 ajoute la capability `build`, qui exécute une référence sauvegardée dans Minecraft, sans LLM interne.
+Le lot 3 ajoute les dépendances `oak_door` (un item, deux moitiés vérifiées).
+L'Architect, `submit_blueprint` et `lookup_material` côté agent restent dans les lots suivants du [plan](plans/blueprint-builder.md).
 
 ## Composants
 
@@ -11,6 +13,7 @@ L'Architect, `submit_blueprint`, `lookup_material` côté agent et `build` reste
 - `src/building/BlueprintValidator.ts` valide un objet inconnu et produit cellules, placements et facture d'items.
 - `src/building/BlueprintStore.ts` enregistre et relit les blueprints acceptés.
 - `src/building/BuildingConfig.ts` contient les limites et la liste explicite des blocs pleins admis.
+- `BlueprintDoors.ts` compile les portes ; `BuildDoor.ts` contrôle leur géométrie de pose ; `PlaceBuildDoor.ts` gère rotation et confirmation serveur.
 
 Exemple d'utilisation dans un script, sans démarrer Minecraft :
 
@@ -40,7 +43,7 @@ const checked = validator.validate(input);
 // if (saved.ok) console.log(await store.load(saved.value.id));
 ```
 
-Pour le futur runtime connecté, injecter `bot.registry` au lieu de choisir une version indépendante.
+Dans le runtime connecté, `BuildCapability` utilise `bot.registry` au lieu de choisir une version indépendante.
 Le catalogue ne promet ni disponibilité en inventaire, ni recette, ni existence de ressources dans le monde.
 
 ## Format et repère
@@ -51,7 +54,7 @@ Le catalogue ne promet ni disponibilité en inventaire, ni recette, ni existence
 - Une lettre majuscule ASCII désigne un bloc de `palette`.
 - `.` représente de l'air **requis** ; `_` représente une cellule ignorée. Les deux ne coûtent aucun item.
 - Les positions des cellules et opérations compilées sont locales et entières ; elles ne sont pas des coordonnées monde.
-- Le résultat `operations` est une liste géométrique dans l'ordre Y/Z/X, pas une preuve de constructibilité ni un planning de navigation.
+- Le résultat `operations` contient les cubes dans l'ordre Y/Z/X, puis les portes. Ce n'est pas une preuve de constructibilité ni un planning de navigation.
 
 Limites : largeur/profondeur 8, hauteur 5, palette 16 entrées, dépendances portes 16, fichier 65 536 octets.
 Les chaînes, tableaux, coordonnées et champs supplémentaires sont validés sans conversion implicite.
@@ -61,16 +64,32 @@ La palette accepte les planches listées dans `BuildingConfig.ts`, cobblestone, 
 Un bloc reconnu n'est pas automatiquement accepté : sable, bûches orientables, portes dans la palette, liquides, etc. sont refusés.
 Le préfixe `minecraft:` est normalisé ; les autres namespaces, catégories et fautes ne deviennent jamais des correspondances exactes.
 
-## Portes : réservées, pas encore prises en charge
+## Portes : dépendances explicites
 
-`dependencies.doors` possède déjà un schéma de position locale, item et orientation cardinale.
-Mais toute dépendance de porte provoque actuellement `UNSUPPORTED_DEPENDENCY`. Elle ne peut pas être enregistrée comme blueprint accepté.
-La validation d'emprise, le développement en deux moitiés, le comptage d'un seul item et la pose appartiennent au lot 3.
+`dependencies.doors` accepte `item: "oak_door"`, une `position` locale (moitié basse) et `facing: "north" | "south" | "east" | "west"`.
+Les deux moitiés doivent remplacer deux `_` dans le dessin. Une lettre, un `.` ou une autre dépendance sont des conflits.
+La porte doit tenir dans le volume ; au-dessus de Y=0, un cube plein doit être prévu immédiatement dessous.
+À Y=0, le support vient du sol contrôlé par le Builder. Les portes adjacentes/doubles et les autres matériaux sont refusés.
+
+Le compilateur produit **une opération et un item**, mais **deux cellules attendues**.
+La charnière est déterministe : supports pleins à gauche/droite selon l'orientation ; égalité => gauche avec un clic décalé.
+Les portes sont posées après tous les cubes pour stabiliser ces supports. Un environnement voisin incompatible empêche la pose.
+L'adaptateur attend la rotation Mineflayer avant d'envoyer le clic ; `force=true` ne garantit pas que le serveur a reçu le nouveau yaw.
+La pose utilise `_placeBlockWithOptions` pour préserver l'orientation et le point de clic. Cette dépendance privée est isolée
+dans `PlaceBuildDoor.ts` et doit être retestée avec `smoke:doors` après une mise à jour de Mineflayer.
+
+Les deux paquets serveur doivent confirmer nom, moitié, facing, hinge, `open=false`, `powered=false`.
+Une porte existante partielle, ouverte, alimentée ou mal orientée renvoie `BLOCKED` / `DOOR_CONFLICT`, sans remplacement automatique.
+Les compteurs de progression comptent des opérations : une porte conforme compte pour 1, pas 2.
+Un succès prouve la conformité du dessin, pas son habitabilité. Ouvrir la porte (`use_block`) puis passer (`goto`) est distinct.
+`goto` reconnaît les portes déjà ouvertes dont la forme de collision laisse passer le corps centré du bot ; il ne les ouvre pas automatiquement.
+L'adaptateur `GotoDoors` corrige aussi les points de passage que le post-traitement du pathfinder déplacerait sur le haut de la porte.
+`use_block.cursor`, s'il est fourni, sert au point visé **et** au clic : cela permet de cibler le panneau décalé d'une porte ouverte.
 
 Fixtures :
 
 - `tests/fixtures/blueprints/small-oak-shelter.json` : accepté, 5×5×4, 80 placements, 20 cellules d'air requis ; **55 oak_planks + 25 cobblestone**.
-- `tests/fixtures/blueprints/small-oak-house.json` : exemple futur avec porte, accepté par le schéma de forme mais rejeté par la validation fonctionnelle actuelle.
+- `tests/fixtures/blueprints/small-oak-house.json` : accepté, 81 placements, 82 cellules occupées et 18 d'air requis ; **55 oak_planks + 25 cobblestone + 1 oak_door**.
 
 ## Résultats et erreurs
 
@@ -78,7 +97,7 @@ Les méthodes `validate`, `save` et `load` utilisent la forme `TaskResult` exist
 Cette réutilisation d'enveloppe n'exécute pas de capability.
 
 `validate` retourne en succès le blueprint normalisé, la version Minecraft, la hauteur, toutes les cellules,
-les opérations de blocs pleins et les matériaux agrégés par nom d'item. Il ne modifie pas l'objet fourni.
+les opérations de cubes/portes et les matériaux agrégés par nom d'item. Il ne modifie pas l'objet fourni.
 Un dessin sans bloc à placer est refusé. Un dessin peut être valide sans être accessible ou habitable.
 
 En échec, `code` vaut `INVALID_ARGUMENT`, `facts.reason` vaut `INVALID_BLUEPRINT` et `facts.issues` contient des erreurs localisées :
@@ -88,7 +107,8 @@ En échec, `code` vaut `INVALID_ARGUMENT`, `facts.reason` vaut `INVALID_BLUEPRIN
 - `UNKNOWN_BLOCK` : nom inexistant, avec alternatives proposées.
 - `UNSUPPORTED_BLOCK` : bloc reconnu mais comportement non pris en charge.
 - `MISSING_PLACEMENT_ITEM` : bloc autorisé sans item correspondant dans cette version.
-- `UNSUPPORTED_DEPENDENCY` : porte non prise en charge actuellement.
+- `UNSUPPORTED_DEPENDENCY` : matériau de porte non pris en charge ou absent du registre.
+- `DOOR_OUT_OF_BOUNDS`, `DOOR_OVERLAP`, `DOOR_SUPPORT`, `ADJACENT_DOORS` : dépendance incompatible avec le dessin.
 - `EMPTY_BLUEPRINT` : rien à construire.
 
 `MaterialCatalog.resolve(kind, name)` ne fait que la correspondance exacte avec normalisation du préfixe.
@@ -129,3 +149,72 @@ npm.cmd test
 ```
 
 Ces tests chargent les données locales de Minecraft et utilisent des répertoires temporaires pour le stockage. Aucun serveur Minecraft ni appel Ollama/LLM.
+
+## Builder (lots 2–3)
+
+Appel : `build({ blueprintId: "bp_<uuid>", origin: { x: -24, y: -60, z: -24 } })`.
+Le script de smoke montre la sauvegarde d'une fixture et l'appel via `TaskFactory` / `Executor`.
+Le chargement revalide fichier, version et matériaux avant tout déplacement.
+Le dessin doit déjà avoir été enregistré : la création par un agent Architect appartient à un autre lot.
+
+### Parcours
+
+1. Contrôler les bornes du monde, les cellules et le sol plat plein sous l'emprise et sa marge de deux blocs.
+2. Calculer le stock nécessaire pour les seuls blocs manquants. Un bloc déjà conforme n'est pas replacé.
+3. Parcourir les opérations dans l'ordre Y/Z/X ; différer une cellule qui n'a pas encore de support utilisable.
+4. Sélectionner au plus huit postures/faces : support plein non interactif, face visible à 4,5 blocs maximum,
+   pas de collision avec le bot, retour au sol encore possible après la pose.
+5. Naviguer avec `canDig=false`, `canPlace=false`, équiper, revérifier les préconditions puis poser.
+6. Attendre les paquets serveur pour la cellule (les deux moitiés pour une porte) et comparer l'état attendu. Aucun retry aveugle après une réponse incertaine.
+7. Sortir de l'emprise puis vérifier tous les blocs et tout l'air requis, sans se fier au seul compteur de poses.
+
+`BuildExit` utilise un graphe voxel conservateur dans la marge : marche cardinale, saut d'un bloc,
+descente de trois blocs maximum. Il filtre les postures, sans remplacer le pathfinder réel.
+Cela évite notamment de fermer le toit en restant dessus sans retour au sol.
+Une posture théoriquement accessible peut encore échouer au déplacement : l'erreur est remontée après les candidats bornés.
+Ce n'est pas un solveur de constructibilité pour tout dessin valide ; certains plans nécessitent un échafaudage ou un autre ordre non pris en charge.
+
+Seules les cellules prévues sont posées. Les cellules `.` doivent rester de l'air réel ; un liquide n'est pas de l'air.
+`_` est ignoré, pas déblayé. Un bloc incorrect est signalé, jamais détruit. Un changement de dimension interrompt le chantier.
+La comparaison des blocs pleins se fait par nom ; aucune orientation particulière n'est requise par cette palette.
+Le support de pose est limité à la palette de blocs pleins plus `grass_block` et `bedrock`, pour éviter les interactions de coffres/tables.
+
+### Exécution, reprise et résultats
+
+Le `Builder` dépend d'un port étroit `BuildOperations`, implémenté par `MineflayerBuildOperations`.
+L'adaptateur appelle les primitives existantes avec le **même** `ExecutionContext`, jamais un second Executor.
+La limite de `build` est 300 000 ms (`BUILD_LIMITS`) ; le TaskSpec explicite reste prioritaire.
+Le signal arrête les opérations suivantes. Une promesse déjà partie reste attendue et garde le verrou physique.
+`stillSettling=true` signifie qu'il ne faut pas lancer une autre action ; les règles normales de l'Executor restent applicables.
+
+Le bilan compact comprend référence, origine, dimension, phase, durée, total, opérations conformes observées,
+opérations initialement conformes, placements confirmés de cet appel et nombre restant. Une porte = une opération.
+En erreur physique, `facts.progress` contient ce bilan. En timeout/interruption, l'Executor conserve le dernier bilan publié
+sous `facts.progress.build` ; c'est un instantané, pas une garantie sur une pose encore en vol.
+Les erreurs précoces de référence/fichier n'ont pas de bilan de monde, puisque celui-ci n'a pas encore été observé.
+
+Il n'y a ni rollback ni sauvegarde d'un compteur de chantier faisant autorité.
+Une reprise à la même référence/origine recompare le monde courant et recalcule le stock restant.
+Un succès précédent ne dispense jamais de cette vérification ; un dessin totalement conforme ne consomme aucun nouvel item.
+
+Les traces `build.event` portent `taskId`, référence, origine, type d'événement, cible et bloc si applicables.
+`action.task_started` relie ce taskId au `actionNumber` du journal de tools.
+Les déplacements/poses internes ne créent pas de tours LLM ni de faux appels dans la conversation.
+Le `ToolCallJournal` existant capture l'inventaire avant/après le `build` entier (ou indisponible si encore en terminaison).
+
+### Smoke Minecraft explicite
+
+```powershell
+npm.cmd run smoke:build
+npm.cmd run smoke:doors
+```
+
+Serveur local déjà lancé, `test_controller` OP et non déjà utilisé par un autre processus.
+Le script connecte un bot survival dédié `build_test_bot`, sans LLM, puis teste deux blocs et l'abri de 80 blocs,
+avec interruption après deux poses, reprise et nouvel appel idempotent. Un deuxième bot vérifie indépendamment toutes les cellules.
+La variante `smoke:doors` teste aussi les quatre orientations d'une porte isolée et la maison de 81 placements,
+puis ouvre la porte, entre, ressort et la referme. Toutes les cellules sont vérifiées à nouveau.
+La zone réservée est (-24,-60,-24) à (-20,-57,-20), avec deux blocs de marge ; elle doit être vide et chargée.
+Le script ne reset pas l'arène et ne touche pas à l'inventaire de l'agent habituel.
+Il retire ses blocs de test et restaure l'herbe du petit sol de test (la couverture peut naturellement la transformer en terre),
+puis déconnecte les deux bots. Les blueprints temporaires sont supprimés. Aucune construction de test n'est conservée.

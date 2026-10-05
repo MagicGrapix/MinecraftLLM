@@ -14,7 +14,8 @@ test("bootstrap exposes every capability with an actionable description", () => 
   );
   const summaries = registry.list();
 
-  assert.equal(summaries.length, 15);
+  assert.equal(summaries.length, 16);
+  assert.equal(registry.get("build")?.defaultTimeoutMs, 300_000);
   assert.equal(
     summaries.every(
       (summary) =>

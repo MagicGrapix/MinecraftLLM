@@ -1,8 +1,8 @@
 import { failure, success, type TaskResult } from "../execution/TaskResult";
-import { normalizeMinecraftName } from "../shared/helper";
 import { MaterialCatalog } from "../world/MaterialCatalog";
 import { BlueprintSchema, type BlueprintCell, type BlueprintIssue, type BlueprintPlacement, type CompiledBlueprint } from "./Blueprint";
 import { BLUEPRINT_LIMITS, BLUEPRINT_SOLID_BLOCKS } from "./BuildingConfig";
+import { compileDoors } from "./BlueprintDoors";
 
 /** No bot dependency and no side effects: this class only validates and compiles a drawing. */
 export class BlueprintValidator {
@@ -42,12 +42,6 @@ export class BlueprintValidator {
           message: "This version has no matching inventory item for placement." });
       }
     }
-    blueprint.dependencies.doors.forEach((door, index) => {
-      door.item = normalizeMinecraftName(door.item);
-      issues.push({ code: "UNSUPPORTED_DEPENDENCY", path: `dependencies.doors.${index}`,
-        received: door.item, position: door.position,
-        message: "Door dependencies are reserved in the format but not supported yet (lot 3). No blueprint was accepted." });
-    });
     blueprint.layers.forEach((layer, y) => {
       if (layer.length !== blueprint.depth) issues.push({
         code: "INVALID_SHAPE", path: `layers.${y}`, received: layer.length,
@@ -74,7 +68,12 @@ export class BlueprintValidator {
         });
       });
     });
-    if (issues.length === 0 && operations.length === 0 && blueprint.dependencies.doors.length === 0) {
+    const doors = compileDoors(blueprint, cells, this.catalog, issues);
+    for (const door of doors) {
+      operations.push(door);
+      counts.set(door.item, (counts.get(door.item) ?? 0) + 1);
+    }
+    if (issues.length === 0 && operations.length === 0) {
       issues.push({ code: "EMPTY_BLUEPRINT", path: "layers", message: "A blueprint must contain at least one block to place." });
     }
     if (issues.length) return invalid(issues);

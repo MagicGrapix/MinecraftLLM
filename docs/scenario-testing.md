@@ -244,6 +244,13 @@ aux positions (-39,-60,-40) et (-40,-60,-39), puis pose un coffre et une bûche 
 vide/rempli, casse la bûche avec confirmation serveur et teste un déplacement. Il retire ses blocs à la fin ;
 il ne reset pas l'arène et ne lance aucun agent LLM. Ne pas intervenir dans ce coin pendant le test.
 
+Le smoke de construction est séparé : `npm.cmd run smoke:build`.
+Il teste deux blocs puis un abri 5x5 de 80 blocs, interruption/reprise et vérification par le controller, sans LLM.
+`npm.cmd run smoke:doors` ajoute les quatre orientations de porte et la maison de 81 placements,
+avec ouverture, entrée, sortie, fermeture et nouvelle vérification indépendante de toute la structure.
+Il utilise `build_test_bot` et une petite zone vide autour de (-24,-60,-24), nettoyée ensuite.
+Voir [les prérequis et limites](blueprints.md#smoke-minecraft-explicite). Ce n'est pas encore un scénario conversationnel avec Architect.
+
 Pour ajouter un scénario, définir un `Scenario` dans `scenarios.ts` avec demande, inventaire,
 fixture bornée facultative, liste de blocs attendus et `verify(initial, current)`.
 `expectedBlocks` décrit la fixture à vérifier avant l'essai ; `observeBlocks(config)` sélectionne,

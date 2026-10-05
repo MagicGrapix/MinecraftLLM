@@ -71,7 +71,8 @@ export class AgentToolBridge {
     if (this.options.capabilities.has(call.name)) {
       const validation = this.options.capabilities.validateInput(call.name, raw);
       if (!validation.ok) throw new ModelResponseError(invalidToolArguments(call.name, raw, validation.issues, this.options.capabilities.get(call.name)!.inputSchema));
-      return { kind: "action", task: { capability: call.name, input: validation.input } };
+      const timeoutMs = this.options.capabilities.get(call.name)!.defaultTimeoutMs;
+      return { kind: "action", task: { capability: call.name, input: validation.input, ...(timeoutMs === undefined ? {} : { timeoutMs }) } };
     }
     throw new ModelResponseError('Unknown tool "' + call.name + '". Call a capability directly using its supplied input schema, a world query, or finish_step.');
   }

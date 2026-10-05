@@ -34,6 +34,19 @@ test("use_block confirms a lever state change after exact raycast", async () => 
   }
 });
 
+test("use_block aims at the explicit cursor, including an open door's off-centre panel", async () => {
+  const position = new Vec3(1, 64, 1), cursor = { x: 0.09375, y: 0.5, z: 0.5 };
+  let stateId = 1, looked: Vec3 | undefined;
+  const bot = fakeBot(() => ({ name: "oak_door", stateId, boundingBox: "block", position }));
+  bot.lookAt = async p => { looked = p; };
+  bot.blockAtCursor = () => looked?.equals(position.offset(cursor.x, cursor.y, cursor.z)) ? bot.blockAt(position) : null;
+  bot.activateBlock = async (_block, _face, sentCursor) => {
+    assert.deepEqual(sentCursor, new Vec3(cursor.x, cursor.y, cursor.z)); stateId++;
+  };
+  const result = await new UseBlockCapability().execute({ position, cursor, hand: "hand" }, context(bot));
+  assert.ok(result.ok); assert.equal(bot.listenerCount("windowOpen"), 0);
+});
+
 for (const [name, requiredCapability] of [["chest", "open_container"], ["crafting_table", "craft_from_table_3x3"]]) {
 test(`use_block redirects ${name} to ${requiredCapability} before sending interaction`, async () => {
   let activated = false;

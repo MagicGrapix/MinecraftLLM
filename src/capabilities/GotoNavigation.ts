@@ -1,6 +1,7 @@
 import type { Bot } from "mineflayer";
 import type { PartiallyComputedPath } from "mineflayer-pathfinder";
 import { goals } from "mineflayer-pathfinder";
+import { correctOpenDoorWaypoints } from "./GotoDoors";
 
 // The library's goto() resolves on any empty path_update, including a
 // still-running "partial" search. Wait for a final verdict instead.
@@ -32,6 +33,7 @@ export function navigateToGoal(bot: Bot, goal: goals.Goal, signal?: AbortSignal)
       if (reached === goal) finish();
     };
     const onPathUpdate = (update: PartiallyComputedPath): void => {
+      correctOpenDoorWaypoints(bot, update);
       if (update.status === "noPath") {
         finish(pathError("NoPath", "No path to the goal!"));
       } else if (update.status === "timeout") {

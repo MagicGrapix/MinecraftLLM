@@ -94,7 +94,7 @@ export class Executor {
       );
     }
 
-    const timeoutMs = task.timeoutMs ?? this.defaultTimeoutMs;
+    const timeoutMs = task.timeoutMs ?? capability.defaultTimeoutMs ?? this.defaultTimeoutMs;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
       return failure("INVALID_ARGUMENT", "Task timeout must be positive.", {
         facts: { timeoutMs },
@@ -121,8 +121,11 @@ export class Executor {
     };
     this.currentExecution = execution;
     const cancellationBarriers = new Set<Promise<void>>();
+    let progress: Record<string, unknown> | undefined;
 
     const context: ExecutionContext = {
+      taskId: task.id,
+      reportProgress: (facts) => { progress = structuredClone(facts); },
       runtime: this.runtime,
       world: this.world,
       signal: execution.controller.signal,
@@ -163,7 +166,7 @@ export class Executor {
         await waitForSettlement(settlement, this.cancellationGraceMs);
         return failure("TIMEOUT", execution.cancellation.reason, {
           retryable: true,
-          facts: { taskId: task.id, timeoutMs, stillSettling: !settled },
+          facts: { taskId: task.id, timeoutMs, stillSettling: !settled, ...(progress ? { progress } : {}) },
         });
       }
 
@@ -171,13 +174,13 @@ export class Executor {
         await waitForSettlement(settlement, this.cancellationGraceMs);
         return failure("INTERRUPTED", execution.cancellation.reason, {
           retryable: true,
-          facts: { taskId: task.id, stillSettling: !settled },
+          facts: { taskId: task.id, stillSettling: !settled, ...(progress ? { progress } : {}) },
         });
       }
 
       return failure("INTERNAL_ERROR", errorMessage(error), {
         retryable: false,
-        facts: { taskId: task.id, capability: task.capability },
+        facts: { taskId: task.id, capability: task.capability, ...(progress ? { progress } : {}) },
       });
     } finally {
       if (settled && this.currentExecution === execution) {

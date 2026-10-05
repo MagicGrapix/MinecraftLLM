@@ -2,6 +2,7 @@ import type { Bot } from "mineflayer";
 import { Movements } from "mineflayer-pathfinder";
 import { GOTO_DEFAULTS } from "../config";
 import type { Position } from "../shared/types";
+import { isPassableOpenDoor } from "./GotoDoors";
 
 export interface GotoMovementOptions {
   canDig?: boolean;
@@ -14,6 +15,19 @@ export function createGotoMovements(
   options: GotoMovementOptions,
 ): Movements {
   const movements = new Movements(bot);
+  // Pathfinder 2.4.x calls every door physical, even when it is already open.
+  // Use collision shapes to admit a centred player through that open cell only.
+  // No implicit opening, no change to the world's cached block or its collision shape.
+  const getBlock = movements.getBlock.bind(movements);
+  movements.getBlock = (pos, dx, dy, dz) => {
+    const block = getBlock(pos, dx, dy, dz);
+    if (isPassableOpenDoor(block) && !movements.blocksToAvoid.has(block.type)) {
+      return Object.assign(Object.create(Object.getPrototypeOf(block)), block, {
+        safe: true, physical: false, replaceable: false, openable: false, height: pos.y + dy,
+      });
+    }
+    return block;
+  };
   movements.canDig = options.canDig ?? GOTO_DEFAULTS.canDig;
   const canPlace = options.canPlace ?? GOTO_DEFAULTS.canPlace;
   movements.allow1by1towers = canPlace;

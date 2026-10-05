@@ -29,6 +29,23 @@ Les autres descriptions courtes sont conservées ; il n'y a pas de prose dupliqu
 
 Le catalogue est construit au démarrage. Redémarrer le bot après édition.
 
+## Construction (lots 2–3)
+
+`build({ blueprintId, origin: { x, y, z } })` construit un blueprint déjà enregistré par `BlueprintStore`.
+L'origine entière est la cellule locale (0,0,0), pas la position du bot ; elle reste fixe pour reprendre.
+Un seul appel physique englobe déplacements, équipements, poses et vérifications, avec un délai par défaut de 300 secondes.
+Le diff d'inventaire est celui de cet appel complet, pas un nouveau numéro d'action par bloc.
+
+Le précontrôle refuse sans mouvement un stock insuffisant, un bloc incompatible, une cellule requise inconnue
+ou un terrain non plat. Le chantier et sa marge de deux blocs doivent être à moins de 50 blocs du bot.
+La pose exige une face visible, à portée, sans collision avec le bot, puis une confirmation serveur.
+Le succès vérifie toutes les cellules contraintes et la sortie du bot hors de l'emprise.
+Un échec conserve les blocs posés et un bilan partiel ; rappeler avec la même référence et la même origine.
+Les dépendances `oak_door` sont posées après les cubes : un item, deux moitiés confirmées (orientation, charnière, fermée/non alimentée).
+Une porte existante incompatible est un conflit, pas une invitation à la démolir. Le succès ne prouve pas l'habitabilité.
+Il n'y a ni collecte/craft, ni démolition, ni échafaudage automatique dans ce lot.
+La génération de blueprints par un Architect viendra plus tard : aucun tool de soumission n'est exposé pour l'instant.
+
 ## Recherches et sessions
 
 `find_nearest_blocks({ names, maxDistance?, count? })` est une observation asynchrone sans déplacement.

@@ -105,12 +105,30 @@ test("a known supported block still needs a matching placement item in this vers
     .some((issue) => issue.code === "MISSING_PLACEMENT_ITEM"));
 });
 
-test("door fixture reserves the format but is never accepted before door placement exists", async () => {
+test("door fixture expands one item into two verified cells", async () => {
   const house = await blueprintFixture(true);
   assert.equal(BlueprintSchema.safeParse(house).success, true);
-  const feedback = issues(validator.validate(house));
-  assert.equal(feedback[0]?.code, "UNSUPPORTED_DEPENDENCY");
-  assert.equal(feedback[0]?.path, "dependencies.doors.0");
+  const result = validator.validate(house); assert.ok(result.ok, JSON.stringify(result));
+  assert.equal(result.value.operations.length, 81);
+  assert.equal(result.value.cells.filter(c => c.kind === "door").length, 2);
+  assert.equal(result.value.cells.filter(c => c.kind === "air").length, 18);
+  assert.deepEqual(result.value.materials, [{ item: "cobblestone", quantity: 25 }, { item: "oak_door", quantity: 1 }, { item: "oak_planks", quantity: 55 }]);
+  assert.deepEqual(result.value.operations.at(-1), { kind: "place_door", position: { x: 2, y: 1, z: 0 }, block: "oak_door", item: "oak_door", facing: "north", hinge: "left" });
+});
+
+test("door halves reject bounds, overlap, unsupported materials and missing floor", async () => {
+  for (const [change, code] of [
+    [(b: Awaited<ReturnType<typeof blueprintFixture>>) => { b.dependencies.doors[0]!.position.y = 3; }, "DOOR_OUT_OF_BOUNDS"],
+    [(b: Awaited<ReturnType<typeof blueprintFixture>>) => { b.layers[1]![0] = "AA.AA"; }, "DOOR_OVERLAP"],
+    [(b: Awaited<ReturnType<typeof blueprintFixture>>) => { b.layers[2]![0] = "AAAAA"; }, "DOOR_OVERLAP"],
+    [(b: Awaited<ReturnType<typeof blueprintFixture>>) => { b.layers[0]![0] = "BB_BB"; }, "DOOR_SUPPORT"],
+    [(b: Awaited<ReturnType<typeof blueprintFixture>>) => { b.dependencies.doors[0]!.item = "iron_door"; }, "UNSUPPORTED_DEPENDENCY"],
+    [(b: Awaited<ReturnType<typeof blueprintFixture>>) => { b.dependencies.doors.push({ ...b.dependencies.doors[0]! }); }, "DOOR_OVERLAP"],
+    [(b: Awaited<ReturnType<typeof blueprintFixture>>) => { b.dependencies.doors.push({ ...b.dependencies.doors[0]!, position: { x: 3, y: 1, z: 0 } }); }, "ADJACENT_DOORS"],
+  ] as const) {
+    const house = await blueprintFixture(true); change(house);
+    assert.ok(issues(validator.validate(house)).some(i => i.code === code), code);
+  }
 });
 
 test("dependency positions and orientation have strict schemas", async () => {

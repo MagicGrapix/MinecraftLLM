@@ -2,7 +2,7 @@
 
 Date : 5 octobre 2026.
 
-Statut : **lot 1 implémenté et vérifié ; lots 2 à 7 restant à faire**.
+Statut : **lots 1 à 3 implémentés et vérifiés ; lots 4 à 7 restant à faire**.
 Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprints.md) décrivent ce qui est réellement disponible.
 
 ## Utiliser ce document
@@ -13,7 +13,7 @@ Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprin
 - Mettre à jour les docs de comportement actuel lorsque le code correspondant existe, pas avant.
 - Conserver les prompts personnels de Quentin ; ne modifier que les passages nécessaires à l'intégration.
 
-**Prochaine étape : lot 2 — Builder de blocs pleins, sans LLM.**
+**Prochaine étape : lot 4 — Architect isolé.**
 
 ## 1. Décisions retenues
 
@@ -29,7 +29,8 @@ Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprin
 - [x] Ne pas ajouter `get_blueprint_layer`, `get_build_progress` ou `get_next` au catalogue LLM initial.
 - [x] Tester d'abord le constructeur sans LLM, puis la génération, puis le workflow complet.
 
-Les noms de tools et les intégrations ci-dessous restent des choix à implémenter. Le format, le catalogue de matériaux et le store du lot 1 existent désormais ; ils ne sont pas encore exposés aux agents.
+Le format, le catalogue de matériaux, le store et le Builder avec portes existent désormais. `build` est exposé à l'actionneur.
+Les intégrations Architect et les tools de soumission/recherche ci-dessous restent à implémenter.
 
 ### Hors périmètre initial
 
@@ -115,7 +116,7 @@ Un seul objet JSON, sans Markdown autour :
 - Dans l'exemple, la facture finale est **55 oak_planks, 25 cobblestone et 1 oak_door**. L'espace au-dessus de la porte ne coûte pas un deuxième objet.
 
 La première fixture du constructeur utilise le même principe sans porte : entrée en `.` et liste `doors` vide.
-Le support réel de la porte est un lot distinct ; tant qu'il manque, une soumission avec porte renvoie une erreur de fonctionnalité non prise en charge.
+Le support réel de `oak_door` a été livré au lot 3 ; les autres matériaux de portes et les portes adjacentes/doubles restent refusés.
 
 ### Validation, sans effet dans le monde
 
@@ -364,26 +365,44 @@ Le catalogue est un service hors ligne ; `lookup_material` n'est pas encore enre
 
 ### Lot 2 — Builder de blocs pleins, sans LLM
 
-- [ ] Implémenter le précontrôle du chantier et de l'inventaire, sans mouvement en cas de rejet.
-- [ ] Ajouter `build` sous le verrou de l'Executor, avec son timeout propre et un adaptateur d'opérations élémentaires.
-- [ ] Choisir les supports, faces et positions de travail ; navigation sans casse ni échafaudage automatique.
-- [ ] Vérifier les placements, l'air requis et le bilan final ; gérer les positions inconnues.
-- [ ] Retourner des échecs bornés, l'état partiel et permettre la reprise à la même origine.
-- [ ] Ajouter journalisation et diff d'inventaire global du `build`.
-- [ ] Tester la concurrence, `stop`, timeout, barrières de terminaison et absence de réentrée de l'Executor.
-- [ ] Ajouter un smoke explicite sans LLM : quelques blocs, puis abri 5x5 sans porte, stock fourni.
+- [x] Implémenter le précontrôle du chantier et de l'inventaire, sans mouvement en cas de rejet.
+- [x] Ajouter `build` sous le verrou de l'Executor, avec son timeout propre et un adaptateur d'opérations élémentaires.
+- [x] Choisir les supports, faces et positions de travail ; navigation sans casse ni échafaudage automatique.
+- [x] Vérifier les placements, l'air requis et le bilan final ; gérer les positions inconnues.
+- [x] Retourner des échecs bornés, l'état partiel et permettre la reprise à la même origine.
+- [x] Ajouter journalisation et diff d'inventaire global du `build`.
+- [x] Tester la concurrence, `stop`, timeout, barrières de terminaison et absence de réentrée de l'Executor.
+- [x] Ajouter un smoke explicite sans LLM : quelques blocs, puis abri 5x5 sans porte, stock fourni.
 
 Sortie : construction réellement posée par un bot non OP, conformité observée, reprise sans doublon et arrêt sûr. Aucun test live lancé implicitement par `npm test`.
 
+Vérifié le 2026-10-05 : `npm.cmd test` réussi, **411 tests dont 28 nouveaux**.
+`npm.cmd run smoke:build` réussi sur Minecraft 1.21.11 : deux cubes, abri de 80 blocs,
+stop après deux poses, reprise des 78 restantes en environ 34 secondes, puis rappel sans nouvelle pose.
+Le controller a vérifié les 100 cellules (80 blocs + 20 d'air). Les fixtures ont été retirées et le petit sol de test restauré.
+Le premier essai a révélé une sortie impossible depuis le toit ; `BuildExit` filtre désormais les postures
+selon une voie de retour au sol après la pose, sans augmenter la hauteur de chute du pathfinder.
+Les événements internes sont reliés au taskId puis au numéro d'action ; aucun appel LLM supplémentaire.
+Limites documentées dans `docs/blueprints.md` : sol plat, supports pleins, pas de démolition, portes ou échafaudages.
+
 ### Lot 3 — Porte comme dépendance
 
-- [ ] Compiler une porte en un item et deux cellules attendues ; rejeter hors-limites et chevauchements.
-- [ ] Implémenter son support, son orientation et la vérification des deux moitiés sur la version du serveur.
-- [ ] Tester une porte isolée dans les quatre orientations, puis la maison de référence.
-- [ ] Tester le passage : ouverture, entrée et sortie, sans modifier la structure. La conformité du dessin et le passage restent deux critères distincts.
-- [ ] Traiter une porte partiellement présente ou orientée autrement comme un conflit explicite, sans réparation destructive implicite.
+- [x] Compiler une porte en un item et deux cellules attendues ; rejeter hors-limites et chevauchements.
+- [x] Implémenter son support, son orientation et la vérification des deux moitiés sur la version du serveur.
+- [x] Tester une porte isolée dans les quatre orientations, puis la maison de référence.
+- [x] Tester le passage : ouverture, entrée et sortie, sans modifier la structure. La conformité du dessin et le passage restent deux critères distincts.
+- [x] Traiter une porte partiellement présente ou orientée autrement comme un conflit explicite, sans réparation destructive implicite.
 
 Sortie : la facture compte une porte et le constructeur sait réellement la placer. Ensuite seulement, l'annoncer dans les matériaux supportés à l'Architect.
+
+Vérifié le 2026-10-05 : `npm.cmd test` réussi, **429 tests dont 18 nouveaux depuis le lot 2**.
+`npm.cmd run smoke:doors` réussi sur Minecraft 1.21.11, sans LLM : quatre orientations isolées,
+maison de 81 placements (82 cellules occupées + 18 d'air), arrêt après 2 poses puis reprise des 79 restantes en environ 36 secondes.
+Un nouvel appel ne pose rien ; ouverture, entrée, sortie, fermeture puis contrôle indépendant de toutes les cellules réussis.
+Les essais ont révélé trois adaptations nécessaires : attendre la rotation réellement envoyée ; traiter les portes ouvertes
+comme des passages et corriger les waypoints surélevés du pathfinder ; respecter `use_block.cursor` pour viser le panneau ouvert.
+La pose orientée utilise un helper privé Mineflayer isolé et couvert par le smoke. Retester lors d'une mise à jour de cette dépendance.
+Les fixtures sont retirées, le sol de test restauré et les deux bots déconnectés. Les prompts des agents restent inchangés.
 
 ### Lot 4 — Architect isolé
 
@@ -440,8 +459,8 @@ La première version complète correspond aux lots 1 à 6 :
 - [ ] L'Architect corrige une soumission invalide puis rend une référence fiable.
 - [ ] Les besoins sont calculés, conservés et communiqués sans recompter le dessin par le LLM.
 - [ ] Le planner organise l'approvisionnement, l'actionneur appelle `build`, le Builder ne récolte pas lui-même.
-- [ ] Une petite maison avec porte est construite sans commandes administrateur par le bot.
-- [ ] Le code vérifie réellement les cellules ; le test peut entrer et ressortir.
+- [x] Une petite maison avec porte est construite sans commandes administrateur par le bot.
+- [x] Le code vérifie réellement les cellules ; le test peut entrer et ressortir.
 - [ ] Une erreur ou un stop ne produit ni faux succès ni actions tardives non suivies.
 - [ ] Les fichiers, appels, erreurs et résultats permettent de reproduire et diagnostiquer un essai.
 - [ ] Les anciens scénarios et outils conservent leur comportement.
@@ -453,5 +472,11 @@ La première version complète correspond aux lots 1 à 6 :
   53 nouveaux tests : compilation/axes/matériaux, suggestions, erreurs bornées, stockage atomique sans écrasement, corruption, références et versions.
   `npm.cmd test` : build, typecheck tests/scripts et 383 tests unitaires réussis. Aucun appel Minecraft/Ollama ni changement des prompts.
   Limites : blocs pleins explicitement listés seulement ; portes refusées ; pas d'Architect, de `build` ou de tool de recherche exposé. Prochain lot : 2.
+
+- 2026-10-05, lot 2 livré : `Builder`, port `BuildOperations`, géométrie/retour au sol, capability `build`, confirmation serveur et arrêt/reprise.
+  411 tests réussis et smoke réel de l'abri de 80 blocs ; sans LLM. Détails en section 10, lot 2.
+- 2026-10-05, lot 3 livré : `BlueprintDoors`, `BuildDoor`, `PlaceBuildDoor`, comparaison des deux moitiés, adaptations ciblées de `goto` et du curseur `use_block`.
+  429 tests réussis et smoke réel quatre orientations + maison avec passage vérifié. Détails en section 10, lot 3.
+  Limites : `oak_door` isolée, fermée/non alimentée, terrain plat, pas de réparation destructive ni échafaudages. Prochain lot : 4, Architect isolé.
 
 À compléter après chaque lot : date, tâches cochées, fichiers principaux, vérifications réalisées, limitations restantes et prochaine étape.

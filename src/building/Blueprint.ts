@@ -11,7 +11,7 @@ const localPosition = z.object({
   z: z.number().int().min(0).max(limits.maxDepth - 1),
 }).strict();
 
-/** Doors reserve their shape now but are rejected by the validator until lot 3. */
+/** Position is the lower half. Both occupied cells must be '_' in the drawing. */
 export const BlueprintDoorSchema = z.object({
   item: MinecraftNameSchema.max(128),
   position: localPosition,
@@ -33,18 +33,38 @@ export const BlueprintSchema = z.object({
 }).strict();
 
 export type Blueprint = z.infer<typeof BlueprintSchema>;
+export type DoorFacing = z.infer<typeof BlueprintDoorSchema>["facing"];
+export type DoorHinge = "left" | "right";
+export interface DoorProperties {
+  readonly facing: DoorFacing;
+  readonly hinge: DoorHinge;
+  readonly half: "lower" | "upper";
+  readonly open: false;
+  readonly powered: false;
+}
 
 /** Array order is y, then z, then x. Every position is local to the blueprint origin. */
 export type BlueprintCell =
   | { readonly position: Position; readonly kind: "block"; readonly block: string }
+  | { readonly position: Position; readonly kind: "door"; readonly block: string; readonly properties: DoorProperties }
   | { readonly position: Position; readonly kind: "air" | "ignore" };
 
-export interface BlueprintPlacement {
+export interface CubePlacement {
   readonly kind: "place_block";
   readonly position: Position;
   readonly block: string;
   readonly item: string;
 }
+
+export interface DoorPlacement {
+  readonly kind: "place_door";
+  readonly position: Position;
+  readonly block: string;
+  readonly item: string;
+  readonly facing: DoorFacing;
+  readonly hinge: DoorHinge;
+}
+export type BlueprintPlacement = CubePlacement | DoorPlacement;
 
 export interface MaterialRequirement {
   readonly item: string;
@@ -63,7 +83,8 @@ export interface CompiledBlueprint {
 
 export interface BlueprintIssue {
   readonly code: "INVALID_SHAPE" | "UNKNOWN_SYMBOL" | "UNKNOWN_BLOCK" | "UNSUPPORTED_BLOCK"
-    | "MISSING_PLACEMENT_ITEM" | "UNSUPPORTED_DEPENDENCY" | "EMPTY_BLUEPRINT";
+    | "MISSING_PLACEMENT_ITEM" | "UNSUPPORTED_DEPENDENCY" | "EMPTY_BLUEPRINT"
+    | "DOOR_OUT_OF_BOUNDS" | "DOOR_OVERLAP" | "DOOR_SUPPORT" | "ADJACENT_DOORS";
   readonly path: string;
   readonly message: string;
   readonly received?: unknown;

@@ -53,9 +53,15 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `src/debug/` contient le serveur local, les snapshots et leur projection UI.
 - `src/devworld/` est un processus séparé : WorldBuilder -> WorldPlan -> CommandExecutor -> bot OP.
   Il ne passe jamais par les tools de l'agent.
-- `src/building/` fournit actuellement seulement le format Blueprint, sa validation/compilation et son store JSON immuable.
+- `src/building/` fournit le format Blueprint, sa validation/compilation, son store JSON immuable et le Builder déterministe de cubes et portes en chêne.
   `world/MaterialCatalog.ts` résout les noms et suggère des alternatives à partir d'un registre de version injecté.
-  Cette bibliothèque hors ligne n'est pas encore branchée aux agents et ne construit rien dans Minecraft.
+  La capability `build` construit une référence sauvegardée sous un seul verrou de l'Executor.
+  `MineflayerBuildOperations` réutilise goto/equip/place sous le même contexte, sans rappeler l'Executor.
+  `BuildVerification` contrôle terrain/stock/cellules ; `BuildPlacement` choisit les faces et postures ;
+  `BuildExit` écarte les postures sans retour conservateur au sol après la prochaine pose.
+  `BlueprintDoors` développe une porte en deux cellules et un item ; `BuildDoor`/`PlaceBuildDoor` assurent sa pose orientée et la confirmation des deux moitiés.
+  `GotoMovements` reconnaît les formes des portes déjà ouvertes ; l'ouverture reste une action `use_block` séparée.
+  L'Architect et la création de blueprints par les agents ne sont pas encore implémentés.
   Voir [Blueprints](blueprints.md) pour les contrats et limites réellement disponibles.
 - `tests/e2e/` orchestre les campagnes Minecraft : controller réutilisé, bot enfant neuf par essai,
   consignes dans le chat, observations IPC, critères déterministes et rapport HTML persistant.
@@ -68,6 +74,9 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 Pour une capability : implémenter `Capability`, enregistrer le schéma et sa description dans
 `createCapabilities.ts`, tester succès/erreurs/timeout. Attendre les opérations physiques ;
 si une opération survit au retour de la méthode, l'enregistrer avec `deferCancellationUntil`.
+Une capability composite peut définir `defaultTimeoutMs` : le bridge le copie dans le TaskSpec,
+et l'Executor l'applique aussi pour les appels directs. Un timeout explicite du TaskSpec est prioritaire.
+`reportProgress` conserve un petit bilan copié dans les erreurs d'interruption/timeout ; il ne libère jamais le verrou.
 
 Pour une query : implémenter `WorldQuery`, l'enregistrer dans `defaultQueries.ts`, tester les valeurs
 inconnues et les limites. Une query ne modifie pas le monde.

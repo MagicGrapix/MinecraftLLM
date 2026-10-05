@@ -147,6 +147,7 @@ export class ActionAgent implements ActionRunner {
             const task = this.taskFactory.create(validated.task);
             this.mode = "executing";
             const startedAt = Date.now();
+            writeTrace("action.task_started", { actionNumber, taskId: task.id, capability: task.capability });
             console.info("Action capability started.", { step: session.delegation.step.step, capability: task.capability, input: task.input });
             const result = await this.options.executor.execute(task);
             // Capture before observers or another call can change the inventory.

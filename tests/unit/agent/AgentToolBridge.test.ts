@@ -18,6 +18,7 @@ import type { BlockAccessInfo } from "../../../src/world/BlockAccess";
 import { MessageHistory } from "../../../src/agent/MessageHistory";
 import { ToolCatalogBuilder } from "../../../src/agent/ToolCatalogBuilder";
 import { CraftFromInventoryCapability, CraftFromTableCapability } from "../../../src/capabilities/Craft";
+import { BuildCapability } from "../../../src/capabilities/Build";
 
 const world: WorldQueries = {
   isKnownName: () => true,
@@ -233,6 +234,7 @@ async function createBridge(root: string, queryWorld: WorldQueries = world, maxR
   capabilities.register(capability);
   capabilities.register(new CraftFromInventoryCapability());
   capabilities.register(new CraftFromTableCapability());
+  capabilities.register(new BuildCapability());
   const queries = createDefaultWorldQueryRegistry(queryWorld);
   const skills = await SkillRegistry.discover(resolve(process.cwd(), "skills"));
   const landmarks = await LandmarkMemory.load(join(root, "landmarks.json"));
@@ -245,3 +247,16 @@ async function createBridge(root: string, queryWorld: WorldQueries = world, maxR
     maxResultChars,
   });
 }
+
+test("build is a single native action with its own timeout and strict reference/origin schema", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minecraft-build-bridge-"));
+  try {
+    const bridge = await createBridge(root);
+    const input = { blueprintId: "bp_00000000-0000-0000-0000-000000000001", origin: { x: 3, y: -60, z: 0 } };
+    const call = { id: "build-one", name: "build", arguments: JSON.stringify(input) };
+    assert.deepEqual(bridge.validateResponseCalls([call]), { kind: "action", task: { capability: "build", input, timeoutMs: 300_000 } });
+    for (const invalid of [{ ...input, blueprintId: "../file" }, { ...input, origin: "3 -60 0" }, { ...input, origin: { x: 0.5, y: 0, z: 0 } }]) {
+      assert.throws(() => bridge.validateResponseCalls([{ ...call, arguments: JSON.stringify(invalid) }]), /Invalid arguments/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

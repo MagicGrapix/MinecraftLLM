@@ -5,6 +5,7 @@ import type { Capability, ExecutionContext } from "./Capability";
 export interface RegisteredCapability {
   readonly name: string;
   readonly description: string;
+  readonly defaultTimeoutMs?: number;
   readonly inputSchema: z.ZodType<unknown>;
   execute(
     input: unknown,
@@ -42,6 +43,7 @@ export class CapabilityRegistry {
         capability.description ??
         `Execute the "${capability.name}" Minecraft capability.`,
       inputSchema: capability.inputSchema as z.ZodType<unknown>,
+      ...(capability.defaultTimeoutMs === undefined ? {} : { defaultTimeoutMs: capability.defaultTimeoutMs }),
       execute: (input, context) =>
         capability.execute(input as Input, context),
     });

@@ -1,4 +1,5 @@
 import { AttackCapability } from "../capabilities/Attack";
+import { BuildCapability } from "../capabilities/Build";
 import type { Capability } from "../capabilities/Capability";
 import { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import { CloseContainerCapability } from "../capabilities/CloseContainer";
@@ -20,6 +21,8 @@ export function createCapabilityRegistry(
   sessions: ContainerSessionManager,
 ): CapabilityRegistry {
   const registry = new CapabilityRegistry();
+  register(registry, new BuildCapability(),
+    "Does: Build or resume a saved blueprint of solid blocks and supported oak-door dependencies at a fixed origin.\nSuccess: Required blocks, air and both door halves were observed correct; the bot left the footprint. Does not prove habitability.\nLimits: No resource gathering, crafting, clearing or scaffolding. Requires flat full-block ground including a two-block margin, a loaded site within 50 blocks, and all remaining materials. Doors must be closed, unpowered and match the expected facing/hinge; conflicting doors are not replaced.\nNotes: Up to 300 seconds. Failure may leave a partial structure. Reuse blueprintId and origin to resume; never assume failure means nothing changed.");
   register(
     registry,
     new GotoCapability(),
@@ -107,6 +110,7 @@ function register<Input, Output>(
     name: capability.name,
     description,
     inputSchema: capability.inputSchema,
+    ...(capability.defaultTimeoutMs === undefined ? {} : { defaultTimeoutMs: capability.defaultTimeoutMs }),
     execute: (input, context) => capability.execute(input, context),
   });
 }

@@ -35,10 +35,18 @@ test("store publishes normalized JSON and a new instance revalidates it without 
 
 test("invalid blueprints, including unsupported doors, are never persisted", async (t) => {
   const { store, root } = await setup(t);
-  const result = await store.save(await blueprintFixture(true));
+  const drawing = await blueprintFixture(true); drawing.dependencies.doors[0]!.item = "iron_door";
+  const result = await store.save(drawing);
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.facts?.reason, "INVALID_BLUEPRINT");
   assert.deepEqual(await readdir(root), []);
+});
+
+test("door dependencies survive save/load with their single-item material count", async t => {
+  const { store } = await setup(t);
+  const saved = value(await store.save(await blueprintFixture(true)));
+  assert.deepEqual(value(await store.load(saved.id)), saved);
+  assert.deepEqual(saved.materials.find(m => m.item === "oak_door"), { item: "oak_door", quantity: 1 });
 });
 
 test("revision creates another reference without changing the original", async (t) => {

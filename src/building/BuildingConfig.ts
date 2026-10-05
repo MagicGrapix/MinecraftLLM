@@ -16,3 +16,13 @@ export const BLUEPRINT_SOLID_BLOCKS: readonly string[] = Object.freeze([
   "pale_oak_planks", "bamboo_planks", "crimson_planks", "warped_planks",
   "cobblestone", "stone", "dirt", "glass",
 ]);
+
+/** Local safety policy, not Minecraft engine limits. No automatic scaffolding. */
+export const BUILD_LIMITS = Object.freeze({
+  timeoutMs: 300_000,
+  maxRadius: 50,
+  workMargin: 2,
+  maxCandidates: 8,
+  placementReach: 4.5,
+  confirmationMs: 3_000,
+});

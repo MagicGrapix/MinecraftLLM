@@ -7,7 +7,8 @@ import { BLUEPRINT_FORMAT_VERSION, type Blueprint, type MaterialRequirement } fr
 import { BlueprintValidator } from "./BlueprintValidator";
 import { BLUEPRINT_LIMITS } from "./BuildingConfig";
 
-const idSchema = z.string().regex(/^bp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+export const BlueprintIdSchema = z.string().regex(/^bp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+const idSchema = BlueprintIdSchema;
 const fileSchema = z.object({
   id: idSchema,
   formatVersion: z.number().int(),

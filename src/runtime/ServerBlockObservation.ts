@@ -1,5 +1,6 @@
 import type { Bot } from "mineflayer";
 import type { Vec3 } from "vec3";
+import type { Block } from "prismarine-block";
 import type { Position } from "../shared/types";
 
 /** Watches inbound packets only: blockUpdate also includes optimistic client edits. */
@@ -33,14 +34,14 @@ export class ServerBlockObservation {
     }
   };
 
-  private removalObserved(): boolean {
+  matches(predicate: (block: Block) => boolean): boolean {
     const block = this.bot.blockAt(this.position);
-    return this.stateId !== null && block?.stateId === this.stateId && block.boundingBox === "empty";
+    return this.stateId !== null && !!block && block.stateId === this.stateId && predicate(block);
   }
 
-  async wait(signal: AbortSignal, timeoutMs: number): Promise<void> {
+  async wait(signal: AbortSignal, timeoutMs: number, predicate = (block: Block) => block.boundingBox === "empty"): Promise<void> {
     signal.throwIfAborted();
-    if (this.removalObserved()) return;
+    if (this.matches(predicate)) return;
     await new Promise<void>((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timer); this.notify = null;
@@ -49,9 +50,9 @@ export class ServerBlockObservation {
       };
       const done = () => { cleanup(); resolve(); };
       const aborted = () => { cleanup(); reject(signal.reason); };
-      const ended = () => { cleanup(); reject(new Error("Connection ended while confirming dig.")); };
+      const ended = () => { cleanup(); reject(new Error("Connection ended while confirming a block change.")); };
       const timer = setTimeout(done, timeoutMs);
-      this.notify = done;
+      this.notify = () => { if (this.matches(predicate)) done(); };
       signal.addEventListener("abort", aborted, { once: true });
       this.bot.on("end", ended);
     });

@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { writeTrace } from "../TraceLog";
 import type { ToolCallJournal } from "../execution/ToolCallJournal";
 import type { AgentInspector } from "../debug/AgentInspector";
@@ -19,6 +18,7 @@ import { formatWorldContext, type WorldContextSnapshot } from "./WorldContextFor
 import { formatTaskContext } from "./TaskContextFormatter";
 import { formatToolReference } from "./ToolCatalogBuilder";
 import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRoleCall";
+import { summarizeBounded } from "./BoundedSummary";
 import {
   PlannerResultSchema,
   WorkflowState,
@@ -229,17 +229,26 @@ export class WorkflowAgent {
   }
 
   private async askPlanner(instruction: string, signal: AbortSignal) {
-    const { context, messages } = this.roleInput(
-      this.options.prompts.planner,
-      { ...this.commonContext(), instruction, actionTools: this.options.actionTools },
-      this.transcript.conversation(),
-    );
+    const history = new MessageHistory();
+    history.summary = this.transcript.summary;
+    for (const message of this.transcript.conversation().messages) history.append(message);
+    const reflection = ++this.reflection;
+    let context: Record<string, unknown> = {};
+    const messages = await new ContextCompactor(this.roleOptions(), this.options.prompts.contextSummary, this.options.contextBudget).prepare({
+      history, generationId: this.generationId, reflection, signal, requestTitle: this.task.objective,
+      render: (recent, summary) => {
+        const rendered = this.roleInput(this.options.prompts.planner,
+          { ...this.commonContext(), instruction, actionTools: this.options.actionTools }, { messages: recent }, summary);
+        context = rendered.context;
+        return rendered.messages;
+      },
+    });
     const result = await callStructuredRole({
       options: this.roleOptions(),
       schema: PlannerResultSchema,
       phase: "planner",
       generationId: this.generationId,
-      reflection: ++this.reflection,
+      reflection,
       messages,
       context,
       signal,
@@ -310,7 +319,7 @@ export class WorkflowAgent {
         await this.reply(call.input.message);
         return { value: { sent: true, outcome: call.input.outcome }, terminal: true };
       case "query": {
-        const result = await this.options.queries.execute(call.query, call.input);
+        const result = await this.options.queries.execute(call.query, call.input, signal);
         signal.throwIfAborted();
         if (!result.ok) throw new QueryToolError(result.error);
         return { value: result.value };
@@ -363,11 +372,12 @@ export class WorkflowAgent {
       case "refresh_summary": {
         const maxChars = this.options.summaryMaxChars ?? 500;
         const context = { ...this.commonContext(), maxChars, conversationSummary: this.transcript.summary, recentActivity: this.transcript.snapshot().messages };
-        const { summary } = await callStructuredRole({
-          options: this.roleOptions(), schema: z.object({ summary: z.string().trim().max(maxChars) }).strict(),
+        const summary = await summarizeBounded({
+          options: this.roleOptions(), prompt: this.options.prompts.summary, source: context,
+          previousSummary: this.task.summary, maxChars,
+          allowEmpty: true,
           phase: "summary", generationId: this.generationId, reflection: ++this.reflection,
           context, signal,
-          messages: [{ role: "system", content: this.options.prompts.summary.render({ max_chars: maxChars, summary_input: JSON.stringify(context, null, 2) }) }],
         });
         signal.throwIfAborted();
         this.task.summary = summary;

@@ -76,12 +76,13 @@ export class AgentToolBridge {
     throw new ModelResponseError('Unknown tool "' + call.name + '". Call a capability directly using its supplied input schema, a world query, or finish_step.');
   }
 
-  async executeRead(call: LLMToolCall): Promise<AgentToolResult> {
+  async executeRead(call: LLMToolCall, signal?: AbortSignal): Promise<AgentToolResult> {
     const startedAt = Date.now();
     let result: unknown;
     try {
       if (!this.isReadTool(call.name)) throw new ModelResponseError('Tool "' + call.name + '" is not a read/query tool.');
-      result = await this.dispatchRead(call.name, parseArguments(call.name, call.arguments));
+      signal?.throwIfAborted();
+      result = await this.dispatchRead(call.name, parseArguments(call.name, call.arguments), signal);
     } catch (error: unknown) {
       if (error instanceof ModelResponseError) throw error;
       result = failure("TOOL_ERROR", error instanceof Error ? error.message : String(error));
@@ -101,9 +102,9 @@ export class AgentToolBridge {
     return parsed.data as Record<string, unknown>;
   }
 
-  private async dispatchRead(name: string, rawArguments: unknown): Promise<unknown> {
+  private async dispatchRead(name: string, rawArguments: unknown, signal?: AbortSignal): Promise<unknown> {
     if (this.options.queries.has(name)) {
-      const result = await this.options.queries.execute(name, rawArguments);
+      const result = await this.options.queries.execute(name, rawArguments, signal);
       if (name === "get_block" && result.ok && typeof rawArguments === "object" && rawArguments !== null && "position" in rawArguments) {
         const position = (rawArguments as { position: { x: number; y: number; z: number } }).position;
         const dimension = this.options.currentDimension?.();

@@ -7,6 +7,7 @@ import type { ActionTaskOutcome } from "../../../src/agent/ActionTypes";
 import { success, type TaskResult } from "../../../src/execution/TaskResult";
 import { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { refreshLandmarksFromTask } from "../../../src/bootstrap/createAgentRuntime";
+import type { BlockInfo } from "../../../src/world/types";
 
 test("successful place confirms its result position and dig invalidates it", async () => {
   const root = await mkdtemp(join(tmpdir(), "minecraft-agent-runtime-"));
@@ -16,6 +17,8 @@ test("successful place confirms its result position and dig invalidates it", asy
       { createId: () => "table-id", now: () => 500 },
     );
     const placedPosition = { x: 3, y: 64, z: 4 };
+    let name = "crafting_table";
+    const world = { getBlock: () => ({ name } as BlockInfo) };
     await memory.remember({
       name: "Table",
       kind: "crafting_table",
@@ -37,6 +40,7 @@ test("successful place confirms its result position and dig invalidates it", asy
       ),
       "overworld",
       memory,
+      world,
     );
     assert.equal(memory.list()[0]?.status, "confirmed");
 
@@ -44,10 +48,11 @@ test("successful place confirms its result position and dig invalidates it", asy
     await refreshLandmarksFromTask(
       taskFinished("craft_from_table_3x3", { item: "wooden_pickaxe", quantity: 1, tablePosition: placedPosition },
         success({ item: "wooden_pickaxe", craftedQuantity: 1, station: "crafting_table" })),
-      "overworld", memory,
+      "overworld", memory, world,
     );
     assert.equal(memory.list()[0]?.status, "confirmed");
 
+    name = "air";
     await refreshLandmarksFromTask(
       taskFinished(
         "dig",
@@ -56,8 +61,12 @@ test("successful place confirms its result position and dig invalidates it", asy
       ),
       "overworld",
       memory,
+      world,
     );
     assert.equal(memory.list()[0]?.status, "missing");
+    name = "dirt";
+    await refreshLandmarksFromTask(taskFinished("place", {}, success({ position: placedPosition })), "overworld", memory, world);
+    assert.equal(memory.list()[0]?.status, "missing", "Placing dirt does not confirm a remembered crafting table.");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -30,6 +30,7 @@ export class ContainerSessionManager {
   private active: ActiveContainerSession | null = null;
   private closing = false;
   private closePromise: Promise<void> | null = null;
+  private listening = false;
 
   constructor(
     private readonly bot: Bot,
@@ -37,10 +38,12 @@ export class ContainerSessionManager {
   ) {}
 
   snapshot(): ContainerSession | null {
-    return this.active ? { ...this.active.public } : null;
+    this.reconcile();
+    return this.active ? { ...this.active.public, blockPosition: { ...this.active.public.blockPosition } } : null;
   }
 
   create(window: Window, blockPosition: Position): ContainerSession {
+    this.reconcile();
     if (this.active || this.closing) {
       throw new Error("A container session is already active or closing.");
     }
@@ -55,7 +58,37 @@ export class ContainerSessionManager {
       windowType: String(window.type),
     };
     this.active = { public: session, window };
+    if (!this.listening) {
+      this.bot.on("windowClose", this.onWindowClose);
+      this.bot.on("death", this.invalidate);
+      this.bot.on("respawn", this.invalidate);
+      this.bot.on("end", this.invalidate);
+      this.listening = true;
+    }
     return { ...session };
+  }
+
+  private readonly onWindowClose = (window: Window): void => {
+    if (this.active?.window === window) this.invalidate();
+  };
+  private readonly invalidate = (): void => { this.active = null; };
+
+  private reconcile(): void {
+    if (this.active && (this.bot.currentWindow !== this.active.window ||
+      this.active.window.id !== this.active.public.windowId ||
+      String(this.active.window.type) !== this.active.public.windowType)) this.invalidate();
+  }
+
+  /** Call after closing, or while disconnecting. Does not close unrelated windows. */
+  dispose(): void {
+    if (this.listening) {
+      this.bot.removeListener("windowClose", this.onWindowClose);
+      this.bot.removeListener("death", this.invalidate);
+      this.bot.removeListener("respawn", this.invalidate);
+      this.bot.removeListener("end", this.invalidate);
+      this.listening = false;
+    }
+    this.invalidate();
   }
 
   resolve(sessionId: string): ContainerSessionResolution {
@@ -69,11 +102,7 @@ export class ContainerSessionManager {
       this.active.window.id !== this.active.public.windowId ||
       String(this.active.window.type) !== this.active.public.windowType
     ) {
-      const unexpectedWindow = this.bot.currentWindow;
-      if (unexpectedWindow && unexpectedWindow !== this.active.window) {
-        void this.bot.closeWindow(unexpectedWindow);
-      }
-      void this.closeActive("Container session state changed.");
+      this.invalidate();
       return { ok: false, reason: "mismatch" };
     }
 

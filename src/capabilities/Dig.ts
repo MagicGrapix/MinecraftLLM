@@ -5,6 +5,7 @@ import { toVec3 } from "../runtime/PositionAdapter";
 import { errorMessage } from "../shared/helper";
 import { BlockPositionSchema, type Position } from "../shared/types";
 import type { Capability, ExecutionContext } from "./Capability";
+import { ServerBlockObservation } from "../runtime/ServerBlockObservation";
 
 export interface DigInput {
   position: Position;
@@ -20,6 +21,7 @@ export interface DigOutput {
 }
 
 export class DigCapability implements Capability<DigInput, DigOutput> {
+  constructor(private readonly confirmationTimeoutMs = 3_000) {}
   readonly name = "dig";
   readonly inputSchema: z.ZodType<DigInput> = z
     .object({
@@ -100,6 +102,7 @@ export class DigCapability implements Capability<DigInput, DigOutput> {
 
     context.signal.throwIfAborted();
     context.signal.addEventListener("abort", stopDigging, { once: true });
+    const observation = new ServerBlockObservation(bot, targetPosition);
 
     try {
       // Raycasting makes Mineflayer prove that a visible face of this exact block
@@ -107,9 +110,8 @@ export class DigCapability implements Capability<DigInput, DigOutput> {
       await bot.dig(block, false, "raycast");
       context.signal.throwIfAborted();
 
-      // Mineflayer updates its local world optimistically when its timer ends.
-      // Give the server two ticks to reject the dig and restore the block.
-      await waitForTicks(bot, 2, context.signal);
+      // Only inbound block packets can confirm the optimistic local removal.
+      await observation.wait(context.signal, this.confirmationTimeoutMs);
       const blockAfterDig = bot.blockAt(targetPosition);
 
       if (!blockAfterDig) {
@@ -136,6 +138,12 @@ export class DigCapability implements Capability<DigInput, DigOutput> {
         );
       }
 
+      if (observation.stateId === null || observation.stateId !== blockAfterDig.stateId) {
+        return failure("ACTION_NOT_CONFIRMED", "The client predicts removal, but no matching server block update confirmed it. Observe the target before retrying.", {
+          retryable: true, facts: { position: input.position, verification: "unknown", serverStateId: observation.stateId },
+        });
+      }
+
       return success({
         position: input.position,
         block: block.name,
@@ -159,6 +167,7 @@ export class DigCapability implements Capability<DigInput, DigOutput> {
         },
       );
     } finally {
+      observation.dispose();
       context.signal.removeEventListener("abort", stopDigging);
     }
   }

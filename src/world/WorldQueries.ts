@@ -18,6 +18,6 @@ export interface WorldQueries {
   findNearestBlocks(
     names: string | readonly string[],
     options?: FindBlocksOptions,
-  ): BlockInfo[];
+  ): Promise<BlockInfo[]>;
   getNearbyEntities(options?: NearbyEntitiesOptions): EntityInfo[];
 }

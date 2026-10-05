@@ -77,7 +77,7 @@ Une observation inconnue ne devient jamais de l'air.
 L'estimation inclut les messages, le system et les schémas des tools. Ce n'est ni un tokenizer,
 ni le réglage de fenêtre d'Ollama. Les sorties ont leur propre budget, 4 096 tokens par défaut.
 
-Avant un nouveau call du coordinateur ou de l'actionneur, `ContextCompactor` vérifie le budget.
+Avant un nouveau call du coordinateur, du planner ou de l'actionneur, `ContextCompactor` vérifie le budget.
 Si le seuil est atteint, un appel LLM séparé résume les anciens échanges avec le résumé précédent.
 Il conserve les faits utiles, contraintes, échecs et incertitudes. Il remplace ensuite le premier message assistant.
 La demande active et le dernier échange complet restent intacts, et les messages récents gardent leur ordre.
@@ -85,12 +85,22 @@ La demande active et le dernier échange complet restent intacts, et les message
 La suppression des anciens échanges n'est validée qu'après un résumé non vide, dans la limite autorisée.
 Une erreur ou un stop pendant la compression laisse l'ancien historique intact.
 Si le system, la demande ou le dernier résultat sont eux-mêmes trop gros, le traitement échoue explicitement :
-aucun JSON n'est découpé et aucun résultat n'est éliminé silencieusement.
+aucun JSON rejoué n'est découpé et aucun résultat n'est éliminé silencieusement.
 Le monde est relu après la compression pour le prochain call.
 
-Le planner n'a pas d'historique indépendant : il reçoit les messages de discussion conservés par le coordinateur
-et son résumé, sans rejouer ses appels d'outils. Les appels de compression portent leur propre label debug ;
+Le planner n'a pas d'historique persistant indépendant : il reçoit les messages de discussion conservés par
+le coordinateur et son résumé, sans rejouer ses appels d'outils. Sa copie est compactée si nécessaire en tenant
+compte de son propre system, notamment du catalogue documentaire des tools. Les appels de compression portent leur propre label debug ;
 ce ne sont pas de nouvelles phases de l'actionneur.
+
+Le plafond s'applique aussi aux appels de résumé et aux retries. `llm/InputBudget.ts` vérifie la requête finale
+avant transport et produit `CONTEXT_TOO_LARGE` sans contacter Ollama si elle atteint encore 20k.
+Pour résumer une grande source, `BoundedSummary` la sérialise puis envoie des fragments consécutifs avec
+le résumé intermédiaire, chacun sous le plafond avec une marge pour le feedback de validation.
+Ces fragments sont explicitement des données pouvant commencer ou finir au milieu d'un enregistrement,
+pas des échanges de tools exécutables. Leur concaténation couvre toute la source ; l'historique original
+n'est remplacé qu'après la réussite de tous les appels. Un échec conserve l'ancien résumé et l'historique.
+Le résumé de tâche peut être vidé ; un résumé de compression doit rester non vide.
 
 ## Deux résumés, deux usages
 

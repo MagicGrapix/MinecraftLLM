@@ -3,7 +3,11 @@ import type { WorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
 import type { WorldPlan } from "../../src/devworld/WorldPlan";
 
 export interface BlockObservation { position: Position; name: string | null }
-export interface ContainerObservation { position: Position; inventory: Record<string, number> | null }
+export interface ContainerObservation {
+  position: Position;
+  inventory: Record<string, number> | null;
+  error?: { code: string; message: string; path?: string; sample?: string };
+}
 export interface DropObservation { position: Position; item: string | null; count: number | null }
 export interface ContainerFixture { position: Position; items: Readonly<Record<string, number>> }
 export interface DropFixture { position: Position; item: string; count: number }

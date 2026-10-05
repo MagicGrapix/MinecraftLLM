@@ -12,6 +12,7 @@ import {
 import { MINECRAFT_VERSION } from "./config";
 import { LandmarkMemory } from "./memory/LandmarkMemory";
 import { MinecraftRuntime } from "./runtime/MinecraftRuntime";
+import { cleanupSteps } from "./runtime/cleanup";
 
 async function main(): Promise<void> {
   const config = loadAgentConfig();
@@ -34,6 +35,8 @@ async function main(): Promise<void> {
   });
   let agentRuntime: RunningAgentRuntime | null = null;
   let demoRuntime: RunningDemoRuntime | null = null;
+  let failed = false;
+  let primaryError: unknown;
 
   try {
     console.info("Connecting to Minecraft...");
@@ -49,15 +52,26 @@ async function main(): Promise<void> {
         `Agent mode ready with model "${config.llmModel}". Waiting for chat.`,
       );
     } else {
-      demoRuntime = createDemoRuntime(runtime);
+      demoRuntime = await createDemoRuntime(runtime);
       console.info("Demo mode started.");
     }
 
     await waitForShutdown(runtime);
+  } catch (error) {
+    failed = true;
+    primaryError = error;
+    throw error;
   } finally {
-    await agentRuntime?.shutdown("Minecraft process stopped.");
-    await demoRuntime?.shutdown("Minecraft process stopped.");
-    if (!agentRuntime && !demoRuntime) runtime.disconnect();
+    try {
+      await cleanupSteps([
+        { name: "agent runtime", run: () => agentRuntime?.shutdown("Minecraft process stopped.") },
+        { name: "demo runtime", run: () => demoRuntime?.shutdown("Minecraft process stopped.") },
+        { name: "connection fallback", run: () => { if ((!agentRuntime && !demoRuntime) || runtime.isConnected) runtime.disconnect(); } },
+      ], 80_000);
+    } catch (cleanupError) {
+      if (failed) throw new AggregateError([primaryError, cleanupError], "Minecraft process failed and cleanup also reported errors.");
+      throw cleanupError;
+    }
   }
 }
 

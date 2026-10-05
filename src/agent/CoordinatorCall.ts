@@ -4,6 +4,7 @@ import { withValidationFeedback } from "./MessageHistory";
 import { ModelResponseError, isModelResponseError } from "./ModelResponseError";
 import type { StructuredRoleOptions } from "./StructuredRoleCall";
 import { writeTrace } from "../TraceLog";
+import { completeWithinBudget } from "../llm/InputBudget";
 
 export async function callCoordinator(input: {
   options: StructuredRoleOptions;
@@ -24,7 +25,7 @@ export async function callCoordinator(input: {
     };
     input.options.inspector?.beginRound(trace);
     try {
-      const response = await input.options.llm.complete({
+      const response = await completeWithinBudget(input.options.llm, {
         messages: withValidationFeedback(input.messages, correction),
         tools: input.tools.catalog(),
         temperature: input.options.temperature, reasoningEffort: input.options.reasoningEffort,

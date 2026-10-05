@@ -3,6 +3,7 @@ export type LLMErrorCode =
   | "TIMEOUT"
   | "UNAVAILABLE"
   | "INVALID_RESPONSE"
+  | "CONTEXT_TOO_LARGE"
   | "INTERNAL_ERROR";
 
 export class LLMError extends Error {

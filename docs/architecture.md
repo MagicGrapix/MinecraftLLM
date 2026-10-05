@@ -38,6 +38,8 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   Les rapports y sont compacts ; leurs TaskResults complets restent dans l'état et les traces.
 - `MessageHistory.ts` conserve les échanges complets et la demande active ;
   `ContextCompactor.ts` décide quand faire un résumé. Voir [les règles de contexte](agent-workflow.md).
+  `llm/InputBudget.ts` impose aussi le plafond de 20k à chaque appel, retries et résumés compris.
+  `BoundedSummary.ts` traite les gros historiques par fragments successifs sans dépasser ce plafond.
 - `Executor.ts` valide les entrées, applique timeout/annulation et garde le verrou physique.
   `TaskResult` est un succès ou une erreur structurée ; le texte du modèle n'est pas une preuve d'exécution.
 - `capabilities/Craft.ts` expose `craft_from_inventory_2x2` et `craft_from_table_3x3`.
@@ -45,6 +47,8 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   annulation et vérification. L'ancien tool `craft` n'est plus exposé. Voir [les arguments](tools.md#crafting).
 - `src/world/` traduit les observations Mineflayer. `WorldQueries.getNearbyEntities` est conservée
   comme API interne, notamment pour `get_dropped_items`, sans tool générique exposé au LLM.
+  `findNearestBlocks` retourne une Promise : `BlockSearch.ts` parcourt les cellules chargées par lots
+  coopératifs. `WorldQueryRegistry` applique les délais, annulations et limites de réponse aux deux agents.
 - `src/llm/` traduit nos messages en Chat Completions. La couche agents ne dépend pas du SDK OpenAI.
 - `src/debug/` contient le serveur local, les snapshots et leur projection UI.
 - `src/devworld/` est un processus séparé : WorldBuilder -> WorldPlan -> CommandExecutor -> bot OP.
@@ -63,6 +67,11 @@ si une opération survit au retour de la méthode, l'enregistrer avec `deferCanc
 
 Pour une query : implémenter `WorldQuery`, l'enregistrer dans `defaultQueries.ts`, tester les valeurs
 inconnues et les limites. Une query ne modifie pas le monde.
+Le contexte d'exécution fournit `signal` et `deadline` : une boucle longue doit rendre la main et les vérifier.
+Une Promise entourant un calcul synchrone ne le rend pas interruptible. Les noms des tools du coordinateur
+(`reply`, `ask_planner`, etc.) sont réservés ; une collision fait échouer la construction du catalogue.
+Le bootstrap fige ensuite les registres de queries et capabilities : un ajout tardif est refusé pour éviter
+un désaccord entre les schémas envoyés au LLM et le dispatch réel. Ajouter les tools avant l'assemblage.
 Les recherches de noms doivent vérifier le registre de la version Minecraft avec `isKnownName` :
 une requête invalide ne retourne jamais un succès vide. Les erreurs de schéma détaillées utilisent
 `shared/ToolArgumentFeedback.ts`, commun aux agents et au registre de queries.
@@ -78,6 +87,19 @@ la requête envoyée au modèle. Garder les sélections manuelles stables pendan
 
 ## Entretien
 
-`npm.cmd test` vérifie code, scripts et tests. Les smoke restent séparés car ils contactent Ollama.
+`runtime/NavigationOperations.ts` suit les opérations physiques internes de pathfinder pendant `goto`.
+Les méthodes Mineflayer sont protégées temporairement sous le verrou de l'Executor, puis restaurées après
+terminaison des promesses et de leurs continuations. Cet adaptateur est lié à pathfinder 2.4.x : revoir
+les chaînes equip/dig/place lors d'une mise à jour de dépendance.
+
+`ContainerSessionManager` invalide une session à la fermeture serveur, à la mort, au respawn ou à la
+déconnexion, et recoupe la fenêtre courante à la lecture. Sa session opaque est exposée dans le World
+Context de l'actionneur pour une délégation suivante. Le runtime ferme la session et détache ses listeners.
+
+`runtime/cleanup.ts` tente toutes les étapes de fermeture même après une erreur ou un timeout
+(10 secondes par étape). Les erreurs sont regroupées après les tentatives, y compris la déconnexion.
+Le shutdown est idempotent ; il ne lance pas une deuxième série de libérations.
+
+`npm.cmd test` vérifie code, scripts et tests. Les smoke restent séparés car ils contactent Minecraft ou Ollama.
 Ne pas remettre des anciens agents ou prompts de test dans `src/` ou `prompts/`.
 Actualiser la page concernée lorsque ces frontières changent ; les détails locaux restent en commentaires.

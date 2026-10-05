@@ -49,6 +49,8 @@ export interface EntityInfo {
 export interface FindBlocksOptions {
   maxDistance?: number;
   count?: number;
+  signal?: AbortSignal;
+  deadline?: number;
 }
 
 /** A loose item entity; null stack fields mean its metadata is not known yet. */

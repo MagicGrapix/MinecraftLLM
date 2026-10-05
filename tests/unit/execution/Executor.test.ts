@@ -27,7 +27,7 @@ const emptyWorld: WorldQueries = {
   getInventory: () => ({ items: [], selectedItem: null }),
   getBlock: () => null,
   getBlockAccess: () => { throw new Error("Block access was not stubbed."); },
-  findNearestBlocks: () => [],
+  findNearestBlocks: async () => [],
   getNearbyEntities: () => [],
 };
 

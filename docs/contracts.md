@@ -6,7 +6,11 @@
   ni le ramassage d'un item. Le déplacement peut casser/poser selon ses options.
 - `get_block_access` indique la portée et une face visible localement. Ce n'est pas une autorisation
   du serveur. Une valeur inconnue ne signifie pas « air ».
-- `dig` vérifie après l'opération que la cible n'est plus solide. Si la cellule n'est plus observable,
+- `dig` exige une mise à jour de bloc **reçue du serveur** et une cellule devenue non solide.
+  L'air prédit localement par Mineflayer et ses événements `blockUpdate` ne suffisent pas.
+  Sans confirmation dans les trois secondes après la fin du dig, il retourne `ACTION_NOT_CONFIRMED` :
+  observer la cible avant de retenter, car une absence de confirmation n'est pas une preuve d'échec physique.
+  Si la cellule n'est plus observable,
   il retourne `WORLD_CHANGED` avec `verification: unknown`, jamais un succès.
   Il ne prouve pas que la ressource est entrée dans l'inventaire.
 - `get_dropped_items` décrit les stacks observées au sol. `get_inventory` décrit l'inventaire actuel
@@ -39,6 +43,13 @@ wildcards et IDs inconnus sont rejetés. Une liste partiellement inconnue est re
 `INVALID_ARGUMENT` signifie que la recherche n'a pas eu lieu ; `ok: true, value: []` signifie qu'une
 recherche valide n'a trouvé aucun résultat connu dans ses limites.
 
+`find_nearest_blocks` accepte un rayon de 50 blocs maximum (32 par défaut), et 1 à 128 résultats.
+Il parcourt seulement les chunks chargés, sans garantir leur disponibilité passée ou future.
+La recherche rend la main tous les 1 024 candidats ; `stop` peut donc interrompre un grand scan.
+Toutes les queries partagent un délai de 2 secondes et un maximum de 12 000 caractères sérialisés,
+dans `world/queries/QueryLimits.ts`. Les erreurs `QUERY_TIMEOUT`, `INTERRUPTED` et `RESULT_TOO_LARGE`
+sont explicites : elles ne deviennent ni des succès vides ni des fragments de JSON.
+
 ## Limites du diff d'inventaire
 
 `get_inventory_diff_after` expose les changements observés pendant un appel, sans attribuer leur cause.
@@ -61,8 +72,23 @@ et de ses opérations enregistrées. Toute nouvelle action est refusée avec BLO
 Il n'y a pas de relance automatique d'action physique. Si l'opération ne se termine jamais, le verrou
 ne se libère pas artificiellement : inspecter le log et reconnecter le processus du bot.
 Un résultat d'annulation ne garantit pas l'absence de changements déjà appliqués.
+Pendant `goto`, les promesses equip/dig/place/activate du pathfinder sont suivies comme barrières.
+L'annulation refuse les nouvelles opérations issues de continuations tardives et attend celles déjà
+commencées. Le retour de la seule promesse de navigation n'autorise pas une nouvelle capability.
 `Executor.waitForIdle(timeoutMs)` attend explicitement la libération du verrou physique après arrêt
 des producteurs de tâches. Le runtime expose cette attente pour le lanceur de scénarios.
+
+## Sessions et sorties de l'agent
+
+Une session de coffre ne survit pas à une fermeture serveur, une mort, un respawn ou une déconnexion.
+Une fenêtre remplacée n'est pas fermée par erreur ; l'ancien identifiant devient invalide.
+Tant que la fenêtre reste ouverte, la délégation suivante peut utiliser son identifiant dans le World Context.
+
+Les réponses du modèle restent du texte de chat. Chaque morceau commençant par `/` est préfixé par `>`
+avant envoi : une réponse découpée ne doit jamais devenir une commande Minecraft.
+
+Un landmark n'est confirmé que si le bloc observé correspond à son type attendu.
+Poser de la terre sur une ancienne table ne confirme pas cette table ; une cellule déchargée reste inconnue.
 
 ## Contrôleur de monde
 

@@ -28,7 +28,7 @@ export function createCapabilityRegistry(
   register(
     registry,
     new DigCapability(),
-    "Does: Break one block at the specified position.\nSuccess: The target block was observed as removed.\nLimits: Does not confirm that its drops entered the inventory.\nNotes: Check get_block_access when uncertain. Check drops and inventory after digging.",
+    "Does: Break one block at the specified position.\nSuccess: An inbound server block update confirmed removal at the target.\nLimits: Does not confirm that drops entered inventory. A client prediction without server confirmation is ACTION_NOT_CONFIRMED.\nNotes: Check get_block_access when uncertain. Observe the target before retrying an unconfirmed dig; check drops and inventory afterwards.",
   );
   register(
     registry,

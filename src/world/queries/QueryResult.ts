@@ -2,6 +2,9 @@ export type QueryErrorCode =
   | "QUERY_NOT_FOUND"
   | "INVALID_ARGUMENT"
   | "OBSERVATION_UNAVAILABLE"
+  | "QUERY_TIMEOUT"
+  | "INTERRUPTED"
+  | "RESULT_TOO_LARGE"
   | "INTERNAL_ERROR";
 
 export interface QueryError {

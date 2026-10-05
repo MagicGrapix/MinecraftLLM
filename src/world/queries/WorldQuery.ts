@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { WorldQueries } from "../WorldQueries";
 import type { QueryResult } from "./QueryResult";
+import type { QueryContext } from "./QueryLimits";
 
 export interface WorldQuery<Input, Output> {
   readonly name: string;
@@ -9,6 +10,7 @@ export interface WorldQuery<Input, Output> {
   execute(
     input: Input,
     world: WorldQueries,
+    context?: QueryContext,
   ): Promise<QueryResult<Output>>;
 }
 

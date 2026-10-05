@@ -15,6 +15,7 @@ import { getDroppedItemsQuery } from "./GetDroppedItems";
 import type { ToolCallJournal } from "../../execution/ToolCallJournal";
 import { inventoryDiffQuery } from "./GetInventoryDiff";
 import { MinecraftNamesSchema, validateMinecraftNames } from "./MinecraftNames";
+import { QUERY_LIMITS } from "./QueryLimits";
 
 const emptyInputSchema = z.object({}).strict();
 const getBlockInputSchema = z
@@ -23,7 +24,7 @@ const getBlockInputSchema = z
 const findNearestBlocksInputSchema = z
   .object({
     names: MinecraftNamesSchema,
-    maxDistance: z.number().finite().positive().max(512).optional().describe("Search radius in blocks from the bot. Default 32; maximum 512."),
+    maxDistance: z.number().finite().positive().max(QUERY_LIMITS.maxBlockRadius).optional().describe("Local search radius in blocks from the bot. Default 32; maximum 50. Move before searching farther away."),
     count: z.number().int().positive().max(128).optional().describe("Maximum matching block positions to return, not a harvest quantity. Default 1; maximum 128."),
   })
   .strict();
@@ -92,13 +93,15 @@ const findNearestBlocksQuery: WorldQuery<
   BlockInfo[]
 > = {
   name: "find_nearest_blocks",
-  description: "Does: Find placed blocks matching the requested names.\nReturns: Matching blocks known within the search radius.\nLimits: Does not check visibility, reachability, or dig access.\nNotes: count limits results. No results does not mean none exist elsewhere.",
+  description: "Does: Find nearby placed blocks matching exact names.\nReturns: Nearest matching blocks in loaded cells.\nLimits: Radius at most 50 blocks; no visibility, path, or dig-access check. A timed-out search is not an empty result.\nNotes: count limits positions, not harvest quantity. Move to search farther away; an empty result only describes the searched loaded area.",
   inputSchema: findNearestBlocksInputSchema,
-  execute: async (input, world) => {
+  execute: async (input, world, context) => {
     const invalid = validateMinecraftNames(world, "block", input.names);
     if (invalid) return invalid;
     return querySuccess(
-      world.findNearestBlocks(input.names, {
+      await world.findNearestBlocks(input.names, {
+        signal: context?.signal,
+        deadline: context?.deadline,
         ...(input.maxDistance === undefined
           ? {}
           : { maxDistance: input.maxDistance }),

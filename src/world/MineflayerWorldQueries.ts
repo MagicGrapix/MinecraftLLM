@@ -7,6 +7,7 @@ import { normalizeMinecraftName } from "../shared/helper";
 import type { Position } from "../shared/types";
 import { inspectBlockAccess, type BlockAccessInfo } from "./BlockAccess";
 import type { WorldQueries } from "./WorldQueries";
+import { findBlocksCooperatively } from "./BlockSearch";
 import type {
   BlockInfo,
   EntityInfo,
@@ -57,10 +58,10 @@ export class MineflayerWorldQueries implements WorldQueries {
     return inspectBlockAccess(this.runtime.bot, position);
   }
 
-  findNearestBlocks(
+  async findNearestBlocks(
     names: string | readonly string[],
     options: FindBlocksOptions = {},
-  ): BlockInfo[] {
+  ): Promise<BlockInfo[]> {
     const bot = this.runtime.bot;
     const requestedNames = typeof names === "string" ? [names] : names;
     const unknownNames = requestedNames.filter((name) => !this.isKnownName("block", name));
@@ -71,20 +72,7 @@ export class MineflayerWorldQueries implements WorldQueries {
 
     if (blockIds.length === 0) return [];
 
-    return bot
-      .findBlocks({
-        matching: blockIds,
-        maxDistance: options.maxDistance ?? 32,
-        count: options.count ?? 1,
-      })
-      .map((position) => bot.blockAt(position))
-      .filter((block): block is Block => block !== null)
-      .map(toBlockInfo)
-      .sort(
-        (left, right) =>
-          distanceSquared(left.position, bot.entity.position) -
-          distanceSquared(right.position, bot.entity.position),
-      );
+    return (await findBlocksCooperatively(bot, new Set(blockIds), options)).map(toBlockInfo);
   }
 
   getNearbyEntities(options: NearbyEntitiesOptions = {}): EntityInfo[] {
@@ -121,7 +109,6 @@ export class MineflayerWorldQueries implements WorldQueries {
       .sort((left, right) => left.distance - right.distance);
   }
 }
-
 export function cardinalFacing(yaw: number): SelfState["facing"] {
   // Mineflayer's view vector is (-sin(yaw), -cos(yaw)) on the X/Z plane.
   const x = -Math.sin(yaw);
@@ -163,14 +150,4 @@ function toBlockInfo(block: Block): BlockInfo {
     position: fromVec3(block.position),
     boundingBox: block.boundingBox,
   };
-}
-
-function distanceSquared(
-  left: Position,
-  right: { x: number; y: number; z: number },
-): number {
-  const dx = left.x - right.x;
-  const dy = left.y - right.y;
-  const dz = left.z - right.z;
-  return dx * dx + dy * dy + dz * dz;
 }

@@ -33,6 +33,11 @@ export class CoordinatorTools {
     this.workflowTools = (Object.keys(schemas) as (keyof typeof schemas)[])
       .map((name) => ({ name, description: descriptions[name], parameters: toJsonSchema(schemas[name]) }));
     this.queryTools = queries.list().map(({ name, description }) => ({ name, description, parameters: toJsonSchema(queries.get(name)!.inputSchema) }));
+    const names = new Set<string>();
+    for (const tool of this.catalog()) {
+      if (names.has(tool.name)) throw new Error(`Duplicate coordinator tool "${tool.name}"; workflow names are reserved.`);
+      names.add(tool.name);
+    }
   }
 
   catalog(): LLMTool[] {

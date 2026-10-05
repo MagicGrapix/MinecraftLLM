@@ -7,9 +7,9 @@ import { CommandExecutor } from "../../src/devworld/execution/CommandExecutor";
 import { containsPosition, createArenaBounds } from "../../src/devworld/ArenaBounds";
 import { bounded, until, message } from "./async";
 import { firstTerrainMismatch, formatTerrainMismatch, type ExpectedBlock, type TerrainMismatch } from "./TerrainVerification";
-import type { Observation, Scenario } from "./types";
+import type { ContainerObservation, Observation, Scenario } from "./types";
 import { Vec3 } from "vec3";
-import { BlockNbtReader, chestInventory } from "./BlockNbtReader";
+import { BlockNbtReader, chestInventory, NbtObservationError } from "./BlockNbtReader";
 import { environmentPlan, environmentReady, observeDrops } from "./EnvironmentObservations";
 
 export class TestWorld {
@@ -48,10 +48,15 @@ export class TestWorld {
     if (extras) await this.execute(extras, signal);
     if (containers.length || drops.length) {
       let observed: Pick<Observation, "containers" | "drops"> = {};
-      await until(async () => {
-        observed = await this.observeEnvironment(scenario);
-        return environmentReady(observed, containers, drops);
-      }, 10_000, "Scenario chest/drop verification", signal, () => `Last observed: ${JSON.stringify(observed)}`);
+      try {
+        await until(async () => {
+          observed = await this.observeEnvironment(scenario);
+          return environmentReady(observed, containers, drops);
+        }, 10_000, "Scenario chest/drop verification", signal, () => `Last observed: ${JSON.stringify(observed)}`);
+      } catch (error) {
+        this.record("world.environment_verification_failed", { error: message(error), observed });
+        throw error;
+      }
     }
   }
 
@@ -60,11 +65,31 @@ export class TestWorld {
     const result: Pick<Observation, "containers" | "drops"> = {};
     if (scenario.containers) {
       if (!this.nbt) throw new Error("Controller NBT observer is not ready.");
-      const containers = [];
+      const containers: ContainerObservation[] = [];
       for (const { position } of scenario.containers(this.config)) {
         const block = this.runtime.bot.blockAt(new Vec3(position.x, position.y, position.z));
-        const inventory = block?.name === "chest" ? chestInventory(await this.nbt.read(position)) : null;
-        containers.push({ position, inventory });
+        if (block?.name !== "chest") {
+          containers.push({ position, inventory: null, error: {
+            code: block ? "BLOCK_NOT_CHEST" : "BLOCK_UNAVAILABLE",
+            message: `Expected chest; observed ${block?.name ?? "unloaded cell"}.`,
+          } });
+          continue;
+        }
+        try {
+          const raw = await this.nbt.read(position);
+          const current = this.runtime.bot.blockAt(new Vec3(position.x, position.y, position.z));
+          if (current?.name !== "chest") {
+            containers.push({ position, inventory: null, error: { code: "BLOCK_CHANGED", message: "Chest disappeared or became unobservable during NBT query." } });
+            continue;
+          }
+          const parsed = chestInventory(raw, current.name);
+          containers.push(parsed.ok ? { position, inventory: parsed.inventory }
+            : { position, inventory: null, error: parsed.error });
+        } catch (error) {
+          containers.push({ position, inventory: null, error: {
+            code: error instanceof NbtObservationError ? error.code : "NBT_QUERY_FAILED", message: message(error),
+          } });
+        }
       }
       result.containers = containers;
     }

@@ -70,7 +70,7 @@ test("coordinator sees structured unknown-name failures instead of an empty sear
   try {
     let searches = 0;
     h.world.isKnownName = (_kind, name) => name === "oak_log";
-    h.world.findNearestBlocks = () => { searches += 1; return []; };
+    h.world.findNearestBlocks = async () => { searches += 1; return []; };
     tool(h.llm, "find_nearest_blocks", { names: ["oak_log", "log"] });
     tool(h.llm, "find_nearest_blocks", { names: ["oak_log"] });
     tool(h.llm, "reply", { outcome: "answer", message: "Valid search is empty." });
@@ -630,7 +630,7 @@ test("coordinator and planner retry malformed transport responses without repeat
 });
 
 test("coordinator compression retains the request, then planner receives its summary and chronological chat", async () => {
-  const h = await harness(0, "native", { charsPerToken: 3, compactAtTokens: 7000, targetTokens: 4000, summaryMaxChars: 300 });
+  const h = await harness(0, "native", { charsPerToken: 3, compactAtTokens: 20000, targetTokens: 10000, summaryMaxChars: 300 });
   let observations = 0;
   try {
     for (let i = 0; i < 100; i++) h.llm.enqueue((request) => {
@@ -639,7 +639,7 @@ test("coordinator compression retains the request, then planner receives its sum
       const n = observations++;
       const name = n < 40 ? "get_self" : n === 40 ? "ask_planner" : "reply";
       const args = n < 40 ? {} : n === 40 ? { instruction: "Plan the new log" } : { message: "Plan ready", outcome: "answer" };
-      return { message: { role: "assistant", content: "Inspecting the current state.", toolCalls: [{ id: "call-" + i, name, arguments: JSON.stringify(args) }] }, finishReason: "tool_calls" };
+      return { message: { role: "assistant", content: "Inspecting the current state. ".repeat(80), toolCalls: [{ id: "call-" + i, name, arguments: JSON.stringify(args) }] }, finishReason: "tool_calls" };
     });
     h.agent.submitUserMessage("owner", "Collect one NEW log");
     await idle(h.agent);

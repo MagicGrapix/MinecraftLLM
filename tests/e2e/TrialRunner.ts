@@ -43,6 +43,8 @@ export async function runTrial(options: TrialOptions): Promise<TrialResult> {
       await wait(options.pollMs);
     }
     const start = agent.acceptedAt;
+    let observationId = 0;
+    let stableContainerState: string | null = null;
     options.record("trial.accepted", { scenario: scenario.id, timeoutMs });
     while (true) {
       signal?.throwIfAborted();
@@ -51,6 +53,9 @@ export async function runTrial(options: TrialOptions): Promise<TrialResult> {
       if (remaining <= 0) { result.durationMs = now() - start; result.status = "timeout"; break; }
       let timer: NodeJS.Timeout | undefined;
       let observation: Observation | null;
+      // A snapshot requested before completion may arrive after it, but is stale.
+      const finishedBeforeSnapshot = agent.finished;
+      const requestedAtMs = now() - start;
       try {
         observation = await Promise.race([snapshot(), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), remaining); })]);
       } finally { clearTimeout(timer); }
@@ -58,16 +63,27 @@ export async function runTrial(options: TrialOptions): Promise<TrialResult> {
       result.final = observation;
       result.durationMs = now() - start;
       result.criterion = scenario.verify(initial, observation);
-      options.record("trial.observation", { elapsedMs: result.durationMs, ...observation, criterion: result.criterion });
+      options.record("trial.observation", { observationId: ++observationId, requestedAtMs, receivedAtMs: result.durationMs,
+        afterWorkflowFinish: finishedBeforeSnapshot !== null, elapsedMs: result.durationMs, ...observation, criterion: result.criterion });
+      const unknownContainer = observation.containers?.find((container) => container.inventory === null);
+      if (unknownContainer) throw new Error(`Container observation unavailable: ${JSON.stringify(unknownContainer)}`);
       if (!options.inArena(observation.position)) throw new Error("Bot left the testing arena.");
       if (result.criterion.passed && result.goalReachedAtMs === null) result.goalReachedAtMs = result.durationMs;
       // A late observation/completion cannot turn an expired attempt into a pass.
       if (result.durationMs >= timeoutMs) { result.status = "timeout"; break; }
-      if (agent.finished && observation.physicalIdle) {
-        if (agent.finished.error) throw new Error(agent.finished.error);
-        result.status = result.criterion.passed ? "passed" : "failed";
-        break;
-      }
+      if (finishedBeforeSnapshot && agent.finished === finishedBeforeSnapshot && observation.physicalIdle) {
+        if (finishedBeforeSnapshot.error) throw new Error(finishedBeforeSnapshot.error);
+        // Cross-client observations are not atomic. Require two matching post-finish
+        // inventory/container samples before judging a transfer.
+        const signature = JSON.stringify({ inventory: Object.entries(observation.inventory).sort(),
+          containers: observation.containers?.map((container) => ({ ...container, inventory: Object.entries(container.inventory!).sort() })),
+          blocks: observation.blocks, windowOpen: observation.windowOpen });
+        if (!observation.containers?.length || signature === stableContainerState) {
+          result.status = result.criterion.passed ? "passed" : "failed";
+          break;
+        }
+        stableContainerState = signature;
+      } else stableContainerState = null;
       if (observation.mode === "stopped") throw new Error("Trial interrupted before completion.");
       await wait(Math.min(options.pollMs, timeoutMs - result.durationMs));
     }

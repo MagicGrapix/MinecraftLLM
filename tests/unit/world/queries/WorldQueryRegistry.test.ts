@@ -28,7 +28,7 @@ const world: WorldQueries = {
   getInventory: () => ({ items: [], selectedItem: null }),
   getBlock: () => null,
   getBlockAccess: () => { throw new Error("Block access was not stubbed."); },
-  findNearestBlocks: () => [],
+  findNearestBlocks: async () => [],
   getNearbyEntities: () => [],
 };
 
@@ -44,6 +44,27 @@ test("default registry executes a valid query and exposes summaries", async () =
   assert.equal(registry.has("get_dropped_items"), true);
   assert.equal(registry.has("get_nearby_entities"), false);
   assert.equal((await registry.execute("get_nearby_entities", {})).ok, false);
+});
+
+test("all callers share query radius, output and cancellation limits", async () => {
+  const defaults = createDefaultWorldQueryRegistry(world);
+  const tooFar = await defaults.execute("find_nearest_blocks", { names: ["oak_log"], maxDistance: 51 });
+  assert.equal(tooFar.ok, false);
+  if (!tooFar.ok) assert.equal(tooFar.error.code, "INVALID_ARGUMENT");
+  const registry = new WorldQueryRegistry(world);
+  registry.register({ name: "large", description: "large", inputSchema: z.object({}), execute: async () => ({ ok: true, value: "x".repeat(13_000) }) });
+  const large = await registry.execute("large", {});
+  if (large.ok) assert.fail("Unbounded query result");
+  assert.equal(large.error.code, "RESULT_TOO_LARGE");
+  let started = false;
+  registry.register({ name: "pending", description: "pending", inputSchema: z.object({}), execute: async () => { started = true; return new Promise(() => undefined); } });
+  const abort = new AbortController();
+  const pending = registry.execute("pending", {}, abort.signal);
+  abort.abort();
+  const stopped = await pending;
+  assert.equal(started, true);
+  if (stopped.ok) assert.fail("Aborted query succeeded");
+  assert.equal(stopped.error.code, "INTERRUPTED");
 });
 
 test("unknown and invalid queries return structured errors", async () => {
@@ -92,7 +113,7 @@ test("searches reject strings, compound names and unknown IDs rather than return
   const searches: string[] = [];
   const registry = createDefaultWorldQueryRegistry({ ...world,
     isKnownName: (_kind, name) => ["oak_log", "birch_log", "minecraft:oak_log"].includes(name),
-    findNearestBlocks: () => { searches.push("blocks"); return []; },
+    findNearestBlocks: async () => { searches.push("blocks"); return []; },
     getNearbyEntities: () => { searches.push("drops"); return []; },
   });
   for (const query of ["find_nearest_blocks", "get_dropped_items"]) {

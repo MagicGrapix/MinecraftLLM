@@ -22,6 +22,8 @@ import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
 import { loadWorkflowPrompts } from "../prompts/WorkflowPrompts";
 import { ContainerSessionManager } from "../runtime/ContainerSessionManager";
+import { cleanupSteps } from "../runtime/cleanup";
+import type { WorldQueries } from "../world/WorldQueries";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
 import { toVec3 } from "../runtime/PositionAdapter";
 import { SkillLoader } from "../skills/SkillLoader";
@@ -89,6 +91,7 @@ export async function createAgentRuntime(
     landmarks,
     systemPrompt: prompts.actioner,
     conversationSummaryPrompt: prompts.conversationSummary,
+    containerSession: () => sessions.snapshot(),
   });
 
   let chat: MinecraftChatAdapter | null = null;
@@ -107,7 +110,7 @@ export async function createAgentRuntime(
     ...(inspector ? { inspector } : {}),
     onRetry: async (message) => { console.warn("Action agent:", message); },
     onTaskFinished: async (outcome) => {
-      await refreshLandmarksFromTask(outcome, runtime.bot.game.dimension, landmarks);
+      await refreshLandmarksFromTask(outcome, runtime.bot.game.dimension, landmarks, world);
     },
   });
   const summaryFile = new WorkflowSummaryFile(SESSION_ID, resolve(process.cwd(), process.env.LOG_DIR ?? "logs"));
@@ -130,6 +133,8 @@ export async function createAgentRuntime(
     summaryFile,
     respond: async (message) => { await chat?.send(message); },
   });
+  capabilities.freeze();
+  queries.freeze();
   console.info("Agent workflow summary file.", { path: summaryFile.path });
   console.info("Agent tool replay mode.", { mode: TOOL_REPLAY_MODE });
   chat = new MinecraftChatAdapter({
@@ -179,21 +184,17 @@ export async function createAgentRuntime(
     waitForPhysicalIdle: (timeoutMs) => executor.waitForIdle(timeoutMs),
     shutdown(reason = "Agent runtime stopped."): Promise<void> {
       if (shutdownPromise) return shutdownPromise;
-      shutdownPromise = (async () => {
-        chat?.detach();
-        await agent.shutdown();
-        await sessions.closeActive(reason);
-        await landmarks.persist();
-        if (inspectorServer) {
-          try {
-            await inspectorServer.close();
-          } catch (error: unknown) {
-            console.warn("Agent inspector shutdown failed:", error);
-          }
-          inspectorServer = null;
-        }
-        runtime.disconnect(reason);
-      })();
+      shutdownPromise = cleanupSteps([
+        { name: "chat", run: () => chat?.detach() },
+        { name: "agent", run: () => agent.shutdown() },
+        { name: "container", run: () => sessions.closeActive(reason) },
+        { name: "container listeners", run: () => sessions.dispose() },
+        { name: "landmarks", run: () => landmarks.persist() },
+        { name: "inspector", run: async () => {
+          try { await inspectorServer?.close(); } finally { inspectorServer = null; }
+        } },
+        { name: "disconnect", run: () => runtime.disconnect(reason) },
+      ]);
       return shutdownPromise;
     },
   };
@@ -203,6 +204,7 @@ export async function refreshLandmarksFromTask(
   event: ActionTaskOutcome,
   dimension: string,
   landmarks: LandmarkMemory,
+  world: Pick<WorldQueries, "getBlock">,
 ): Promise<void> {
   const input = event.task.input;
   if (typeof input !== "object" || input === null) return;
@@ -232,12 +234,8 @@ export async function refreshLandmarksFromTask(
   if (!event.result.ok) return;
 
   if (event.task.capability === "dig" && isPosition(inputPosition)) {
-    await landmarks.markAtPosition(
-      dimension,
-      inputPosition,
-      "missing",
-      true,
-    );
+    const block = world.getBlock(inputPosition);
+    await landmarks.verifyBlock(dimension, inputPosition, block?.name ?? null, block !== null);
     return;
   }
   if (event.task.capability === "place") {
@@ -248,12 +246,8 @@ export async function refreshLandmarksFromTask(
         ? event.result.value.position
         : null;
     if (isPosition(placedPosition)) {
-      await landmarks.markAtPosition(
-        dimension,
-        placedPosition,
-        "confirmed",
-        true,
-      );
+      const block = world.getBlock(placedPosition);
+      await landmarks.verifyBlock(dimension, placedPosition, block?.name ?? null, block !== null);
     }
     return;
   }
@@ -263,12 +257,8 @@ export async function refreshLandmarksFromTask(
       event.task.capability === "open_container" ||
       event.task.capability === "craft_from_table_3x3")
   ) {
-    await landmarks.markAtPosition(
-      dimension,
-      inputPosition,
-      "confirmed",
-      true,
-    );
+    const block = world.getBlock(inputPosition);
+    await landmarks.verifyBlock(dimension, inputPosition, block?.name ?? null, block !== null);
   }
 }
 

@@ -76,7 +76,9 @@ test("search validation uses the connected version registries and rejects partia
   const bot = {
     entity: { id: 1, position: new Vec3(0, -60, 0) }, entities: {},
     registry: { blocksByName: { oak_log: { id: 1 } }, itemsByName: { oak_log: { id: 2 }, stick: { id: 3 } } },
-    findBlocks: () => { searches += 1; return []; },
+    game: { dimension: "overworld", minY: -64, height: 384 },
+    world: { getColumn: () => ({}) },
+    blockAt: () => { searches += 1; return null; },
   } as unknown as Bot;
   const world = new MineflayerWorldQueries({ bot } as MinecraftRuntime);
   const registry = createDefaultWorldQueryRegistry(world);
@@ -90,10 +92,10 @@ test("search validation uses the connected version registries and rejects partia
     if (!result.ok) assert.deepEqual(result.error.facts?.unknownNames, ["log"]);
   }
   assert.equal(searches, 0);
-  assert.throws(() => world.findNearestBlocks(["oak_log", "log"]), /Unknown block/);
+  await assert.rejects(world.findNearestBlocks(["oak_log", "log"]), /Unknown block/);
   assert.equal(searches, 0);
   assert.deepEqual(await registry.execute("find_nearest_blocks", { names: ["minecraft:oak_log"] }), { ok: true, value: [] });
-  assert.equal(searches, 1);
+  assert.ok(searches > 0);
 });
 
 function entity(

@@ -1,5 +1,6 @@
 import { ACTION_MAX_TOOL_CALLS } from "../config";
 import { writeTrace } from "../TraceLog";
+import { completeWithinBudget } from "../llm/InputBudget";
 import type { AgentInspector } from "../debug/AgentInspector";
 import type { Executor } from "../execution/Executor";
 import type { Task } from "../execution/Task";
@@ -138,7 +139,7 @@ export class ActionAgent implements ActionRunner {
             content = JSON.stringify({ ok: false, error: { code: "INTERRUPTED", message: "Delegation stopped; tool was not executed." } });
             ok = false;
           } else if (validated.kind === "read") {
-            const read = await this.options.toolBridge.executeRead(call);
+            const read = await this.options.toolBridge.executeRead(call, signal);
             content = read.content;
             ok = read.ok;
           } else if (validated.kind === "action") {
@@ -224,7 +225,7 @@ export class ActionAgent implements ActionRunner {
       trace = { ...trace, contextSnapshot: built.snapshot };
       this.options.inspector?.beginRound(trace);
       try {
-        const response = await this.options.llm.complete({
+        const response = await completeWithinBudget(this.options.llm, {
           messages: withValidationFeedback(messages, correction),
           tools: this.options.toolBridge.catalog.build(),
           temperature: this.options.temperature, reasoningEffort: this.options.reasoningEffort,

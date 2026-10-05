@@ -90,7 +90,7 @@ test("placement observations follow the initial fixed cell through trial snapsho
       assert.deepEqual(requested, positions);
       snapshots++;
       if (snapshots === 2) agent.finished = { at: time };
-      return observation({ blocks: [{ position: positions[0]!, name: snapshots === 2 ? "oak_planks" : "air" }] });
+      return observation({ blocks: [{ position: positions[0]!, name: snapshots >= 2 ? "oak_planks" : "air" }] });
     },
   };
   const result = await runTrial({
@@ -100,7 +100,7 @@ test("placement observations follow the initial fixed cell through trial snapsho
     now: () => time, wait: async (ms) => { time += ms; },
     sendChat: async () => undefined, record: () => undefined, inArena: () => true,
   });
-  assert.equal(snapshots, 2);
+  assert.equal(snapshots, 3, "Completion requires a fresh snapshot requested after the finished event.");
   assert.equal(result.status, "passed");
   assert.equal(result.goalReachedAtMs, 50);
   assert.deepEqual(result.final?.blocks, [{ position: positions[0], name: "oak_planks" }]);
@@ -117,4 +117,45 @@ test("trial evaluates enriched controller observations and preserves them in the
     snapshot: async () => after, sendChat: async () => undefined, record: () => undefined, now: () => 0, inArena: () => true });
   assert.equal(result.status, "passed");
   assert.deepEqual(result.final?.containers, after.containers);
+});
+
+test("a stale successful sample received during completion cannot validate a later failing state", async () => {
+  const h = harness();
+  let samples = 0;
+  h.agent.snapshot = async () => {
+    samples++;
+    if (samples === 1) {
+      h.agent.finished = { at: 0 };
+      return observation({ inventory: { oak_log: 2 } });
+    }
+    return observation({ inventory: {} });
+  };
+  const result = await h.run();
+  assert.equal(samples, 2);
+  assert.equal(result.status, "failed");
+  assert.deepEqual(result.final?.inventory, {});
+});
+
+test("container verdict waits for matching post-finish samples from both clients", async () => {
+  let samples = 0, time = 0;
+  const position = { x: 3, y: -60, z: 0 };
+  const initial = observation({ inventory: { oak_log: 4 }, containers: [{ position, inventory: {} }], blocks: [{ position, name: "chest" }] });
+  const agent: TrialAgent = { acceptedAt: 0, finished: { at: 0 }, failure: null, arm: async () => undefined,
+    snapshot: async () => {
+      samples++;
+      return { ...initial, inventory: { oak_log: samples === 1 ? 4 : 2 }, containers: [{ position, inventory: { oak_log: 2 } }] };
+    } };
+  const result = await runTrial({ scenario: scenarios.find((s) => s.id === "chest_deposit")!, agent, initial,
+    timeoutMs: 500, acceptanceTimeoutMs: 50, pollMs: 10, now: () => time, wait: async (ms) => { time += ms; },
+    sendChat: async () => undefined, record: () => undefined, inArena: () => true });
+  assert.equal(result.status, "passed");
+  assert.equal(samples, 3);
+});
+
+test("unknown chest contents are an observation error, not an agent failure or empty inventory", async () => {
+  const h = harness(); h.agent.finished = { at: 0 };
+  h.setState(observation({ containers: [{ position: { x: 0, y: 0, z: 0 }, inventory: null, error: { code: "INVALID_CHEST_NBT", message: "Missing Items" } }] }));
+  const result = await h.run();
+  assert.equal(result.status, "error");
+  assert.match(result.error!, /INVALID_CHEST_NBT/);
 });

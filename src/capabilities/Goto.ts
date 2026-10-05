@@ -14,6 +14,7 @@ import { GotoPathDiagnostics } from "./GotoPathDiagnostics";
 import { navigateToGoal, waitForNavigationLanding } from "./GotoNavigation";
 import { createGotoMovements, gotoMovementFacts } from "./GotoMovements";
 import { GotoTerrainTracker, type ObservedBlockChange } from "./GotoTerrainTracker";
+import { NavigationOperations } from "../runtime/NavigationOperations";
 
 export interface GotoInput {
   position: Position;
@@ -85,6 +86,7 @@ export class GotoCapability implements Capability<GotoInput, GotoOutput> {
       observedBlockChanges: terrain.snapshot(),
     });
 
+    const operations = new NavigationOperations(bot, context.signal, context.deferCancellationUntil);
     try {
       let arrived = false;
       for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -152,9 +154,12 @@ export class GotoCapability implements Capability<GotoInput, GotoOutput> {
         error instanceof Error ? error.name : "unknown",
       );
     } finally {
-      diagnostics.detach();
-      terrain.detach();
-      bot.pathfinder.setMovements(previousMovements);
+      try { await operations.finish(); }
+      finally {
+        diagnostics.detach();
+        terrain.detach();
+        bot.pathfinder.setMovements(previousMovements);
+      }
     }
   }
 }

@@ -12,6 +12,11 @@ const options = {
   requestTimeoutMs: 1_000,
 };
 
+test("oversized input is refused before contacting the LLM transport", async () => {
+  const client = new OpenAICompatibleLLMClient(options, { create: async () => assert.fail("Must not contact Ollama") });
+  await assert.rejects(client.complete({ messages: [{ role: "user", content: "x".repeat(60_000) }] }), /Request not sent/);
+});
+
 test("OpenAI adapter maps text, usage, and all function calls", async () => {
   let sentBody: Record<string, unknown> | null = null;
   const client = new OpenAICompatibleLLMClient(options, {

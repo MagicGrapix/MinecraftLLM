@@ -23,6 +23,9 @@ export class MinecraftChatAdapter {
 
   constructor(private readonly options: MinecraftChatAdapterOptions) {
     this.maxChunkLength = options.maxChunkLength ?? 220;
+    if (!Number.isInteger(this.maxChunkLength) || this.maxChunkLength < 2 || this.maxChunkLength > 220) {
+      throw new Error("maxChunkLength must be an integer between 2 and 220.");
+    }
     this.minMessageIntervalMs = options.minMessageIntervalMs ?? 1_100;
     if (
       !Number.isFinite(this.minMessageIntervalMs) ||
@@ -45,7 +48,9 @@ export class MinecraftChatAdapter {
   }
 
   send(message: string): Promise<void> {
-    const chunks = splitChatMessage(message, this.maxChunkLength);
+    const chunks = splitChatMessage(message, this.maxChunkLength).flatMap((chunk) =>
+      chunk.startsWith("/") ? splitChatMessage(chunk, this.maxChunkLength - 1) : [chunk],
+    );
     const operation = this.sendChain.then(async () => {
       for (let index = 0; index < chunks.length; index += 1) {
         if (this.lastMessageSentAt !== null) {
@@ -54,7 +59,8 @@ export class MinecraftChatAdapter {
             (Date.now() - this.lastMessageSentAt);
           if (remaining > 0) await sleep(remaining);
         }
-        this.options.bot.chat(chunks[index]!);
+        const chunk = chunks[index]!;
+        this.options.bot.chat(chunk.startsWith("/") ? `>${chunk}` : chunk);
         this.lastMessageSentAt = Date.now();
       }
     });

@@ -112,7 +112,7 @@ function setup(observe: () => EntityInfo[]) {
     isKnownName: () => true,
     getSelf: () => ({ position: { x: 0, y: -60, z: 0 }, facing: "north", health: 20, food: 20, foodSaturation: 5, oxygenLevel: 20, onGround: true }),
     getInventory: () => ({ items: [], selectedItem: null }), getBlock: () => null,
-    getBlockAccess: () => { throw new Error("Not used."); }, findNearestBlocks: () => [],
+    getBlockAccess: () => { throw new Error("Not used."); }, findNearestBlocks: async () => [],
     getNearbyEntities: (options) => { requests.push(options); return observe(); },
   };
   return { registry: createDefaultWorldQueryRegistry(world), requests };

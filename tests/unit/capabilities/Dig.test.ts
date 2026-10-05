@@ -1,154 +1,97 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { EventEmitter } from "node:events";
 import type { Bot } from "mineflayer";
-import type { MinecraftRuntime } from "../../../src/runtime/MinecraftRuntime";
-import type { WorldQueries } from "../../../src/world/WorldQueries";
 import type { ExecutionContext } from "../../../src/capabilities/Capability";
 import { DigCapability } from "../../../src/capabilities/Dig";
 
-interface FakeBlock {
-  readonly name: string;
-  readonly stateId: number;
-  readonly boundingBox: "block" | "empty";
+const oak = { name: "oak_log", stateId: 1, boundingBox: "block" };
+const air = { name: "air", stateId: 0, boundingBox: "empty" };
+const position = { x: 3, y: -60, z: 0 };
+
+function harness() {
+  let block: typeof oak | null = oak;
+  const client = new EventEmitter();
+  const calls: unknown[][] = [], ticks: number[] = [];
+  const bot = Object.assign(new EventEmitter(), {
+    _client: client, entity: { onGround: false }, heldItem: null, targetDigBlock: null,
+    blockAt: () => block, canDigBlock: () => true, digTime: () => bot.entity.onGround ? 3000 : 15000,
+    waitForTicks: async (count: number) => { ticks.push(count); bot.entity.onGround = true; },
+    dig: async (...args: unknown[]) => { calls.push(args); block = air; },
+    stopDigging: () => undefined,
+  });
+  const abort = new AbortController();
+  const context = { runtime: { bot }, world: {}, signal: abort.signal, deferCancellationUntil: () => undefined } as unknown as ExecutionContext;
+  return {
+    bot, client, calls, ticks, abort, setBlock: (value: typeof oak | null) => { block = value; },
+    run: () => new DigCapability(10).execute({ position }, context),
+    confirm: () => client.emit("block_change", { location: position, type: 0 }),
+  };
 }
 
-const oakLog: FakeBlock = {
-  name: "oak_log",
-  stateId: 1,
-  boundingBox: "block",
-};
-const air: FakeBlock = { name: "air", stateId: 0, boundingBox: "empty" };
-
-test("dig waits for the bot to land and raycasts the expected block", async () => {
-  let currentBlock = oakLog;
-  const waitCalls: number[] = [];
-  const entity = { onGround: false };
-  const digCalls: unknown[][] = [];
-
-  const bot = {
-    entity,
-    heldItem: null,
-    targetDigBlock: null,
-    blockAt: () => currentBlock,
-    canDigBlock: () => true,
-    digTime: () => (entity.onGround ? 3_000 : 15_000),
-    waitForTicks: async (ticks: number) => {
-      waitCalls.push(ticks);
-      entity.onGround = true;
-    },
-    dig: async (...args: unknown[]) => {
-      digCalls.push(args);
-      assert.equal(entity.onGround, true);
-      currentBlock = air;
-    },
-    stopDigging: () => undefined,
-  } as unknown as Bot;
-
-  const result = await new DigCapability().execute(
-    { position: { x: 3, y: -60, z: 0 } },
-    createContext(bot),
-  );
-
+test("dig waits for ground, raycasts the expected block and requires a server update", async () => {
+  const h = harness();
+  const original = h.bot.dig;
+  h.bot.dig = async (...args) => { assert.equal(h.bot.entity.onGround, true); await original(...args); h.confirm(); };
+  const result = await h.run();
   assert.equal(result.ok, true);
-  if (result.ok) {
-    assert.equal(result.value.block, "oak_log");
-    assert.equal(result.value.tool, "hand");
-    assert.equal(result.value.estimatedDurationMs, 3_000);
-  }
-  assert.deepEqual(waitCalls, [1, 1, 1]);
-  assert.equal(digCalls.length, 1);
-  assert.equal(digCalls[0]?.[0], oakLog);
-  assert.equal(digCalls[0]?.[1], false);
-  assert.equal(digCalls[0]?.[2], "raycast");
+  if (result.ok) { assert.equal(result.value.block, "oak_log"); assert.equal(result.value.tool, "hand"); assert.equal(result.value.estimatedDurationMs, 3000); }
+  assert.deepEqual(h.ticks, [1]);
+  assert.deepEqual(h.calls, [[oak, false, "raycast"]]);
+  assert.equal(h.client.listenerCount("block_change"), 0);
 });
 
-test("dig refuses to start when the target changes while landing", async () => {
-  let currentBlock = oakLog;
-  let digCalled = false;
-  const entity = { onGround: false };
-
-  const bot = {
-    entity,
-    heldItem: null,
-    targetDigBlock: null,
-    blockAt: () => currentBlock,
-    canDigBlock: () => true,
-    digTime: () => 3_000,
-    waitForTicks: async () => {
-      entity.onGround = true;
-      currentBlock = {
-        name: "birch_log",
-        stateId: 2,
-        boundingBox: "block",
-      };
-    },
-    dig: async () => {
-      digCalled = true;
-    },
-    stopDigging: () => undefined,
-  } as unknown as Bot;
-
-  const result = await new DigCapability().execute(
-    { position: { x: 3, y: -60, z: 0 } },
-    createContext(bot),
-  );
-
+test("dig rejects a target changed while landing", async () => {
+  const h = harness();
+  h.bot.waitForTicks = async () => { h.bot.entity.onGround = true; h.setBlock({ ...oak, name: "birch_log", stateId: 2 }); };
+  const result = await h.run();
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.code, "WORLD_CHANGED");
-  assert.equal(digCalled, false);
+  assert.equal(h.calls.length, 0);
 });
 
-test("dig reports BLOCKED when the server restores the target block", async () => {
-  let currentBlock = oakLog;
+test("optimistic client air and local blockUpdate events alone cannot prove digging", async () => {
+  const h = harness();
+  const original = h.bot.dig;
+  h.bot.dig = async (...args) => { await original(...args); h.bot.emit("blockUpdate", oak, air); };
+  const result = await h.run();
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "ACTION_NOT_CONFIRMED");
+  assert.equal(h.client.listenerCount("multi_block_change"), 0);
+});
 
-  const bot = {
-    entity: { onGround: true },
-    heldItem: null,
-    targetDigBlock: null,
-    blockAt: () => currentBlock,
-    canDigBlock: () => true,
-    digTime: () => 3_000,
-    waitForTicks: async () => {
-      currentBlock = oakLog;
-    },
-    dig: async () => {
-      currentBlock = air;
-    },
-    stopDigging: () => undefined,
-  } as unknown as Bot;
-
-  const result = await new DigCapability().execute(
-    { position: { x: 3, y: -60, z: 0 } },
-    createContext(bot),
-  );
-
+test("dig reports BLOCKED when server restores target after optimistic removal", async () => {
+  const h = harness(), original = h.bot.dig;
+  h.bot.dig = async (...args) => {
+    await original(...args);
+    setImmediate(() => { h.setBlock(oak); h.client.emit("block_change", { location: position, type: 1 }); });
+  };
+  const result = await h.run();
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.code, "BLOCKED");
 });
 
-function createContext(bot: Bot): ExecutionContext {
-  const runtime = { bot } as unknown as MinecraftRuntime;
-
-  return {
-    runtime,
-    world: {} as WorldQueries,
-    signal: new AbortController().signal,
-    deferCancellationUntil: () => undefined,
-  };
-}
-
-test("an unobservable cell after digging is unknown, not successful removal", async () => {
-  let current: FakeBlock | null = oakLog;
-  const bot = {
-    entity: { onGround: true }, heldItem: null, targetDigBlock: null,
-    blockAt: () => current, canDigBlock: () => true, digTime: () => 3000,
-    waitForTicks: async () => undefined,
-    dig: async () => { current = null; }, stopDigging: () => undefined,
-  } as unknown as Bot;
-  const result = await new DigCapability().execute({ position: { x: 3, y: -60, z: 0 } }, createContext(bot));
+test("an unobservable cell after digging is unknown, not success", async () => {
+  const h = harness();
+  h.bot.dig = async () => { h.setBlock(null); };
+  const result = await h.run();
   assert.equal(result.ok, false);
-  if (!result.ok) {
-    assert.equal(result.error.code, "WORLD_CHANGED");
-    assert.equal(result.error.facts?.verification, "unknown");
-  }
+  if (!result.ok) { assert.equal(result.error.code, "WORLD_CHANGED"); assert.equal(result.error.facts?.verification, "unknown"); }
+});
+
+test("dig accepts packed server section updates at negative Y", async () => {
+  const h = harness(), original = h.bot.dig;
+  h.bot.dig = async (...args) => {
+    await original(...args);
+    h.client.emit("multi_block_change", { chunkCoordinates: { x: 0, y: -4, z: 0 }, records: [(3 << 8) | 4] });
+  };
+  assert.equal((await h.run()).ok, true);
+});
+
+test("aborting server verification rejects and releases all packet listeners", async () => {
+  const h = harness();
+  h.bot.dig = async () => { h.setBlock(air); setImmediate(() => h.abort.abort(new Error("Stopped"))); };
+  await assert.rejects(h.run(), /Stopped/);
+  assert.equal(h.client.listenerCount("block_change"), 0);
+  assert.equal(h.bot.listenerCount("end"), 0);
 });

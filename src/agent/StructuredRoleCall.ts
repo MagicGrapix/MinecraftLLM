@@ -5,6 +5,7 @@ import { LLMError } from "../llm/LLMError";
 import { parseJsonObjectText } from "../shared/helper";
 import { withValidationFeedback } from "./MessageHistory";
 import { writeTrace } from "../TraceLog";
+import { completeWithinBudget } from "../llm/InputBudget";
 
 export interface StructuredRoleOptions {
   readonly llm: LLMClient;
@@ -42,7 +43,7 @@ export async function callStructuredRole<T>(input: {
     };
     input.options.inspector?.beginRound(trace);
     try {
-      const response = await input.options.llm.complete({
+      const response = await completeWithinBudget(input.options.llm, {
         messages: withValidationFeedback(input.messages, correction),
         responseFormat: "json_object",
         temperature: input.options.temperature,

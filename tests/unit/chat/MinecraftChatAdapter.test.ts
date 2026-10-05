@@ -69,6 +69,18 @@ test("chat responses are split without oversized chunks", () => {
   assert.equal(chunks.every((chunk) => chunk.length <= 100), true);
 });
 
+test("all slash-prefixed output chunks stay literal chat, never server commands", async () => {
+  const sent: string[] = [];
+  const adapter = new MinecraftChatAdapter({
+    bot: { chat: (text: string) => sent.push(text) } as unknown as Bot,
+    agent: {} as ChatControlledAgent, maxChunkLength: 10, minMessageIntervalMs: 0,
+  });
+  await adapter.send("/kill @a and then /op somebody /" + "/".repeat(30));
+  assert.ok(sent.length > 3);
+  assert.ok(sent.every((text) => !text.startsWith("/") && text.length <= 10));
+  assert.ok(sent.some((text) => text.startsWith(">/")));
+});
+
 test("all outgoing chat messages share the same rate limit", async () => {
   const sentAt: number[] = [];
   const bot = {

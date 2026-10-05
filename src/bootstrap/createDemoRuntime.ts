@@ -5,15 +5,16 @@ import { ContainerSessionManager } from "../runtime/ContainerSessionManager";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
 import { MineflayerWorldQueries } from "../world/MineflayerWorldQueries";
 import { createCapabilityRegistry } from "./createCapabilities";
+import { cleanupSteps } from "../runtime/cleanup";
 
 export interface RunningDemoRuntime {
   readonly runner: SequentialPlanRunner;
   shutdown(reason?: string): Promise<void>;
 }
 
-export function createDemoRuntime(
+export async function createDemoRuntime(
   runtime: MinecraftRuntime,
-): RunningDemoRuntime {
+): Promise<RunningDemoRuntime> {
   const world = new MineflayerWorldQueries(runtime);
   const sessions = new ContainerSessionManager(runtime.bot);
   const runner = new SequentialPlanRunner(
@@ -40,10 +41,10 @@ export function createDemoRuntime(
     .split(",")
     .map((name) => name.trim())
     .filter(Boolean);
-  const target = world.findNearestBlocks(targetNames, {
+  const target = (await world.findNearestBlocks(targetNames, {
     maxDistance: 48,
     count: 1,
-  })[0];
+  }))[0];
   let demoPromise = Promise.resolve();
   if (!target) {
     console.warn(
@@ -68,13 +69,18 @@ export function createDemoRuntime(
     demoPromise = runDemoPlan(runner);
   }
 
+  let shutdownPromise: Promise<void> | null = null;
   return {
     runner,
-    async shutdown(reason = "Demo runtime stopped."): Promise<void> {
-      await runner.shutdown(reason);
-      await demoPromise.catch(() => undefined);
-      await sessions.closeActive(reason);
-      runtime.disconnect(reason);
+    shutdown(reason = "Demo runtime stopped."): Promise<void> {
+      shutdownPromise ??= cleanupSteps([
+        { name: "runner", run: () => runner.shutdown(reason) },
+        { name: "demo", run: () => demoPromise },
+        { name: "container", run: () => sessions.closeActive(reason) },
+        { name: "container listeners", run: () => sessions.dispose() },
+        { name: "connection", run: () => runtime.disconnect(reason) },
+      ]);
+      return shutdownPromise;
     },
   };
 }

@@ -1,17 +1,14 @@
-import { z } from "zod";
 import { CONTEXT_BUDGET } from "../config";
 import type { LLMMessage, LLMTool } from "../llm/LLMClient";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import { writeTrace } from "../TraceLog";
 import type { MessageHistory } from "./MessageHistory";
-import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRoleCall";
+import type { StructuredRoleOptions } from "./StructuredRoleCall";
+import { estimateInputTokens } from "../llm/InputBudget";
+import { summarizeBounded } from "./BoundedSummary";
+export { estimateInputTokens } from "../llm/InputBudget";
 
 export type ContextBudget = typeof CONTEXT_BUDGET;
-
-/** Approximation only; includes serialized messages, schemas and protocol overhead. */
-export function estimateInputTokens(messages: readonly LLMMessage[], tools: readonly LLMTool[] = [], charsPerToken = CONTEXT_BUDGET.charsPerToken): number {
-  return Math.ceil((JSON.stringify(messages).length + JSON.stringify(tools).length + 256 + messages.length * 16) / charsPerToken);
-}
 
 export class ContextCompactor {
   constructor(
@@ -51,15 +48,12 @@ export class ContextCompactor {
       throw new Error("Protected context exceeds the input budget; no history was discarded.");
     }
     console.info("Compacting context.", { estimatedInputTokens: before, targetTokens: this.budget.targetTokens });
-    const { summary } = await callStructuredRole({
+    const summary = await summarizeBounded({
       options: this.options,
-      schema: z.object({ summary: z.string().trim().min(1).max(this.budget.summaryMaxChars) }).strict(),
+      prompt: this.prompt, source: candidate.messages, previousSummary: history.summary,
+      maxChars: this.budget.summaryMaxChars,
       phase: input.phase ?? "context_summary", generationId: input.generationId, reflection: input.reflection, round: input.round,
       signal, context: { estimatedInputTokens: before, currentMessage: input.requestTitle ?? current.filter((message) => message.role === "user").at(-1)?.content },
-      messages: [{ role: "system", content: this.prompt.render({
-        max_chars: this.budget.summaryMaxChars,
-        summary_input: JSON.stringify({ previousSummary: history.summary, olderMessages: candidate.messages }),
-      }) }],
     });
     signal.throwIfAborted();
     const messages = render(candidate.remaining, summary);

@@ -9,6 +9,7 @@ import type {
 import { LLMError } from "./LLMError";
 import { buildOpenAIRequestBody } from "./openaiRequestBody";
 import { SESSION_ID, writeTrace } from "../TraceLog";
+import { assertInputBudget } from "./InputBudget";
 
 export interface OpenAICompatibleLLMClientOptions {
   readonly baseUrl: string;
@@ -62,6 +63,7 @@ export class OpenAICompatibleLLMClient implements LLMClient {
       this.options.inspector.recordRequest(request.trace, body);
     }
     try {
+      assertInputBudget(request);
       const raw = await this.transport.create(body, {
         signal: request.signal,
       });

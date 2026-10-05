@@ -104,7 +104,11 @@ Le code de sortie est 0 si tous les essais réussissent, 1 sinon.
 6. Vérification de l'inventaire, santé, faim, effets, position, orientation, sol et absence d'action physique.
    `eat_food` termine la préparation entre 6 et 16 points de faim, sans effet actif ; les autres restent à 20.
 7. Activation du chat, demande du controller, confirmation structurée de prise en charge, chronométrage.
-8. Observations toutes les 200 ms. Fin du workflow + exécuteur libre + critère satisfait = réussite.
+8. Observations toutes les 200 ms. Après l'événement de fin du workflow, demander un nouvel instantané.
+   Cet état frais + exécuteur libre + critère satisfait = réussite. Un snapshot demandé avant la fin,
+   même reçu après, ne peut pas décider du verdict final.
+   Pour les coffres, deux lectures consécutives après la fin doivent donner les mêmes inventaires,
+   blocs suivis et état de fenêtre. Ce contrôle de stabilité ne promet pas une transaction atomique entre clients.
 9. `stop` dans le chat, arrêt du workflow, attente de libération du verrou physique, fermeture du processus
    et confirmation de départ du joueur par le controller avant le prochain reset.
 
@@ -147,6 +151,12 @@ Pour les coffres, `BlockNbtReader` utilise les paquets `query_block_nbt` / `nbt_
 appariés par numéro de transaction, avec timeout et nettoyage des listeners. Aucune fenêtre n'est ouverte
 pour cette lecture et aucune commande chat n'est envoyée à chaque poll. Un coffre manquant ou des données
 illisibles donnent un inventaire `null`, jamais vide ; un timeout de lecture est une erreur d'infrastructure.
+L'observation ajoute une erreur structurée (`code`, `message`, chemin NBT et extrait borné si pertinent).
+Après un échec de préparation, `world.environment_verification_failed` conserve la dernière observation.
+Pendant un essai, un coffre impossible à observer classe l'essai en `error`, pas en échec de l'agent.
+Le paquet Java 1.21.11 ne contient pas nécessairement `id` : son absence est acceptée seulement si le
+controller observe bien un bloc `chest` à cet endroit avant et après la lecture. Un `id` présent mais
+incompatible reste invalide. `Items` doit être une liste explicite, même pour un coffre vide.
 La lecture NBT cible Java 1.21.11 et utilise les stacks `id` / `count` du
 [format moderne documenté par Mojang](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5).
 `EnvironmentObservations` ajoute `containers` / `drops` aux snapshots côté lanceur ; le worker fournit aussi
@@ -188,8 +198,10 @@ Les sources UI sont dans `tests/e2e/report/`, incorporées par `Report.ts` dans 
 - `<essai>/process.log`, `log_<session>.log`, `agent_summary_<session>.md` : sorties et checklist.
 - `<essai>/landmarks.json` : mémoire de lieux isolée, conservée pour inspection.
 
-Chaque ligne JSONL conserve `timestamp`, `event`, `data`. Le journal de tools contient le numéro,
-le rôle, le tool-call ID, les arguments, le résultat et les inventaires avant/après si suivis.
+Chaque ligne JSONL conserve `timestamp`, `event`, `data`.
+Les événements `trial.observation` ont aussi un identifiant, l'instant de demande/réception relatif au
+début de l'essai, et `afterWorkflowFinish` pour distinguer une lecture finale d'une requête plus ancienne.
+Le journal de tools contient le numéro, le rôle, le tool-call ID, les arguments, le résultat et les inventaires avant/après si suivis.
 Les numéros sont uniques dans une session du bot ; chaque nouveau processus repart de 1.
 Ils ne sont donc pas des identifiants globaux de campagne. Utiliser essai/session + numéro.
 
@@ -220,6 +232,17 @@ Les paramètres globaux jour/météo restent dans l'état réglé par le dernier
 `npm.cmd test` compile également `tests/e2e/` et exécute ses tests unitaires (cycle, timeout,
 inventaire, fixtures, statistiques, HTML et IPC avec un faux worker sans Minecraft/Ollama).
 Les vrais scénarios ne sont jamais exécutés par cette commande.
+
+Pour vérifier le protocole sur un serveur local déjà lancé, sans LLM :
+
+```powershell
+node -r ts-node/register scripts/smoke/minecraft-observations.ts
+```
+
+Ce smoke utilise `test_controller` OP et `audit_bot` non OP. Il refuse des cellules occupées ou déchargées
+aux positions (-39,-60,-40) et (-40,-60,-39), puis pose un coffre et une bûche temporaires, lit le coffre
+vide/rempli, casse la bûche avec confirmation serveur et teste un déplacement. Il retire ses blocs à la fin ;
+il ne reset pas l'arène et ne lance aucun agent LLM. Ne pas intervenir dans ce coin pendant le test.
 
 Pour ajouter un scénario, définir un `Scenario` dans `scenarios.ts` avec demande, inventaire,
 fixture bornée facultative, liste de blocs attendus et `verify(initial, current)`.

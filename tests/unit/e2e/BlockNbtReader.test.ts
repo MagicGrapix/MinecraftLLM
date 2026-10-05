@@ -8,13 +8,14 @@ const stack = (id: string, count?: number) => ({ id: { type: "string", value: id
 const chest = (items: unknown[]) => ({ type: "compound", value: { id: { type: "string", value: "minecraft:chest" }, Items: { type: "list", value: { type: "compound", value: items } } } });
 
 test("chest NBT counts actual item stacks, including count=1 default and empty chests", () => {
-  assert.deepEqual(chestInventory(chest([stack("minecraft:oak_log", 2), stack("minecraft:oak_log", 2), stack("minecraft:stick")])), { oak_log: 4, stick: 1 });
-  assert.deepEqual(chestInventory(chest([])), {});
-  assert.equal(chestInventory(null), null);
-  assert.equal(chestInventory({ type: "compound", value: {} }), null);
-  assert.equal(chestInventory(chest([stack("minecraft:oak_log", -1)])), null);
-  assert.equal(chestInventory(chest([{}])), null);
-  assert.equal(chestInventory({ ...chest([]), value: { ...chest([]).value, id: { type: "string", value: "minecraft:furnace" } } }), null);
+  assert.deepEqual(chestInventory(chest([stack("minecraft:oak_log", 2), stack("minecraft:oak_log", 2), stack("minecraft:stick")])), { ok: true, inventory: { oak_log: 4, stick: 1 } });
+  assert.deepEqual(chestInventory(chest([])), { ok: true, inventory: {} });
+  for (const raw of [null, { type: "compound", value: {} }, chest([stack("minecraft:oak_log", -1)]), chest([{}]),
+    { ...chest([]), value: { ...chest([]).value, id: { type: "string", value: "minecraft:furnace" } } }]) {
+    const result = chestInventory(raw);
+    assert.equal(result.ok, false);
+    if (!result.ok) { assert.equal(result.error.code, "INVALID_CHEST_NBT"); assert.ok(result.error.path); assert.ok(result.error.sample!.length <= 2000); }
+  }
 });
 
 function client() {
@@ -23,6 +24,17 @@ function client() {
   const raw = Object.assign(events, { write: (name: string, data: any) => writes.push({ name, data }) });
   return { events, writes, raw: raw as unknown as Bot["_client"] };
 }
+
+test("Java 1.21.11 metadata-free NBT requires independently observed chest identity", () => {
+  // Actual packet shape captured from the local 1.21.11 server.
+  const empty = { type: "compound", value: { components: { type: "compound", value: {} }, Items: { type: "list", value: { type: "end", value: [] } } } };
+  assert.deepEqual(chestInventory(empty, "chest"), { ok: true, inventory: {} });
+  assert.equal(chestInventory(empty).ok, false);
+  assert.equal(chestInventory(empty, "furnace").ok, false);
+  assert.equal(chestInventory({ type: "compound", value: {} }, "chest").ok, false);
+  const populated = { type: "compound", value: { Items: { type: "list", value: { type: "compound", value: [stack("minecraft:oak_log", 2)] } } } };
+  assert.deepEqual(chestInventory(populated, "chest"), { ok: true, inventory: { oak_log: 2 } });
+});
 
 test("NBT observer matches transaction ids and cleans up listeners without chat/window actions", async () => {
   const c = client(), reader = new BlockNbtReader(c.raw);

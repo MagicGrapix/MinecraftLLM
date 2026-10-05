@@ -1,5 +1,11 @@
 import type { Bot } from "mineflayer";
+import { inspect } from "node:util";
 import type { Position } from "../../src/shared/types";
+import type { ContainerObservation } from "./types";
+
+export class NbtObservationError extends Error {
+  constructor(readonly code: string, message: string) { super(message); }
+}
 
 /** OP controller only. Reads authoritative chest data without opening a GUI or sending chat. */
 export class BlockNbtReader {
@@ -18,38 +24,51 @@ export class BlockNbtReader {
         if (packet.transactionId !== transactionId) return;
         cleanup(); resolve(packet.nbt);
       };
-      const ended = () => { cleanup(); reject(new Error("Controller disconnected during chest observation.")); };
+      const ended = () => { cleanup(); reject(new NbtObservationError("CONTROLLER_DISCONNECTED", "Controller disconnected during chest observation.")); };
       const timer = setTimeout(() => {
-        cleanup(); reject(new Error(`Chest NBT query timed out at (${position.x}, ${position.y}, ${position.z}); check controller OP permissions.`));
+        cleanup(); reject(new NbtObservationError("NBT_QUERY_TIMEOUT", `Chest NBT query timed out at (${position.x}, ${position.y}, ${position.z}); check controller OP permissions.`));
       }, this.timeoutMs);
       this.client.on("nbt_query_response", received);
       this.client.on("end", ended);
       try { this.client.write("query_block_nbt", { transactionId, location: position }); }
-      catch (error) { cleanup(); reject(error); }
+      catch (error) { cleanup(); reject(new NbtObservationError("NBT_QUERY_WRITE_FAILED", String(error))); }
     });
   }
 }
 
 /** Modern Java chest NBT. Missing/malformed data is unknown, never an empty inventory. */
-export function chestInventory(nbt: unknown): Record<string, number> | null {
+export type ChestInventoryResult = { ok: true; inventory: Record<string, number> }
+  | { ok: false; error: NonNullable<ContainerObservation["error"]> };
+
+export function chestInventory(nbt: unknown, observedBlock: string | null = null): ChestInventoryResult {
+  const invalid = (path: string, message: string): ChestInventoryResult => ({ ok: false, error: {
+    code: "INVALID_CHEST_NBT", path, message,
+    sample: inspect(nbt, { depth: 4, maxArrayLength: 8, maxStringLength: 160, breakLength: Infinity }).slice(0, 2_000),
+  } });
   const root = tag(nbt, "compound");
-  if (!root || typeof root !== "object") return null;
+  if (!root || typeof root !== "object") return invalid("$", "Expected a compound NBT root; chest contents are unknown.");
   const fields = root as Record<string, unknown>;
-  if (tag(fields.id, "string") !== "minecraft:chest") return null;
+  // Java 1.21.11 query_block_nbt omits block-entity metadata, including id.
+  // In that case identity must come from an independently observed chest block.
+  if (Object.hasOwn(fields, "id")) {
+    if (tag(fields.id, "string") !== "minecraft:chest") return invalid("$.id", "Expected string tag minecraft:chest.");
+  } else if (observedBlock !== "chest") {
+    return invalid("$.id", "NBT has no id; an observed chest block is required to establish identity.");
+  }
   const list = tag(fields.Items, "list") as { type?: unknown; value?: unknown } | null;
-  if (!list || !Array.isArray(list.value) || (list.value.length > 0 && list.type !== "compound")) return null;
+  if (!list || !Array.isArray(list.value) || (list.value.length > 0 && list.type !== "compound")) return invalid("$.Items", "Expected a list of item compounds (an explicit empty list is allowed).");
   const totals = new Map<string, number>();
-  for (const raw of list.value) {
-    if (!raw || typeof raw !== "object") return null;
+  for (const [index, raw] of list.value.entries()) {
+    if (!raw || typeof raw !== "object") return invalid(`$.Items[${index}]`, "Expected an item compound.");
     const item = raw as Record<string, unknown>;
     const id = tag(item.id, "string");
     const count = Object.hasOwn(item, "count") ? tag(item.count, "int") : 1;
     if (typeof id !== "string" || !/^minecraft:[a-z0-9_]+$/.test(id)
-        || typeof count !== "number" || !Number.isSafeInteger(count) || count < 1) return null;
+        || typeof count !== "number" || !Number.isSafeInteger(count) || count < 1) return invalid(`$.Items[${index}]`, "Expected a minecraft item id and a positive integer count (default 1 if absent).");
     const name = id.slice("minecraft:".length);
     totals.set(name, (totals.get(name) ?? 0) + count);
   }
-  return Object.fromEntries(totals);
+  return { ok: true, inventory: Object.fromEntries(totals) };
 }
 
 function tag(value: unknown, type: string): unknown {

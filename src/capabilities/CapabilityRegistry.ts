@@ -26,8 +26,12 @@ export type CapabilityValidationResult =
 
 export class CapabilityRegistry {
   private readonly capabilities = new Map<string, RegisteredCapability>();
+  private frozen = false;
+
+  freeze(): void { this.frozen = true; }
 
   register<Input, Output>(capability: Capability<Input, Output>): void {
+    if (this.frozen) throw new Error("Capability registry is frozen; register tools before runtime assembly.");
     if (this.capabilities.has(capability.name)) {
       throw new Error(`Capability "${capability.name}" is already registered.`);
     }

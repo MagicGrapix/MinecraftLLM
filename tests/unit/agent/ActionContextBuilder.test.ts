@@ -12,6 +12,7 @@ test("action context provides the full plan and past reports, keeping raw action
     getInventory: () => ({ items: [{ name: "oak_log", count, slot: 36 }], selectedItem: null }),
   } as unknown as WorldQueries;
   const builder = new ActionContextBuilder({
+    containerSession: () => ({ sessionId: "opaque-session", windowId: 2, windowType: "minecraft:chest", blockPosition: { x: 3, y: -60, z: 0 } }),
     world,
     landmarks: { pinned: () => [{ name: "table", kind: "crafting_table", dimension: "overworld", position: { x: 3, y: -60, z: 1 }, status: "stale" }] } as unknown as LandmarkMemory,
     systemPrompt: PromptTemplate.fromString("sys", "TASK={{task_context}}\n{{task_summary_section}}\nWORLD={{world_context}}"),
@@ -30,6 +31,7 @@ test("action context provides the full plan and past reports, keeping raw action
   };
   const built = builder.build(input);
   const system = built.messages[0]!.content!;
+  assert.match(system, /Open container: sessionId=opaque-session/);
   assert.match(system, /Objective: Make a table/);
   assert.match(system, /Current step 2: Craft a table/);
   assert.match(system, /Success criterion: A table is in the bot inventory/);

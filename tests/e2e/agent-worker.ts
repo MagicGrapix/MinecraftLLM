@@ -1,22 +1,25 @@
 import "../../src/Logger";
 import { loadAgentConfig } from "../../src/agent/AgentConfig";
-import { createAgentRuntime, type RunningAgentRuntime } from "../../src/bootstrap/createAgentRuntime";
+import { createAgentRuntime } from "../../src/bootstrap/createAgentRuntime";
 import { snapshotInventory } from "../../src/runtime/InventoryAdapter";
 import { MinecraftRuntime, type MinecraftRuntimeOptions } from "../../src/runtime/MinecraftRuntime";
 import { SESSION_ID, subscribeTrace } from "../../src/TraceLog";
 import type { Position } from "../../src/shared/types";
-import { bounded, message } from "./async";
+import { message } from "./async";
 import { observeBlocks } from "./BlockObservations";
-import type { Observation, WorkerCommand, WorkerEvent, WorkerReply } from "./types";
+import type { FixedBuildSpec, Observation, WorkerCommand, WorkerEvent, WorkerReply } from "./types";
+import { fixedBuildTrial } from "./FixedBuildTrial";
+import { workflowTrialRuntime, type TrialRuntime } from "./TrialRuntime";
 
-interface Options extends MinecraftRuntimeOptions { controllerUsername: string; promptsDirectory: string; landmarksFile: string }
+interface Options extends MinecraftRuntimeOptions { controllerUsername: string; promptsDirectory: string; landmarksFile: string; blueprintsDirectory: string; fixedBuild?: FixedBuildSpec }
 const options = JSON.parse(process.argv[2] ?? "{}") as Options;
 const runtime = new MinecraftRuntime(options);
-let agentRuntime: RunningAgentRuntime | null = null;
+let agentRuntime: TrialRuntime | null = null;
 let armed = false;
 let expectedPrompt = "";
 let closing = false;
 let closePromise: Promise<void> | null = null;
+let settlePromise: Promise<void> | null = null;
 function send(value: WorkerEvent | WorkerReply): void {
   if (process.connected) process.send?.(value, () => undefined);
 }
@@ -35,7 +38,7 @@ subscribeTrace((name, data) => {
 function snapshot(positions: readonly Position[] = []): Observation {
   if (!agentRuntime || !runtime.isConnected) throw new Error("Bot is not connected and ready.");
   const bot = runtime.bot;
-  const state = agentRuntime.agent.state() as { mode: string };
+  const state = agentRuntime.state();
   return {
     inventory: snapshotInventory(bot), position: { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z },
     blocks: observeBlocks(bot, positions),
@@ -43,24 +46,30 @@ function snapshot(positions: readonly Position[] = []): Observation {
     effects: Object.keys(bot.entity.effects).length, onGround: bot.entity.onGround,
     physicalIdle: agentRuntime.isPhysicallyIdle(), mode: state.mode,
     windowOpen: !!bot.currentWindow,
-    planSteps: agentRuntime.agent.task.steps.length,
-    completedSteps: agentRuntime.agent.task.steps.filter((step) => step.status === "done").length,
+    planSteps: state.planSteps, completedSteps: state.completedSteps,
   };
+}
+
+function settle(graceMs: number): Promise<void> {
+  if (settlePromise) return settlePromise;
+  closing = true;
+  settlePromise = (async () => {
+    if (agentRuntime) {
+      agentRuntime.detach();
+      await agentRuntime.settle(graceMs);
+      event("settled", snapshot());
+    }
+  })();
+  return settlePromise;
 }
 
 function shutdown(graceMs: number): Promise<void> {
   if (closePromise) return closePromise;
   closing = true;
   closePromise = (async () => {
-    agentRuntime?.chat.detach();
-    if (agentRuntime) {
-      await bounded((async () => {
-        await agentRuntime!.agent.shutdown();
-        await agentRuntime!.waitForPhysicalIdle(graceMs);
-      })(), graceMs, "Stop agent and settle physical action");
-      event("settled", snapshot());
-      await agentRuntime.shutdown("Scenario trial finished.");
-    } else runtime.disconnect();
+    await settle(graceMs);
+    if (agentRuntime) await agentRuntime.shutdown();
+    else runtime.disconnect();
   })();
   return closePromise;
 }
@@ -75,7 +84,9 @@ process.on("message", (input: WorkerCommand) => {
         if (!agentRuntime || closing || armed || !input.text?.trim()) throw new Error("Cannot arm trial.");
         expectedPrompt = input.text.trim();
         armed = true;
-        agentRuntime.chat.attach();
+        agentRuntime.attach(expectedPrompt);
+      } else if (input.command === "settle") {
+        await settle(input.graceMs ?? 10_000);
       } else if (input.command === "shutdown") await shutdown(input.graceMs ?? 10_000);
       else throw new Error("Unknown worker command.");
       send({ type: "reply", id: input.id, value });
@@ -92,12 +103,13 @@ async function main(): Promise<void> {
   runtime.bot.on("kicked", (reason) => { if (!closing) event("failure", { error: `Kicked: ${JSON.stringify(reason)}` }); });
   runtime.bot.on("end", () => { if (!closing) { event("failure", { error: "Minecraft connection ended." }); void shutdown(5_000).catch(() => undefined); } });
   const config = loadAgentConfig();
-  agentRuntime = await createAgentRuntime(runtime, {
+  agentRuntime = options.fixedBuild ? await fixedBuildTrial(runtime, options.fixedBuild, options.blueprintsDirectory, options.controllerUsername)
+    : workflowTrialRuntime(await createAgentRuntime(runtime, {
     ...config, botMode: "agent", inspectorEnabled: false,
     promptsDirectory: options.promptsDirectory, landmarksFile: options.landmarksFile,
-  });
+  }, undefined, { blueprintsDirectory: options.blueprintsDirectory }));
   // Preparation cannot accidentally become a user request. Arming restores normal chat handling.
-  agentRuntime.chat.detach();
+  agentRuntime.detach();
   event("ready", { sessionId: SESSION_ID });
 }
 

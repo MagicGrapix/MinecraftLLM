@@ -2,7 +2,7 @@ import { fork, type ChildProcess } from "node:child_process";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { join, resolve } from "node:path";
 import { bounded, message, until } from "./async";
-import type { Observation, TrialAgent, WorkerCommand, WorkerEvent, WorkerReply } from "./types";
+import type { FixedBuildSpec, Observation, TrialAgent, WorkerCommand, WorkerEvent, WorkerReply } from "./types";
 import type { WorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
 import type { Position } from "../../src/shared/types";
 
@@ -23,12 +23,13 @@ export class AgentProcess implements TrialAgent {
 
   constructor(config: WorldBuilderConfig, trialDirectory: string, promptsDirectory: string,
     private readonly record: (event: string, data: unknown) => void,
-    workerPath = resolve("tests/e2e/agent-worker.ts")) {
+    workerPath = resolve("tests/e2e/agent-worker.ts"), fixedBuild?: FixedBuildSpec) {
     this.output = createWriteStream(join(trialDirectory, "process.log"), { flags: "a" });
     this.child = fork(workerPath, [JSON.stringify({
       host: config.host, port: config.port, version: config.version, username: config.agentUsername,
       auth: "offline", controllerUsername: config.controllerUsername,
       promptsDirectory, landmarksFile: join(trialDirectory, "landmarks.json"),
+      blueprintsDirectory: join(trialDirectory, "blueprints"), fixedBuild,
     })], {
       execArgv: ["-r", require.resolve("ts-node/register")],
       env: { ...process.env, LOG_DIR: trialDirectory, LOG_FULL_TRACE: "true" },
@@ -56,6 +57,7 @@ export class AgentProcess implements TrialAgent {
   }
   snapshot(positions: readonly Position[] = []): Promise<Observation> { return this.call("snapshot", 3_000, { positions }); }
   async arm(text: string): Promise<void> { await this.call("arm", 3_000, { text }); }
+  async settle(graceMs: number): Promise<void> { await this.call("settle", graceMs + 2_000, { graceMs }); }
 
   async close(graceMs: number): Promise<boolean> {
     this.closing = true;

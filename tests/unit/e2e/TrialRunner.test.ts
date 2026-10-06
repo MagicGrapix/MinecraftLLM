@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { runTrial } from "../../e2e/TrialRunner";
 import { scenarios } from "../../e2e/scenarios";
-import type { TrialAgent } from "../../e2e/types";
+import type { Observation, TrialAgent } from "../../e2e/types";
 import { observation } from "../../support/ScenarioObservations";
 
 function harness() {
@@ -18,11 +18,11 @@ function harness() {
     agent, events,
     setState: (next: typeof state) => { state = next; },
     advance: (ms: number) => { time += ms; },
-    run: (step: (ms: number) => void = () => undefined, accept = true, signal?: AbortSignal) => runTrial({
+    run: (step: (ms: number) => void = () => undefined, accept = true, signal?: AbortSignal, finalize?: () => Promise<Observation>) => runTrial({
       scenario: scenarios[1]!, agent, initial: observation(), timeoutMs: 500, acceptanceTimeoutMs: 200, pollMs: 50,
       now: () => time, wait: async (ms) => { time += ms; step(time); },
       sendChat: async () => { events.push("chat"); if (accept) agent.acceptedAt = time; },
-      record: (name) => events.push(name), inArena: () => true, signal,
+      record: (name) => events.push(name), inArena: () => true, signal, finalize,
     }),
   };
 }
@@ -53,6 +53,38 @@ test("a claim of completion without inventory gain fails", async () => {
   const result = await h.run();
   assert.equal(result.status, "failed");
   assert.equal(result.goalReachedAtMs, null);
+});
+
+test("final independent observation can reject a provisional pass and separates verification duration", async () => {
+  const h = harness(); h.agent.finished = { at: 0 };
+  h.setState(observation({ inventory: { oak_log: 2 } }));
+  const result = await h.run(undefined, true, undefined, async () => { h.advance(100); return observation(); });
+  assert.equal(result.status, "failed");
+  assert.equal(result.finalAfterSettlement, true);
+  assert.equal(result.durationMs, 0);
+  assert.equal(result.finalVerificationMs, 100);
+  assert.ok(h.events.indexOf("trial.final_observation") < h.events.indexOf("trial.finished"));
+});
+
+test("late final success cannot promote a timeout or earlier failed criterion", async () => {
+  for (const finished of [false, true]) {
+    const h = harness(); if (finished) h.agent.finished = { at: 0 };
+    const result = await h.run(undefined, true, undefined, async () => observation({ inventory: { oak_log: 2 } }));
+    assert.equal(result.status, finished ? "failed" : "timeout");
+    assert.equal(result.finalAfterSettlement, true);
+    assert.equal(result.criterion?.passed, true);
+  }
+});
+
+test("settlement failure invalidates a pass but preserves timeout classification", async () => {
+  for (const finished of [false, true]) {
+    const h = harness(); if (finished) h.agent.finished = { at: 0 };
+    h.setState(observation({ inventory: { oak_log: 2 } }));
+    const result = await h.run(undefined, true, undefined, async () => { throw new Error("unavailable cell"); });
+    assert.equal(result.status, finished ? "error" : "timeout");
+    assert.equal(result.finalAfterSettlement, false);
+    assert.match(result.error!, /Final verification: unavailable cell/);
+  }
 });
 
 test("a finished workflow cannot pass while physical work is still settling", async () => {

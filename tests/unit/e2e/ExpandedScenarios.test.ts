@@ -7,6 +7,7 @@ import { blockAt } from "../../e2e/ScenarioFixtures";
 import { playerReady } from "../../e2e/TestWorld";
 import type { Observation, Scenario } from "../../e2e/types";
 import { observation } from "../../support/ScenarioObservations";
+import { MAX_OBSERVED_BLOCKS } from "../../e2e/BlockObservations";
 
 const config = loadWorldBuilderConfig({});
 const get = (id: string) => scenarios.find((s) => s.id === id)!;
@@ -90,7 +91,7 @@ test("scaffolding needs a placed access block, consumed dirt and an intact pilla
 test("all fixed fixtures and item names are valid for the configured Minecraft version", () => {
   const registry = MinecraftData(config.version);
   for (const s of scenarios) {
-    assert.ok((s.observeBlocks?.(config).length ?? 0) <= 64, s.id);
+    assert.ok((s.observeBlocks?.(config).length ?? 0) <= MAX_OBSERVED_BLOCKS, s.id);
     assert.deepEqual(s.fixture?.(config).commands, s.fixture?.(config).commands, s.id);
     for (const b of s.expectedBlocks?.(config) ?? []) assert.ok(registry.blocksByName[b.name], `${s.id}: ${b.name}`);
     for (const name of Object.keys(s.initialInventory)) assert.ok(registry.itemsByName[name], `${s.id}: ${name}`);

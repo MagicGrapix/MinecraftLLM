@@ -4,6 +4,7 @@ import type { WorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
 import type { Observation, Scenario } from "./types";
 import { interactionScenarios } from "./InteractionScenarios";
 import { navigationScenarios } from "./NavigationScenarios";
+import { buildingScenarios } from "./BuildingScenarios";
 
 type TreePosition = { x: number; z: number };
 const singleTree: readonly TreePosition[] = [{ x: 5, z: 0 }];
@@ -86,4 +87,5 @@ export const scenarios: readonly Scenario[] = [
   },
   ...interactionScenarios,
   ...navigationScenarios,
+  ...buildingScenarios,
 ];

@@ -3,7 +3,7 @@ const data = JSON.parse(document.getElementById('data').textContent);
 const el = id => document.getElementById(id);
 const seconds = ms => (ms / 1000).toFixed(2) + ' s';
 const statuses = { completed: 'Terminé', failed: 'Erreur', incomplete: 'Incomplet' };
-const agents = { actioner: 'Actionneur', coordinator: 'Coordinateur', planner: 'Planner' };
+const agents = { actioner: 'Actionneur', coordinator: 'Coordinateur', planner: 'Planner', architect: 'Architecte', builder: 'Builder sans LLM' };
 let activities = [], selected = -1, pane = 'prompt', listButtons = [], timelineRows = [];
 
 function node(tag, text, parent, className) {
@@ -186,6 +186,9 @@ function showTrial() {
   metric(el('metrics'), 'Tools / échecs', s.toolCalls + ' / ' + s.failedTools);
   metric(el('metrics'), 'Étapes finales cochées', r.final ? r.final.completedSteps + '/' + r.final.planSteps : '—');
   el('criterion').textContent = r.criterion ? r.criterion.expected + ' · ' + r.criterion.actual : '';
+  el('verification').hidden = r.finalAfterSettlement === undefined && !r.criterion?.details;
+  el('verification-data').textContent = pretty({ afterSettlement: r.finalAfterSettlement ?? null,
+    verificationMs: r.finalVerificationMs ?? null, ...r.criterion?.details });
   el('files').replaceChildren();
   for (const file of trial.files ?? ['result.json', 'events.jsonl']) {
     const a = node('a', file, el('files'));

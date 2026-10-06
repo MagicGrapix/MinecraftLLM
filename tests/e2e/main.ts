@@ -14,6 +14,7 @@ import { scenarios } from "./scenarios";
 import { TestWorld } from "./TestWorld";
 import { runTrial } from "./TrialRunner";
 import { cleanupTrial } from "./TrialCleanup";
+import { settledObservation } from "./FinalObservation";
 import type { Scenario, TrialResult } from "./types";
 
 async function campaign(options: CampaignOptions, selected: readonly Scenario[], signal: AbortSignal): Promise<{ passed: boolean; fatal: boolean }> {
@@ -48,18 +49,21 @@ async function campaign(options: CampaignOptions, selected: readonly Scenario[],
         const setupStarted = performance.now();
         console.info(`[${index}] ${scenario.id}, repeat ${repetition}/${options.repetitions}, limit ${timeoutMs / 1_000}s`);
         await jsonFile(join(trialDirectory, "scenario.json"), { id: scenario.id, prompt: scenario.prompt, timeoutMs, initialInventory: scenario.initialInventory,
+          runner: scenario.fixedBuild ? "fixed_build_no_llm" : "workflow_llm",
+          fixedBuild: scenario.fixedBuild?.(config),
           hungry: scenario.hungry ?? false, containers: scenario.containers?.(config) ?? [], drops: scenario.drops?.(config) ?? [] });
         try {
           await world.prepareTerrain(scenario, signal);
           signal.throwIfAborted();
-          bot = new AgentProcess(config, trialDirectory, prompts, trace);
+          bot = new AgentProcess(config, trialDirectory, prompts, trace, undefined, scenario.fixedBuild?.(config));
           await bot.waitReady(scenarioConfig.startupTimeoutMs, signal);
           const positions = scenario.observeBlocks?.(config) ?? [];
-          const snapshot = async () => ({ ...await bot!.snapshot(positions), ...await world.observeEnvironment(scenario) });
+          const snapshot = async () => ({ ...await bot!.snapshot([]), blocks: world.observeBlocks(positions), ...await world.observeEnvironment(scenario) });
           const initial = await world.preparePlayer(scenario, snapshot, signal);
           const setupMs = performance.now() - setupStarted;
           result = await runTrial({
             scenario, agent: bot, initial, timeoutMs, snapshot,
+            finalize: () => settledObservation({ settle: () => bot!.settle(scenarioConfig.stopGraceMs), snapshot }),
             acceptanceTimeoutMs: scenarioConfig.acceptanceTimeoutMs, pollMs: scenarioConfig.pollMs,
             sendChat: (text) => world.chat(text), record: trace, signal,
             inArena: (position) => { world.assertHealthy(); return world.inArena(position); },

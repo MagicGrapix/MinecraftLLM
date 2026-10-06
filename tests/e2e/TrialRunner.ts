@@ -8,6 +8,8 @@ interface TrialOptions {
   initial: Observation;
   /** Adds controller-only observations when needed; never executes agent actions. */
   snapshot?: () => Promise<Observation>;
+  /** Stops inputs/producers, waits for physical idle, then observes from the controller. */
+  finalize?: () => Promise<Observation>;
   timeoutMs: number;
   acceptanceTimeoutMs: number;
   pollMs: number;
@@ -91,6 +93,26 @@ export async function runTrial(options: TrialOptions): Promise<TrialResult> {
     result.status = "error";
     result.error = message(error);
     if (agent.acceptedAt !== null) result.durationMs = now() - agent.acceptedAt;
+  }
+  if (options.finalize) {
+    const verificationStarted = now();
+    try {
+      const final = await options.finalize();
+      if (!final.physicalIdle) throw new Error("Final observation was not physically idle.");
+      result.final = final;
+      result.finalAfterSettlement = true;
+      result.criterion = scenario.verify(initial, final);
+      if (!options.inArena(final.position)) throw new Error("Bot left the testing arena.");
+      // Never promote a timeout, workflow failure or pre-deadline failed criterion after shutdown.
+      if (result.status === "passed" && !result.criterion.passed) result.status = "failed";
+      options.record("trial.final_observation", { afterSettlement: true, ...final, criterion: result.criterion });
+    } catch (error) {
+      result.finalAfterSettlement = false;
+      result.error = [result.error, `Final verification: ${message(error)}`].filter(Boolean).join("; ");
+      if (result.status !== "timeout") result.status = "error";
+      options.record("trial.final_observation_failed", { error: message(error) });
+    }
+    result.finalVerificationMs = now() - verificationStarted;
   }
   options.record("trial.finished", result);
   return result;

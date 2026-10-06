@@ -24,6 +24,8 @@ test("fresh child processes reset state and IPC reports acceptance; owned stuck 
       await child.arm("Collect wood.");
       assert.equal((await child.snapshot()).inventory.oak_log, 2);
       assert.notEqual(child.acceptedAt, null);
+      await child.settle(500);
+      assert.equal((await child.snapshot()).inventory.oak_log, 2, "Settlement keeps the client available for final observation.");
       assert.equal(await child.close(500), false);
       child = undefined;
     }

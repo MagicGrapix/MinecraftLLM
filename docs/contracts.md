@@ -123,3 +123,8 @@ de l'arène pendant le reset ; ce réglage ne concerne pas la physique du bot ag
 Le reset de terrain peut être construit séparément du reset du joueur pour un bot hors ligne.
 Le lanceur de [scénarios](scenario-testing.md) vérifie l'état initial observé avant d'envoyer la demande ;
 il applique ses critères déterministes séparément de la validation sémantique du coordinateur.
+Les observations de blocs sont bornées à 4096 cellules explicites, sans troncature, et conservent les
+propriétés de porte. La vérification finale attend l'arrêt des producteurs et `physicalIdle` puis deux
+lectures connues/stables depuis le controller. Son délai est séparé de celui de la tâche : un résultat
+conforme après expiration ne transforme jamais un timeout en réussite. Voir les limites de la marge
+observée et de l'oracle fixe de construction dans la documentation des scénarios.

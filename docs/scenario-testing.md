@@ -1,12 +1,14 @@
 # Scénarios Minecraft de bout en bout
 
 Le lanceur dans `tests/e2e/` démarre un controller OP et un nouveau processus du bot pour chaque essai.
-Les agents, tools, skills et prompts sont ceux de production. La demande passe par le chat Minecraft.
+Les scénarios LLM utilisent les agents, tools, skills et prompts de production. La demande passe par le chat Minecraft.
 Les critères de test ne sont jamais injectés dans le contexte LLM. Aucun LLM supplémentaire ne juge les résultats.
+Le scénario `build_small_shelter` isole le constructeur : le même chat déclenche une vraie capability `build`,
+avec blueprint fixe et stock fourni, sans créer d'agent ni de client LLM.
 
 ## Lancer une campagne
 
-Le serveur Minecraft et Ollama doivent déjà tourner. Le lanceur ne redémarre pas le serveur.
+Le serveur Minecraft doit déjà tourner, et Ollama pour les scénarios LLM. Le lanceur ne redémarre pas le serveur.
 Dans la console du serveur, une seule fois :
 
 ```text
@@ -22,12 +24,13 @@ npm.cmd run test:scenarios -- --scenario collect_two_logs --timeout 300 --repeat
 npm.cmd run test:scenarios -- --scenario collect_four_logs --timeout 300
 npm.cmd run test:scenarios -- --scenario place_block_in_front
 npm.cmd run test:scenarios -- --scenario craft_wooden_pickaxe --repeat 5
+npm.cmd run test:scenarios -- --scenario build_small_shelter --repeat 1
 npm.cmd run test:scenarios -- --repeat 5
 npm.cmd run test:scenarios
 ```
 
-La dernière commande lance les onze scénarios une fois chacun. `--repeat 5` les répète cinq fois chacun
-(55 essais pour la suite entière). Les répétitions d'un scénario sont consécutives, avec reset complet à chaque fois.
+La dernière commande lance les douze scénarios une fois chacun. `--repeat 5` les répète cinq fois chacun
+(60 essais pour la suite entière). Les répétitions d'un scénario sont consécutives, avec reset complet à chaque fois.
 Le reset modifie l'arène configurée du world builder
 (par défaut X/Z -48..48, Y -64..-30), y compris ses blocs souterrains et ses entités hors joueurs.
 Le profil restauré est bedrock -64, terre -63/-62, herbe -61, air au-dessus.
@@ -66,13 +69,20 @@ Scénarios disponibles :
   consommation de terre. L'agent choisit ses actions ; le test ne force pas un tool ou un itinéraire particulier.
 - `eat_food` : un steak fourni, faim réduite pendant la préparation ; le consommer et augmenter la faim.
   Aucun scénario de craft impossible/prérequis manquant n'est inclus.
+- `build_small_shelter` : maison fixe 5×5×4, origine (5, surfaceY+1, 5), 55 planches, 25 cobblestone et
+  une porte fournies. Une seule capability survival, sans LLM ni commandes OP du constructeur. Le controller
+  contrôle 729 cellules : dessin entier (100 cellules dont 18 d'air et deux moitiés de porte), marge horizontale
+  de deux blocs, sous-sol jusqu'à la bedrock, air au-dessus du toit. Les cinq propriétés de porte sont vérifiées.
+  Le sol et la marge doivent rester intacts, sauf herbe devenue terre sous le plancher. Consommation exacte
+  des matériaux, bot vivant au sol, verrou physique libre et fenêtre fermée sont aussi exigés.
+  Cela ne prouve pas une absence de modification ailleurs dans le monde, ni le respect d'une demande par un LLM.
 
-Les scénarios supplémentaires sont répartis dans `InteractionScenarios.ts` et `NavigationScenarios.ts`,
+Les scénarios supplémentaires sont répartis dans `InteractionScenarios.ts`, `NavigationScenarios.ts` et `BuildingScenarios.ts`,
 réexportés par `scenarios.ts`. Les fixtures utilisent des positions fixes et s'adaptent à `surfaceY`.
 Les agents et leurs prompts ne sont pas modifiés par ces scénarios.
 
 Commencer par un scénario avec `--scenario ID`, puis ajouter `--repeat 5` pour comparer plusieurs essais.
-À 300 secondes par essai, 55 essais pourraient prendre 4 h 35 **hors préparation** s'ils atteignaient tous
+À 300 secondes par essai, 60 essais pourraient prendre 5 h **hors préparation** s'ils atteignaient tous
 leur limite. La répétition par défaut reste donc 1. Aucun de ces lancements n'est automatique.
 
 Pour une série périodique, sans chevauchement :
@@ -109,8 +119,13 @@ Le code de sortie est 0 si tous les essais réussissent, 1 sinon.
    même reçu après, ne peut pas décider du verdict final.
    Pour les coffres, deux lectures consécutives après la fin doivent donner les mêmes inventaires,
    blocs suivis et état de fenêtre. Ce contrôle de stabilité ne promet pas une transaction atomique entre clients.
-9. `stop` dans le chat, arrêt du workflow, attente de libération du verrou physique, fermeture du processus
-   et confirmation de départ du joueur par le controller avant le prochain reset.
+9. Barrière IPC `settle` : détacher le chat, arrêter les producteurs et attendre la libération du verrou physique
+   (10 s de grâce), sans déconnecter le bot. Puis `FinalObservation` attend deux observations connues identiques
+   (blocs/propriétés, inventaires, fenêtre), avec délai de 3 s et intervalle de 100 ms. Le critère est revérifié.
+   Une réussite provisoire peut être invalidée ; une réussite tardive ne promeut jamais un timeout ou un échec.
+   Une cellule inconnue reste inconnue, jamais air. Échec de settlement/lecture finale = `error`, sauf timeout conservé.
+10. Nettoyage indépendant : `stop` dans le chat, fermeture du processus et confirmation de départ du joueur
+   par le controller avant le prochain reset. `settle` et fermeture sont idempotents.
 
 `TrialCleanup.ts` applique cette barrière de nettoyage indépendamment du verdict du test.
 Elle confirme également l'absence du joueur après une erreur de préparation sans processus enfant.
@@ -143,10 +158,13 @@ habituelle de santé/saturation. Le lanceur attend l'expiration de l'effet et v�
 observée avant de transmettre la demande. Il ne modifie pas la difficulté du serveur ; le mode peaceful
 est refusé explicitement pour ce scénario. Le serveur actuel est configuré en normal.
 
-L'IPC du worker transporte uniquement readiness, événements de workflow, observations et fermeture.
-Un snapshot peut demander une liste de cellules fixes (64 maximum), lues avec `blockAt` dans les chunks
-reçus du serveur. Une cellule indisponible vaut `null`, pas `air` ; la préparation attend leur disponibilité.
-Les mêmes positions sont relues pendant l'essai et conservées dans `blocks` des observations.
+L'IPC du worker transporte readiness, armement du chat, événements de workflow, observations, settlement et fermeture.
+`TrialRuntime` adapte le workflow habituel ou `FixedBuildTrial` (uniquement dans les tests), sans nouveau mode d'agent de production.
+La liste explicite de cellules est bornée à 4096, validée intégralement avant lecture, sans troncature.
+`BlockObservations` expose nom et propriétés utiles (`facing`, `half`, `hinge`, `open`, `powered`).
+Les campagnes lisent les blocs depuis les chunks reçus par le controller indépendant, pas le client qui construit.
+L'IPC conserve aussi cette lecture pour les diagnostics ciblés du worker. Une cellule indisponible vaut `null`,
+pas `air` ; la préparation attend leur disponibilité. Les mêmes positions sont relues et archivées pendant l'essai.
 Pour les coffres, `BlockNbtReader` utilise les paquets `query_block_nbt` / `nbt_query_response` du controller OP,
 appariés par numéro de transaction, avec timeout et nettoyage des listeners. Aucune fenêtre n'est ouverte
 pour cette lecture et aucune commande chat n'est envoyée à chaque poll. Un coffre manquant ou des données
@@ -189,18 +207,24 @@ Les sources UI sont dans `tests/e2e/report/`, incorporées par `Report.ts` dans 
 
 - `campaign.json` : configuration effective, scénarios, révision Git et empreinte source ; clé API exclue.
 - `prompts/` : copie utilisée réellement par les workers, même si les prompts originaux sont édités ensuite.
-- `skills/`, `source/`, `working-tree.patch` : copie de référence du code, des skills et changements locaux.
+- `skills/`, `source/`, `working-tree.patch` : copie de référence du code, des skills, des fixtures Blueprint et changements locaux.
 - `results.json` : essais et statistiques cumulés, consommables ultérieurement par une autre UI.
-- `<essai>/scenario.json` : demande, délai, inventaire initial, profil de faim, coffres et drops prévus.
+- `<essai>/scenario.json` : demande, délai, inventaire initial, profil de faim, coffres et drops prévus ;
+  runner `workflow_llm` ou `fixed_build_no_llm` et dessin/origine fixes si présents.
+- `<essai>/blueprints/` : store isolé contenant les blueprints réellement acceptés, consultables depuis le rapport.
 - `<essai>/events.jsonl` : événements du lanceur et observations de l'inventaire/état/cellules/coffres/drops suivis.
 - `<essai>/trace_<session>.jsonl` : requêtes LLM, réponses brutes et appels de tools de production.
-- `<essai>/result.json` : verdict, critère, observations initiale/finale, temps et statistiques.
+- `<essai>/result.json` : verdict, critère et détails, observations initiale/finale, temps et statistiques.
+  `finalAfterSettlement` indique une lecture finale confirmée ; `finalVerificationMs` distingue sa durée de celle de la demande.
+  La section « Vérification finale indépendante » présente ces preuves et jusqu'à 20 écarts pour la maison,
+  avec le nombre total d'écarts (le contrôle lui-même n'est pas tronqué).
 - `<essai>/process.log`, `log_<session>.log`, `agent_summary_<session>.md` : sorties et checklist.
 - `<essai>/landmarks.json` : mémoire de lieux isolée, conservée pour inspection.
 
 Chaque ligne JSONL conserve `timestamp`, `event`, `data`.
 Les événements `trial.observation` ont aussi un identifiant, l'instant de demande/réception relatif au
 début de l'essai, et `afterWorkflowFinish` pour distinguer une lecture finale d'une requête plus ancienne.
+`trial.final_observation` est la lecture connue/stable après arrêt ; `trial.final_observation_failed` explicite son échec.
 Le journal de tools contient le numéro, le rôle, le tool-call ID, les arguments, le résultat et les inventaires avant/après si suivis.
 Les numéros sont uniques dans une session du bot ; chaque nouveau processus repart de 1.
 Ils ne sont donc pas des identifiants globaux de campagne. Utiliser essai/session + numéro.
@@ -224,7 +248,7 @@ pendant la demande est inclus. Pas de mesure GPU, préremplissage ou token/s dé
 
 Le serveur inspecteur 3001 du bot habituel n'est pas démarré par les workers. Le rapport de campagne
 est indépendant des processus de test et conserve les anciennes sessions.
-Une modification de `src/`, `skills/` ou `tests/e2e/` pendant une campagne l'invalide et arrête la suite.
+Une modification de `src/`, `skills/`, `tests/e2e/` ou `tests/fixtures/blueprints/` pendant une campagne l'invalide et arrête la suite.
 Les paramètres globaux jour/météo restent dans l'état réglé par le dernier reset, comme le reset manuel.
 
 ## Vérifier et étendre
@@ -262,7 +286,9 @@ stock fourni et construction physique : demande de dessin sans modification, pui
 vérifiées. Le bootstrap de production, les prompts, le store et l'Executor sont conservés ; seul le client
 LLM est remplacé. Les observations indépendantes contrôlent aussi les propriétés des portes.
 Il utilise le même coin et le même nettoyage que `smoke:doors`, et des traces JSONL, pas une campagne HTML.
-Ce smoke ne mesure ni les capacités du modèle réel ni l'approvisionnement : ces campagnes restent au lot 6.
+Ce smoke ne mesure ni les capacités du modèle réel ni l'approvisionnement : ces campagnes restent à ajouter au lot 6.
+Le premier scénario `build_small_shelter` fournit maintenant le contrôle physique indépendant et le rapport HTML,
+mais sans le workflow LLM. Il ne remplace pas le smoke des délégations.
 
 Pour ajouter un scénario, définir un `Scenario` dans `scenarios.ts` avec demande, inventaire,
 fixture bornée facultative, liste de blocs attendus et `verify(initial, current)`.

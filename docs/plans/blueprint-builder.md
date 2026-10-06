@@ -458,17 +458,27 @@ Ce test ne prouve pas que Qwen choisit ces délégations ni qu'il sait s'approvi
 
 ### Lot 6 — Campagnes de bout en bout et approvisionnement
 
-- [ ] Étendre l'observation E2E : actuellement `BlockObservations.ts` limite à 64 cellules et retourne seulement le nom.
-- [ ] Ajouter une limite explicite adaptée au volume borné et les propriétés utiles des blocs pour les portes ; vérifier l'ensemble du volume, pas un échantillon.
-- [ ] Faire l'observation finale après arrêt des producteurs et `physicalIdle`, avec délai et cellules inconnues traitées explicitement.
-- [ ] Ajouter `build_small_shelter` : blueprint fixe, matériaux fournis, sans LLM constructeur.
+- [x] Étendre l'observation E2E, auparavant limitée à 64 cellules/nom seul.
+- [x] Ajouter une limite explicite adaptée au volume borné et les propriétés utiles des blocs pour les portes ; vérifier l'ensemble du volume, pas un échantillon.
+- [x] Faire l'observation finale après arrêt des producteurs et `physicalIdle`, avec délai et cellules inconnues traitées explicitement.
+- [x] Ajouter `build_small_shelter` : blueprint fixe, matériaux fournis, sans LLM constructeur.
 - [ ] Ajouter un scénario Architect + build avec stock suffisant et contraintes de dessin modestes.
 - [ ] Ajouter ensuite collecte/craft : bois accessible, ressources et stations contrôlées, puis maison avec porte.
-- [ ] Vérifier indépendamment du rapport du Builder : blocs attendus, air intérieur, porte, absence de modifications interdites et état final du bot.
-- [ ] Archiver le blueprint effectivement accepté et les résultats détaillés dans le rapport de campagne.
+- [x] Vérifier indépendamment du rapport du Builder : blocs attendus, air intérieur, porte, absence de modifications interdites dans le volume observé et état final du bot.
+- [x] Archiver le blueprint effectivement accepté et les résultats détaillés dans le rapport de campagne.
 - [ ] Commencer par un essai ciblé, puis cinq répétitions pour mesurer fiabilité, durée et nombre d'appels LLM.
 
 Sortie : la suite distingue erreur de conception, prérequis, construction, timeout et conformité finale. Pas de nouveau scénario LLM volontairement impossible ; les prérequis manquants sont testés unitairement ou sans LLM.
+
+Première tranche livrée le 2026-10-05 : observation explicite jusqu'à 4096 cellules, propriétés de porte,
+barrière `settle`, vérification finale indépendante et store Blueprint propre à chaque essai.
+`npm.cmd test` : **468 tests réussis**, compilation et typechecks inclus (13 nouveaux depuis le lot 5).
+`build_small_shelter` utilise la maison fixe 5×5×4 avec porte, en survival avec stock fourni et zéro appel LLM.
+Campagne ciblée `campaign_1791209143577_7aa94fb8` : **réussite en 38,16 s**, 729 cellules contrôlées,
+aucun écart/inconnu, consommation de 55 planches, 25 cobblestone et une porte. Observation finale
+après settlement confirmée ; blueprint accepté lié au rapport. Terrain remis à plat et bots déconnectés.
+Un seul essai réel à ce stade, pas encore cinq répétitions. Le prompt Architect reste inchangé.
+Restent la campagne avec conception LLM, l'approvisionnement et les répétitions : **lot 6 en cours**, pas terminé.
 
 ### Lot 7 — Accès temporaires et nettoyage, après stabilisation
 
@@ -524,3 +534,7 @@ La première version complète correspond aux lots 1 à 6 :
   Prochain lot : 6 ; aucun réglage du prompt Architect ni campagne Qwen effectué dans ce lot.
 
 À compléter après chaque lot : date, tâches cochées, fichiers principaux, vérifications réalisées, limitations restantes et prochaine étape.
+
+- 2026-10-05, lot 6 commencé : socle E2E de construction, scénario physique fixe sans LLM, oracle indépendant,
+  stockage isolé et preuves de vérification dans le rapport. Voir le bilan et les cases restantes ci-dessus.
+  Commit de sauvegarde préalable : `a8ff625` (`architecture lot 5`), poussé sur `refactor-redo`.

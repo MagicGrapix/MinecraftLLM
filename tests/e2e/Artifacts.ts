@@ -23,6 +23,7 @@ export async function createCampaign(directory: string, config: AgentConfig, set
   await cp(resolve("skills"), join(directory, "skills"), { recursive: true });
   await cp(resolve("src"), join(directory, "source", "src"), { recursive: true });
   await cp(resolve("tests/e2e"), join(directory, "source", "tests", "e2e"), { recursive: true });
+  await cp(resolve("tests/fixtures/blueprints"), join(directory, "source", "tests", "fixtures", "blueprints"), { recursive: true });
   for (const name of ["package.json", "tsconfig.json", "tsconfig.tests.json"]) {
     await cp(resolve(name), join(directory, "source", name));
   }
@@ -46,7 +47,7 @@ export async function sourceFingerprint(): Promise<string> {
       else if (entry.isFile()) { hash.update(path); hash.update(await readFile(path)); }
     }
   }
-  for (const directory of ["src", "skills", "tests/e2e"]) await walk(directory);
+  for (const directory of ["src", "skills", "tests/e2e", "tests/fixtures/blueprints"]) await walk(directory);
   return hash.digest("hex");
 }
 
@@ -63,6 +64,12 @@ export async function finishTrial(campaignDirectory: string, trialDirectory: str
   const statistics = summarizeTrace(events);
   await jsonFile(join(trialDirectory, "result.json"), { ...result, statistics });
   const files = (await readdir(trialDirectory)).filter((name) => /\.(jsonl|json|log|md)$/.test(name)).sort();
+  // Only the trial-local store, never a global blueprint directory.
+  try {
+    for (const name of (await readdir(join(trialDirectory, "blueprints"))).filter(name => /^bp_[a-zA-Z0-9-]+\.json$/.test(name)).sort()) {
+      files.push(`blueprints/${name}`);
+    }
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   return { directory: relative(campaignDirectory, trialDirectory).replace(/\\/g, "/"), result, statistics, files };
 }
 

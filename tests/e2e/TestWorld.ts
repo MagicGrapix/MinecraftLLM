@@ -11,6 +11,8 @@ import type { ContainerObservation, Observation, Scenario } from "./types";
 import { Vec3 } from "vec3";
 import { BlockNbtReader, chestInventory, NbtObservationError } from "./BlockNbtReader";
 import { environmentPlan, environmentReady, observeDrops } from "./EnvironmentObservations";
+import { observeBlocks } from "./BlockObservations";
+import type { Position } from "../../src/shared/types";
 
 export class TestWorld {
   private readonly runtime: WorldControllerRuntime;
@@ -34,6 +36,12 @@ export class TestWorld {
   }
   assertHealthy(): void { if (this.failure) throw new Error(this.failure); }
   inArena(position: Observation["position"]): boolean { return containsPosition(this.config.arena, position); }
+
+  observeBlocks(positions: readonly Position[]) {
+    this.assertHealthy();
+    if (positions.some(p => !this.inArena(p))) throw new Error("Observed cell lies outside the testing arena.");
+    return observeBlocks(this.runtime.bot, positions);
+  }
 
   async prepareTerrain(scenario: Scenario, signal?: AbortSignal): Promise<void> {
     await this.execute(new WorldBuilder({ config: this.config }).resetTerrain(), signal);

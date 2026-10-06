@@ -1,8 +1,14 @@
 import type { Position } from "../../src/shared/types";
 import type { WorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
 import type { WorldPlan } from "../../src/devworld/WorldPlan";
+import type { Blueprint } from "../../src/building/Blueprint";
 
-export interface BlockObservation { position: Position; name: string | null }
+export interface BlockObservation {
+  position: Position;
+  name: string | null;
+  /** Selected state properties, null when the cell is unavailable. Optional for legacy reports. */
+  properties?: Readonly<Record<string, string | number | boolean>> | null;
+}
 export interface ContainerObservation {
   position: Position;
   inventory: Record<string, number> | null;
@@ -32,12 +38,15 @@ export interface Observation {
   completedSteps: number;
 }
 
-export interface Criterion { passed: boolean; expected: string; actual: string }
+export interface Criterion { passed: boolean; expected: string; actual: string; details?: unknown }
+export interface FixedBuildSpec { blueprint: Blueprint; origin: Position }
 export interface Scenario {
   id: string;
   prompt: string;
   timeoutMs?: number;
   initialInventory: Readonly<Record<string, number>>;
+  /** Explicit non-LLM scenario. Chat triggers one real Build capability, not a mock agent. */
+  fixedBuild?: (config: WorldBuilderConfig) => FixedBuildSpec;
   /** Controlled Hunger effect during setup; no active effect when the request starts. */
   hungry?: boolean;
   fixture?: (config: WorldBuilderConfig) => WorldPlan;
@@ -61,6 +70,8 @@ export interface TrialResult {
   criterion?: Criterion;
   initial?: Observation;
   final?: Observation;
+  finalAfterSettlement?: boolean;
+  finalVerificationMs?: number;
   error?: string;
   forcedShutdown?: boolean;
 }
@@ -68,7 +79,7 @@ export interface TrialResult {
 export interface TraceEvent { timestamp: string; event: string; data: any }
 export interface WorkerEvent { type: "event"; event: string; data: any }
 export interface WorkerReply { type: "reply"; id: number; value?: any; error?: string }
-export interface WorkerCommand { id: number; command: "snapshot" | "arm" | "shutdown"; text?: string; graceMs?: number; positions?: readonly Position[] }
+export interface WorkerCommand { id: number; command: "snapshot" | "arm" | "settle" | "shutdown"; text?: string; graceMs?: number; positions?: readonly Position[] }
 
 export interface TrialAgent {
   snapshot(positions?: readonly Position[]): Promise<Observation>;

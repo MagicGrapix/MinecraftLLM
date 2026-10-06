@@ -17,7 +17,9 @@ export function renderReport(campaignId: string, trials: readonly ReportTrial[],
 <p><a href="events.jsonl">Événements de campagne</a> · <a href="campaign.json">Configuration</a></p></header>
 <div id="overview" class="metrics"></div>
 <section><h2>Essai</h2><select id="trial" aria-label="Choisir un essai"></select><p id="outcome" role="status"></p>
-<div id="metrics" class="metrics"></div><p id="criterion"></p><details><summary>Fichiers de cet essai</summary><p id="files"></p></details></section>
+<div id="metrics" class="metrics"></div><p id="criterion"></p>
+<details id="verification"><summary>Vérification finale indépendante</summary><pre id="verification-data"></pre></details>
+<details><summary>Fichiers de cet essai (dont blueprints acceptés)</summary><p id="files"></p></details></section>
 <section id="inspector" class="inspector" aria-label="Inspecteur des appels">
   <aside class="panel"><div class="panel-heading"><h2>Appels</h2><span id="activity-count" class="muted"></span></div>
     <div id="activity-list" class="activity-list" aria-label="Liste chronologique des appels"></div></aside>

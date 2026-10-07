@@ -22,6 +22,10 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 
 ## Responsabilités et fichiers
 
+- `scripts/dev/architect/` est un atelier web hors Minecraft, lancé par `dev:architect`.
+  Il instancie le vrai `ArchitectAgent` et un store isolé par essai ; aucun composant de production
+  ne dépend de cet atelier. Voir [isolation, traces et UI](architect-workbench.md).
+
 - `src/bootstrap/createAgentRuntime.ts` assemble clients, queries, capabilities, agents, chat et inspecteur.
 - `WorkflowAgent.ts` dirige les délégations et garde `WorkflowState`. `ActionRunner` dans `ActionTypes.ts`
   est sa frontière avec l'actionneur : un changement d'implémentation ne demande pas de réécrire le coordinateur.
@@ -64,12 +68,15 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `BuildExit` écarte les postures sans retour conservateur au sol après la prochaine pose.
   `BlueprintDoors` développe une porte en deux cellules et un item ; `BuildDoor`/`PlaceBuildDoor` assurent sa pose orientée et la confirmation des deux moitiés.
   `GotoMovements` reconnaît les formes des portes déjà ouvertes ; l'ouverture reste une action `use_block` séparée.
-  `agent/ArchitectAgent.ts` fournit maintenant une délégation isolée : `lookup_material` puis
-  `submit_blueprint`, avec corrections et retour automatique après validation/sauvegarde.
+  `agent/ArchitectAgent.ts` fournit une délégation isolée : `submit_blueprint({ drawing })`,
+  avec corrections et retour automatique après validation/sauvegarde. `building/ArchitectDrawing.ts`
+  convertit le texte ASCII (A = oak_planks, point = air, couches séparées par une ligne vide)
+  en Blueprint interne : dimensions déduites, palette fixe, aucune porte. Les dessins stockés et
+  le Builder conservent leur format riche ; seule la surface du modèle est simplifiée.
   `ArchitectTools.ts` ne reçoit ni runtime, ni Executor, ni controller : il ne peut pas construire.
   Le bootstrap l'assemble maintenant avec le même client LLM et le registre de la connexion Minecraft.
   `ask_architect` sélectionne un dessin accepté avant le planner. `lookup_material` partage son schéma
-  et sa logique dans `world/queries/LookupMaterial.ts`, réutilisés par l'Architect et les queries existantes.
+  et sa logique dans `world/queries/LookupMaterial.ts` pour les queries existantes, sans exposition à l’Architect.
   Le coordinateur ne reçoit ni `build` ni `submit_blueprint`. L'actionneur refuse un `build` sans référence
   sélectionnée pour la demande ou visant un ancien dessin. Le Builder reste utilisable hors agents pour les smokes.
   Voir [Blueprints](blueprints.md) pour les contrats et limites réellement disponibles.

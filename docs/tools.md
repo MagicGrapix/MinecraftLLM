@@ -46,10 +46,12 @@ Un échec conserve les blocs posés et un bilan partiel ; rappeler avec la même
 Les dépendances `oak_door` sont posées après les cubes : un item, deux moitiés confirmées (orientation, charnière, fermée/non alimentée).
 Une porte existante incompatible est un conflit, pas une invitation à la démolir. Le succès ne prouve pas l'habitabilité.
 Il n'y a ni collecte/craft, ni démolition, ni échafaudage automatique dans ce lot.
-L'Architect isolé (lot 4) dispose de `lookup_material({ query, kind? })` et `submit_blueprint(blueprint)`.
-Le second reçoit directement le dessin complet et termine la délégation après validation/sauvegarde.
-Le premier distingue noms connus et support Blueprint, sans garantir disponibilité ou craftabilité.
-Depuis le lot 5, `lookup_material` est aussi une query du coordinateur et de l'actionneur, avec le même contrat.
+L’Architect expose uniquement `submit_blueprint({ drawing: string })` : couches ASCII séparées par
+une ligne vide, A = oak_planks, point = air requis. Dimensions et palette sont calculées en code.
+Une erreur localise la couche/ligne (numérotation 1-based) ; le modèle resoumet le dessin complet.
+Une validation/sauvegarde réussie termine la délégation sans prouver la conformité à la demande.
+`lookup_material({ query, kind? })` reste une query du coordinateur et de l’actionneur, pas de l’Architect.
+Elle distingue noms connus et support Blueprint, sans garantir disponibilité ou craftabilité.
 `submit_blueprint` reste réservé à l'Architect. Le coordinateur possède `ask_architect({ instruction })`
 et reçoit seulement le rapport compact ; ce succès invalide la checklist précédente, sans construire.
 Le planner voit `build` et `lookup_material` comme documentation, jamais comme tools appelables.

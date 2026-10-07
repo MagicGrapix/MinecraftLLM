@@ -75,10 +75,8 @@ async function main() {
     await until(() => runtime.bot.entity.onGround && runtime.bot.entity.position.distanceTo(origin) < 4, 5000, "Builder arrival");
     if (process.argv.includes("--workflow")) {
       await command(`clear ${username}`);
-      await command(`give ${username} oak_planks 55`);
-      await command(`give ${username} cobblestone 25`);
-      await command(`give ${username} oak_door 1`);
-      await until(() => runtime.bot.inventory.items().some(i => i.name === "oak_door" && i.count === 1), 3000, "Workflow stock");
+      await command(`give ${username} oak_planks 80`);
+      await until(() => runtime.bot.inventory.items().filter(i => i.name === "oak_planks").reduce((n, i) => n + i.count, 0) === 80, 3000, "Workflow stock");
       await runBuildingWorkflowSmoke(runtime, controller.bot, origin, directory);
       return;
     }

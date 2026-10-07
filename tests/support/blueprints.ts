@@ -7,3 +7,8 @@ export async function blueprintFixture(withDoor = false): Promise<Blueprint> {
   return JSON.parse(await readFile(join(__dirname, "../fixtures/blueprints",
     withDoor ? "small-oak-house.json" : "small-oak-shelter.json"), "utf8")) as Blueprint;
 }
+
+/** Text submitted by the simplified Architect: 80 planks, open entrance, no door. */
+export async function architectDrawingFixture(): Promise<{ drawing: string }> {
+  return { drawing: (await readFile(join(__dirname, "../fixtures/blueprints/architect-shelter.txt"), "utf8")).trim() };
+}

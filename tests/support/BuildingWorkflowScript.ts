@@ -1,19 +1,18 @@
 import assert from "node:assert/strict";
-import type { Blueprint } from "../../src/building/Blueprint";
 import type { ActionDelegation } from "../../src/agent/ActionTypes";
 import type { LLMResponse } from "../../src/llm/LLMClient";
 import type { Position } from "../../src/shared/types";
 import { FakeLLMClient } from "./FakeLLMClient";
 
 /** Transport double only: tools, validation, storage, execution and handoffs stay real. */
-export function enqueueBuildingWorkflow(llm: FakeLLMClient, drawing: Blueprint, origin: Position, designOnly = false): void {
+export function enqueueBuildingWorkflow(llm: FakeLLMClient, drawing: { drawing: string }, origin: Position, designOnly = false): void {
   const tool = (name: string, args: unknown): LLMResponse => ({ message: {
     role: "assistant", content: null, toolCalls: [{ id: name, name, arguments: JSON.stringify(args) }],
   }, finishReason: "tool_calls" });
-  llm.enqueue(tool("ask_architect", { instruction: "Prepare the five-by-five reference oak house with one door." }));
+  llm.enqueue(tool("ask_architect", { instruction: "Prepare the five-by-five reference oak house with an open entrance." }));
   llm.enqueue(request => {
     assert.equal(request.trace?.phase, "architect");
-    assert.deepEqual(request.tools!.map(t => t.name), ["lookup_material", "submit_blueprint"]);
+    assert.deepEqual(request.tools!.map(t => t.name), ["submit_blueprint"]);
     return tool("submit_blueprint", drawing);
   });
   llm.enqueue(request => {
@@ -25,7 +24,7 @@ export function enqueueBuildingWorkflow(llm: FakeLLMClient, drawing: Blueprint, 
   if (designOnly) return;
   llm.enqueue(request => {
     assert.equal(request.trace?.phase, "planner"); assert.equal(request.tools, undefined);
-    assert.match(request.messages[0]!.content!, /oak_door x1/);
+    assert.match(request.messages[0]!.content!, /oak_planks x80/);
     return { message: { role: "assistant", content: JSON.stringify({ steps: [{ title: "Build house", successCriteria: "Blueprint cells verified correct at the supplied origin." }] }) }, finishReason: "stop" };
   });
   llm.enqueue(tool("run_step", { step: 1, instruction: "Build the selected house at the supplied observed origin and verify it." }));

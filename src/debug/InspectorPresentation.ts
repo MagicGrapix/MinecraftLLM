@@ -100,7 +100,8 @@ function describeExecution(execution: InspectorToolExecution) {
 
 function describeCall(name: string, input: Record<string, unknown>): string {
   if (name === "lookup_material") return `${name} → ${text(input.query)}`;
-  if (name === "submit_blueprint") return `${name} → ${text(input.name)}`;
+  if (name === "submit_blueprint") return typeof input.drawing === "string"
+    ? `${name} → drawing (${input.drawing.length} chars)` : `${name} → ${text(input.name)}`;
   if (name === "build") {
     const origin = record(input.origin);
     return `${name} → ${text(input.blueprintId)} at (${origin.x}, ${origin.y}, ${origin.z})`;

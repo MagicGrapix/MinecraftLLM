@@ -27,7 +27,7 @@ async function main(): Promise<void> {
       baseUrl: config.llmBaseUrl, apiKey: config.llmApiKey, model: config.llmModel,
       requestTimeoutMs: config.llmRequestTimeoutMs, maxRetries: 0, inspector,
     }),
-    tools: new ArchitectTools(catalog, store), prompt, contextSummaryPrompt, inspector,
+    tools: new ArchitectTools(store), prompt, contextSummaryPrompt, inspector,
     temperature: config.llmTemperature, reasoningEffort: config.llmReasoningEffort, maxTokens: config.llmMaxTokens,
   });
   const stop = () => { void agent.requestStop(); };

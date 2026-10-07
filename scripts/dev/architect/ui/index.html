@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Architect · Atelier</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+  <header><div><span class="eyebrow">MINECRAFT / DEV TOOLS</span><h1>Architect <span>atelier</span></h1></div><div class="header-right"><span class="pill">Sans Minecraft</span><span id="model">Connexion…</span></div></header>
+  <div id="error" role="alert" hidden></div>
+  <div class="workspace">
+    <aside class="sidebar">
+      <h2>Nouvel essai</h2>
+      <p class="muted">Même agent, mêmes prompts et validation. Contexte neuf à chaque lancement.</p>
+      <form id="form">
+        <label for="request">Demande du joueur</label><textarea id="request" required maxlength="8000" rows="5" placeholder="Dessine un abri en planches de chêne de 5 × 5, avec une ouverture et un toit."></textarea>
+        <details><summary>Contexte de délégation</summary>
+          <label for="instruction">Instruction du coordinateur</label><textarea id="instruction" maxlength="8000" rows="3" placeholder="Facultatif : complément à la demande, sans la répéter"></textarea>
+          <label for="constraints">Contraintes · une par ligne</label><textarea id="constraints" rows="3"></textarea>
+          <label for="observations">Observations fournies</label><textarea id="observations" maxlength="8000" rows="3" placeholder="Aucun état du monde n’est inventé."></textarea>
+        </details>
+        <div class="settings"><div><label for="tokens">Tokens de sortie max.</label><input id="tokens" type="number" min="256" max="32768" value="4096" required></div><div><label for="reasoning">Reasoning effort</label><select id="reasoning"><option>none</option><option>low</option><option selected>medium</option><option>high</option><option>max</option></select></div></div>
+        <p class="hint">La limite peut inclure la réflexion. Les niveaux de reasoning dépendent du modèle.</p>
+        <div class="actions"><button id="start" class="primary" type="submit">Lancer l’essai</button><button id="stop" type="button" disabled>Stop</button></div>
+      </form>
+      <div class="section-heading"><h2>Essais de cette session</h2><span id="count" class="muted">0</span></div>
+      <nav id="trials" aria-label="Essais"></nav>
+      <p class="hint">Sources relues au lancement. Traces sauvegardées sur disque, même après fermeture de cette page.</p>
+    </aside>
+    <main>
+      <div class="selection-header"><div><span class="eyebrow" id="trial-id">AUCUN ESSAI</span><h2 id="title">Explore le contexte exact de l’Architect.</h2><p id="status" class="muted">L’ouverture de la page ne lance pas le LLM.</p></div><button id="refresh" hidden>Actualiser ce détail</button></div>
+      <div class="tabs" role="tablist" aria-label="Vue de l’essai">
+        <button data-tab="conversation" role="tab" aria-selected="true">Conversation</button><button data-tab="blueprint" role="tab" aria-selected="false">Blueprints</button><button data-tab="sources" role="tab" aria-selected="false">Sources & entrées</button><button data-tab="raw" role="tab" aria-selected="false">JSON exact</button>
+      </div>
+      <div class="inspection"><nav id="calls" aria-label="Appels LLM"><p class="muted">Les appels apparaîtront ici.</p></nav><section id="detail" aria-live="off"><div class="empty"><span class="eyebrow">DU PROMPT AU BLUEPRINT</span><h2>Un essai, tout le parcours.</h2><p>Lis les messages réellement envoyés, les outils proposés, la réponse et le feedback du validateur.</p><p>Le panneau de lecture reste immobile pendant la génération. Les nouvelles données attendent ton clic.</p></div></section></div>
+    </main>
+  </div>
+</body></html>

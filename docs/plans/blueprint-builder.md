@@ -1,5 +1,12 @@
 # Blueprint, Architect et Builder — plan d'implémentation
 
+> Mise à jour du 6 octobre 2026 : la surface Architect a été simplifiée après les lots ci-dessous.
+> Un seul tool `submit_blueprint({ drawing })`, texte ASCII A/point avec couches séparées par une ligne vide,
+> dimensions déduites, oak_planks fixe, sans portes ni lookup_material. Le Blueprint interne et le Builder
+> restent inchangés. La demande/délégation est un message user, séparé du system stable.
+> Les bilans de lots ci-dessous sont historiques ; [le contrat courant](../blueprints.md#architect-lot-4)
+> et [l’atelier](../architect-workbench.md) décrivent les comportements actuels.
+
 Date : 5 octobre 2026.
 
 Statut : **lots 1 à 5 implémentés ; lots 6 et 7 restant à faire**. Le workflow est vérifié dans Minecraft avec réponses LLM scriptées ; la génération de maisons avec Qwen reste à fiabiliser (voir le bilan du lot 4).

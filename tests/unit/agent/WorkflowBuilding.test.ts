@@ -24,7 +24,7 @@ import { MaterialCatalog } from "../../../src/world/MaterialCatalog";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
 import { createLookupMaterialQuery } from "../../../src/world/queries/LookupMaterial";
-import { blueprintFixture } from "../../support/blueprints";
+import { architectDrawingFixture } from "../../support/blueprints";
 import { FakeLLMClient } from "../../support/FakeLLMClient";
 import { until } from "../../e2e/async";
 
@@ -48,7 +48,7 @@ async function setup(t: TestContext) {
   const journal = new ToolCallJournal(() => ({}));
   const queries = createDefaultWorldQueryRegistry(world, journal);
   queries.register(createLookupMaterialQuery(catalog));
-  const tools = new ArchitectTools(catalog, store);
+  const tools = new ArchitectTools(store);
   const architectAgent = new ArchitectAgent({ llm, tools, journal, inspector, prompt: prompts.architect, contextSummaryPrompt: prompts.contextSummary });
   const delegations: ActionDelegation[] = [];
   const actionAgent: ActionRunner = {
@@ -75,19 +75,19 @@ async function setup(t: TestContext) {
 test("design-only workflow selects saved metadata without planning or acting; next request clears selection", async t => {
   const h = await setup(t);
   h.llm.enqueue(tool("ask_architect", { instruction: "Design only, five by five, an oak door." }));
-  h.llm.enqueue(tool("submit_blueprint", await blueprintFixture(true)));
+  h.llm.enqueue(tool("submit_blueprint", await architectDrawingFixture()));
   h.llm.enqueue(reply);
   h.agent.submitUserMessage("player", "Draw a house. Do not build it.");
   await h.idle();
   assert.equal(h.delegations.length, 0);
   assert.equal(h.agent.task.steps.length, 0);
-  assert.equal(h.agent.task.construction!.blueprint.materials.find(m => m.item === "oak_door")!.quantity, 1);
+  assert.equal(h.agent.task.construction!.blueprint.materials.find(m => m.item === "oak_planks")!.quantity, 80);
   const id = h.agent.task.construction!.blueprint.blueprintId;
   assert.ok((await h.store.load(id)).ok);
   const coordinator = h.llm.requests[2]!;
   assert.match(coordinator.messages[0]!.content!, new RegExp(id));
   assert.doesNotMatch(JSON.stringify(coordinator.messages), /"layers"|"palette"/);
-  assert.deepEqual(h.llm.requests[1]!.tools!.map(t => t.name), ["lookup_material", "submit_blueprint"]);
+  assert.deepEqual(h.llm.requests[1]!.tools!.map(t => t.name), ["submit_blueprint"]);
   assert.equal(h.llm.requests[1]!.messages.filter(m => m.role === "user").length, 1);
   assert.ok(!h.llm.requests[0]!.tools!.some(t => ["build", "submit_blueprint"].includes(t.name)));
   assert.equal(h.journal.get(1)!.tool, "ask_architect");
@@ -105,8 +105,8 @@ test("design-only workflow selects saved metadata without planning or acting; ne
 
 test("construction handoff pins the same blueprint, quantities and constraints across replanning and delegation", async t => {
   const h = await setup(t);
-  h.llm.enqueue(tool("ask_architect", { instruction: "Five by five with one door, keep the lawn." }));
-  h.llm.enqueue(tool("submit_blueprint", await blueprintFixture(true)));
+  h.llm.enqueue(tool("ask_architect", { instruction: "Five by five with an open entrance, keep the lawn." }));
+  h.llm.enqueue(tool("submit_blueprint", await architectDrawingFixture()));
   h.llm.enqueue(tool("ask_planner", { instruction: "Prepare stock then build the selected drawing." }));
   h.llm.enqueue(plan);
   h.llm.enqueue(tool("ask_planner", { instruction: "Stock is supplied, revise to construction only." }));
@@ -122,12 +122,12 @@ test("construction handoff pins the same blueprint, quantities and constraints a
   for (const request of h.llm.requests.filter(r => r.trace?.phase === "planner")) {
     assert.equal(request.tools, undefined);
     assert.match(request.messages[0]!.content!, new RegExp(construction.blueprint.blueprintId));
-    assert.match(request.messages[0]!.content!, /oak_planks x55/);
+    assert.match(request.messages[0]!.content!, /oak_planks x80/);
     assert.match(request.messages[0]!.content!, /### build|### lookup_material/);
   }
   assert.deepEqual(h.delegations[0]!.construction, construction);
   const built = h.contextBuilder.build({ delegation: h.delegations[0]!, lastTask: null, lastResult: null, conversationSummary: "Earlier activity compacted." });
-  assert.match(built.messages[0]!.content!, /oak_door x1|keep the lawn/);
+  assert.match(built.messages[0]!.content!, /oak_planks x80|keep the lawn/);
   assert.match(built.messages[0]!.content!, new RegExp(construction.blueprint.blueprintId));
   assert.doesNotMatch(built.messages[0]!.content!, /"layers"/);
   const snapshot = h.agent.task.snapshot();
@@ -136,7 +136,7 @@ test("construction handoff pins the same blueprint, quantities and constraints a
 });
 
 test("replacement blueprint clears old verified steps and reports; failed redesign keeps the current reference", async t => {
-  const h = await setup(t), drawing = await blueprintFixture(true);
+  const h = await setup(t), drawing = await architectDrawingFixture();
   let firstId = "";
   h.llm.enqueue(tool("ask_architect", { instruction: "First design" }));
   h.llm.enqueue(tool("submit_blueprint", drawing));
@@ -148,7 +148,7 @@ test("replacement blueprint clears old verified steps and reports; failed redesi
     assert.equal(h.agent.task.steps[0]!.status, "done");
     return tool("ask_architect", { instruction: "Revised design" });
   });
-  h.llm.enqueue(tool("submit_blueprint", { ...drawing, name: "Revised" }));
+  h.llm.enqueue(tool("submit_blueprint", { drawing: "AAA\nAAA\nAAA" }));
   h.llm.enqueue(() => {
     assert.notEqual(h.agent.task.construction!.blueprint.blueprintId, firstId);
     assert.deepEqual(h.agent.task.steps, []);
@@ -161,7 +161,7 @@ test("replacement blueprint clears old verified steps and reports; failed redesi
     const result = JSON.parse(request.messages.at(-1)!.content!);
     assert.equal(result.ok, false);
     assert.equal(result.error.facts.reason, "TRUNCATED_RESPONSE");
-    assert.equal(h.agent.task.construction!.blueprint.name, "Revised");
+    assert.equal(h.agent.task.construction!.blueprint.name, "oak_structure_3x3x1");
     return reply;
   });
   h.agent.submitUserMessage("player", "Build and revise"); await h.idle();
@@ -177,7 +177,7 @@ test("stop waits for an uncooperative Architect call and does not install its la
   let settled = false;
   const stop = h.agent.requestStop("player").then(() => { settled = true; });
   await new Promise(r => setTimeout(r, 10)); assert.equal(settled, false);
-  deferred.resolve(tool("submit_blueprint", await blueprintFixture(true)));
+  deferred.resolve(tool("submit_blueprint", await architectDrawingFixture()));
   await stop;
   assert.equal(h.agent.task.construction, null);
   assert.equal(h.journal.get(1)!.completed, true);
@@ -191,13 +191,14 @@ test("stop waits for an uncooperative Architect call and does not install its la
   assert.equal(h.replies.at(-1), "Done");
 });
 
-test("shared material lookup has identical Architect and world-query contracts without world access", async t => {
+test("material lookup remains a world query, but is not an Architect tool", async t => {
   const h = await setup(t);
   for (const query of ["oak_plate", "oak_door", "diamond_block"]) {
     const call = tool("lookup_material", { query }).message.toolCalls![0]!;
     const architect = await h.tools.execute(call, new AbortController().signal);
     const general = await h.queries.execute("lookup_material", { query });
-    assert.deepEqual(architect.result, general);
+    assert.ok(!architect.result.ok && architect.result.error.facts?.reason === "UNKNOWN_TOOL");
+    assert.equal(general.ok, true);
   }
   const invalid = await h.queries.execute("lookup_material", { query: "" });
   assert.ok(!invalid.ok && invalid.error.code === "INVALID_ARGUMENT");
@@ -205,8 +206,8 @@ test("shared material lookup has identical Architect and world-query contracts w
 
 test("selected blueprint survives actual coordinator compression and still reaches the planner", async t => {
   const h = await setup(t);
-  h.llm.enqueue(tool("ask_architect", { instruction: "Keep an oak door" }));
-  h.llm.enqueue(tool("submit_blueprint", await blueprintFixture(true)));
+  h.llm.enqueue(tool("ask_architect", { instruction: "Keep the north entrance" }));
+  h.llm.enqueue(tool("submit_blueprint", await architectDrawingFixture()));
   let rounds = 0;
   for (let i = 0; i < 65; i++) h.llm.enqueue(request => {
     if (request.trace?.phase === "context_summary") return { message: { role: "assistant", content: '{"summary":"Observed the world repeatedly."}' }, finishReason: "stop" };
@@ -215,11 +216,11 @@ test("selected blueprint survives actual coordinator compression and still reach
     const call = n < 40 ? tool("get_self", {}) : n === 40 ? tool("ask_planner", { instruction: "Build selected house" }) : reply;
     return { ...call, message: { ...call.message, content: "Observe current terrain. ".repeat(100) } };
   });
-  h.agent.submitUserMessage("player", "House with oak door"); await h.idle();
+  h.agent.submitUserMessage("player", "Shelter with open entrance"); await h.idle();
   assert.ok(h.llm.requests.some(r => r.trace?.phase === "context_summary"));
   const planner = h.llm.requests.find(r => r.trace?.phase === "planner")!;
   assert.ok(planner);
   assert.match(planner.messages[0]!.content!, new RegExp(h.agent.task.construction!.blueprint.blueprintId));
-  assert.match(planner.messages[0]!.content!, /Keep an oak door|oak_door x1/);
-  assert.equal(planner.messages.at(-1)!.content, "House with oak door");
+  assert.match(planner.messages[0]!.content!, /Keep the north entrance|oak_planks x80/);
+  assert.equal(planner.messages.at(-1)!.content, "Shelter with open entrance");
 });

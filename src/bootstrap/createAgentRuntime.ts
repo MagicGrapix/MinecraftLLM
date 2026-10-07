@@ -129,7 +129,7 @@ export async function createAgentRuntime(
     llm,
     actionAgent,
     architectAgent: new ArchitectAgent({
-      llm, tools: new ArchitectTools(materials, blueprints), prompt: prompts.architect,
+      llm, tools: new ArchitectTools(blueprints), prompt: prompts.architect,
       contextSummaryPrompt: prompts.contextSummary, inspector: inspector ?? undefined, journal,
       temperature: config.llmTemperature, reasoningEffort: config.llmReasoningEffort,
     }),

@@ -5,19 +5,22 @@ import type { Bot } from "mineflayer";
 import { Vec3 } from "vec3";
 import { loadAgentConfig } from "../../src/agent/AgentConfig";
 import { createAgentRuntime, type RunningAgentRuntime } from "../../src/bootstrap/createAgentRuntime";
+import { parseArchitectDrawing } from "../../src/building/ArchitectDrawing";
 import { BlueprintValidator } from "../../src/building/BlueprintValidator";
 import { getFullTraceFilePath } from "../../src/Logger";
 import type { MinecraftRuntime } from "../../src/runtime/MinecraftRuntime";
 import { MaterialCatalog } from "../../src/world/MaterialCatalog";
 import { FakeLLMClient } from "../../tests/support/FakeLLMClient";
 import { enqueueBuildingWorkflow } from "../../tests/support/BuildingWorkflowScript";
-import { blueprintFixture } from "../../tests/support/blueprints";
+import { architectDrawingFixture } from "../../tests/support/blueprints";
 import { until } from "../../tests/e2e/async";
 
 /** Called only after build.ts verifies and owns its small empty test site. No Ollama. */
 export async function runBuildingWorkflowSmoke(runtime: MinecraftRuntime, observer: Bot, origin: Vec3, directory: string) {
-  const drawing = await blueprintFixture(true);
-  const compiled = new BlueprintValidator(new MaterialCatalog(runtime.bot.registry)).validate(drawing);
+  const drawing = await architectDrawingFixture();
+  const parsed = parseArchitectDrawing(drawing.drawing);
+  assert.ok(parsed.ok);
+  const compiled = new BlueprintValidator(new MaterialCatalog(runtime.bot.registry)).validate(parsed.value);
   assert.ok(compiled.ok);
   const script = new FakeLLMClient();
   let running: RunningAgentRuntime | undefined;
@@ -39,7 +42,7 @@ export async function runBuildingWorkflowSmoke(runtime: MinecraftRuntime, observ
     running.chat.detach();
     const finish = () => until(() => (running!.agent.state() as { mode: string }).mode === "idle", 330_000, "Building workflow", stop.signal);
     enqueueBuildingWorkflow(script, drawing, origin, true);
-    running.agent.submitUserMessage("smoke", "Draw a five-by-five oak house with one door. Do not construct it.");
+    running.agent.submitUserMessage("smoke", "Draw a five-by-five oak house with an open entrance. Do not construct it.");
     await finish();
     const designId = running.agent.task.construction?.blueprint.blueprintId;
     assert.ok(designId);
@@ -62,9 +65,9 @@ export async function runBuildingWorkflowSmoke(runtime: MinecraftRuntime, observ
       if (cell.kind === "door") return actual?.name === cell.block && Object.entries(cell.properties).every(([k, v]) => actual.getProperties()[k] === v);
       return actual?.name === (cell.kind === "block" ? cell.block : "air");
     }), 5000, "Independent observer verifies all blueprint cells", stop.signal);
-    await until(() => !runtime.bot.inventory.items().some(i => ["oak_planks", "cobblestone", "oak_door"].includes(i.name)), 3000, "Exact build stock consumed", stop.signal);
+    await until(() => !runtime.bot.inventory.items().some(i => ["oak_planks"].includes(i.name)), 3000, "Exact build stock consumed", stop.signal);
     assert.ok(running.isPhysicallyIdle());
-    console.info("Workflow smoke passed: design-only untouched, new request, Architect → planner → actioner → verified checklist; 81 placements. Scripted LLM, real Minecraft.", { trace: getFullTraceFilePath() });
+    console.info("Workflow smoke passed: design-only untouched, new request, Architect → planner → actioner → verified checklist; 80 placements. Scripted LLM, real Minecraft.", { trace: getFullTraceFilePath() });
   } finally {
     process.off("SIGINT", onStop); process.off("SIGTERM", onStop);
     await running?.shutdown("Building workflow smoke finished");

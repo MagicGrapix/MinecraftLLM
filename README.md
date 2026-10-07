@@ -53,7 +53,15 @@ Pour tester uniquement la conception de blueprints avec Ollama, sans connexion M
 npm.cmd run smoke:architect
 ```
 
-L'Architect peut chercher des matériaux et corriger/sauvegarder un dessin ; il ne construit rien lui-même.
+Pour l'atelier web interactif : `npm.cmd run dev:architect`, puis ouvrir
+http://127.0.0.1:3004/. Chaque essai utilise le vrai Architect, les prompts du projet et le vrai
+validateur, sans rejoindre Minecraft. Les messages, schémas des tools, réponses brutes, erreurs
+et couches du blueprint sont consultables séparément. Les prompts sont relus à chaque essai.
+Voir [le fonctionnement de l'atelier](docs/architect-workbench.md).
+
+L’Architect dessine et corrige un texte ASCII via `submit_blueprint({ drawing })` : A = planches de chêne,
+point = air, ligne vide entre couches. Dimensions déduites ; pas de choix de matériaux ou de portes.
+Il ne construit rien lui-même.
 Le coordinateur l'appelle via `ask_architect`, puis transmet le dessin accepté au planner et à l'actionneur.
 Ses limites sont dans `src/building/BuildingConfig.ts`,
 son prompt dans `prompts/architect.md`. Un dessin valide ne garantit pas que le modèle a respecté

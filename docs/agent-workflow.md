@@ -37,12 +37,13 @@ succès utilisable. Une nouvelle demande joueur ou un nouveau plan vide les rapp
 ## Architect isolé (lot 4)
 
 `ArchitectAgent.run(delegation, { signal?, generationId?, reflection? })` reçoit une demande utilisateur,
-une instruction de délégation, des contraintes et, facultativement, des observations et un extrait de discussion.
+des compléments facultatifs (instruction de délégation, contraintes, observations et extrait de discussion).
 Il crée une conversation privée neuve. `prompts/architect.md` est son unique prompt de rôle.
-Son system contient l'instruction, les limites et matériaux réellement supportés ; la demande utilisateur
-reste un message user protégé. Les observations ne lui donnent aucun droit de lecture du monde ou d'action.
+Son system contient seulement les règles de dessin, la légende fixe et les limites en texte.
+La demande et les compléments forment un seul message user protégé ; une instruction identique
+à la demande n’est pas dupliquée. Les observations ne donnent aucun droit d’action ou de lecture du monde.
 
-À chaque appel : un tool natif parmi `lookup_material` et `submit_blueprint`, puis le résultat réel dans
+À chaque appel : un tool natif `submit_blueprint({ drawing })`, puis le résultat réel dans
 un échange assistant/tool. Le replay reste natif pour préserver les grilles lors des corrections.
 Une soumission valide et enregistrée termine immédiatement la délégation : référence, nom/description,
 dimensions, facture et versions. Ni grille ni conversation privée ne partent dans le rapport.
@@ -51,7 +52,9 @@ Le contexte est abandonné après ce retour, même en échec ; les traces resten
 `ARCHITECT_LIMITS` dans `BuildingConfig.ts` fixe huit appels maximum, réponses mal formées et corrections
 comprises, et 4096 tokens de sortie par défaut. Il n'y a pas de seconde boucle de huit retries.
 Les résumés utilisent le compactor partagé et ses appels séparés bornés (deux retries maximum ici).
-Le plafond d'entrée de 20k inclut aussi le schéma Blueprint et le feedback de validation.
+Le plafond d’entrée de 20k inclut aussi le schéma du champ drawing et le feedback de validation.
+`ArchitectDrawing` convertit les couches texte A/point en Blueprint interne ; le modèle ne fournit
+ni dimensions, ni palette, ni portes. Les limites d’appels et la version Minecraft ne sont pas injectées dans le prompt.
 Les phases de trace sont `architect` et `architect_context_summary`, pas des modes planning/review.
 
 `requestStop()` interrompt le signal et attend la promesse en cours. Une nouvelle délégation est refusée

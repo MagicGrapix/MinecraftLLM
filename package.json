@@ -7,6 +7,7 @@
     "build": "tsc && node scripts/copy-inspector-ui.cjs",
     "dev": "ts-node src/main.ts",
     "dev:agent": "ts-node scripts/dev/agent.ts",
+    "dev:architect": "ts-node scripts/dev/architect/main.ts",
     "dev:demo": "ts-node scripts/dev/demo.ts",
     "dev:give": "ts-node scripts/dev/give-items.ts",
     "dev:world": "ts-node scripts/dev/world-builder.ts",

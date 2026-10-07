@@ -4,8 +4,8 @@ Le lot 1 fournit le format, la validation, les suggestions de noms, le calcul de
 Ces opérations hors ligne ne connectent aucun bot, ne contactent aucun LLM et ne modifient pas Minecraft.
 Le lot 2 ajoute la capability `build`, qui exécute une référence sauvegardée dans Minecraft, sans LLM interne.
 Le lot 3 ajoute les dépendances `oak_door` (un item, deux moitiés vérifiées).
-Le lot 4 ajoute l'Architect isolé, avec `submit_blueprint` et `lookup_material`.
-Son raccordement au coordinateur reste au lot 5 du [plan](plans/blueprint-builder.md).
+L’Architect isolé expose désormais un seul tool `submit_blueprint({ drawing })` (simplification du 6 octobre).
+Son raccordement au coordinateur est livré au lot 5 du [plan](plans/blueprint-builder.md).
 
 ## Composants
 
@@ -16,6 +16,7 @@ Son raccordement au coordinateur reste au lot 5 du [plan](plans/blueprint-builde
 - `src/building/BuildingConfig.ts` contient les limites et la liste explicite des blocs pleins admis.
 - `BlueprintDoors.ts` compile les portes ; `BuildDoor.ts` contrôle leur géométrie de pose ; `PlaceBuildDoor.ts` gère rotation et confirmation serveur.
 - `src/agent/ArchitectAgent.ts` et `ArchitectTools.ts` orchestrent la conception hors jeu avec le prompt `prompts/architect.md`.
+- `src/building/ArchitectDrawing.ts` adapte le dessin texte de l’Architect au format Blueprint interne.
 
 Exemple d'utilisation dans un script, sans démarrer Minecraft :
 
@@ -224,17 +225,21 @@ puis déconnecte les deux bots. Les blueprints temporaires sont supprimés. Aucu
 ## Architect (lot 4)
 
 `ArchitectAgent` reçoit un client LLM, deux templates (`architect.md`, `context-summary.md`),
-un `ArchitectTools` et éventuellement l'inspecteur. `ArchitectTools` partage le `MaterialCatalog`
-et le `BlueprintStore` construits pour la même version Minecraft. Aucun objet Mineflayer n'est requis.
+un `ArchitectTools` et éventuellement l’inspecteur. `ArchitectTools` ne reçoit que le `BlueprintStore` ;
+le validateur du store utilise le catalogue de la version Minecraft. Aucun objet Mineflayer n’est requis.
 La boucle est décrite dans [agents et contexte](agent-workflow.md#architect-isolé-lot-4).
 
-- `lookup_material({ query, kind?: "block" | "item" })` : `kind` vaut `block` par défaut.
-  Retourne version, `exact` ou null, et au plus cinq suggestions. Chaque entrée indique `blueprintSupport` :
-  `palette_cube`, `door_dependency` ou `unsupported`. Un nom connu ne prouve ni recette ni disponibilité.
-- `submit_blueprint(blueprint)` : les arguments sont directement l'objet Blueprint complet.
-  Réutilise `BlueprintStore.save`, donc le validateur déterministe avant toute publication.
-  `INVALID_BLUEPRINT` est renvoyé au modèle pour correction ; une panne de stockage termine l'appel.
-  Aucun champ `blueprintId`, chemin, facture ou grille compilée n'est fourni par le modèle.
+- `submit_blueprint({ drawing: string })` : texte multiligne, A = oak_planks, point = air requis.
+  Une ligne vide sépare les couches du bas vers le haut. Lignes nord→sud, caractères ouest→est.
+  Le modèle ne fournit ni nom, description, palette, dimensions, ni dépendances.
+- `ArchitectDrawing` normalise les fins de ligne CRLF/LF, ignore les séparateurs vides extérieurs/répétés,
+  mais ne répare ni lignes, ni symboles. Les erreurs donnent la couche/ligne à partir de 1.
+  Limites : 8 caractères par ligne, 8 lignes par couche, 5 couches, 2048 caractères au total.
+- Le code déduit les dimensions, génère un nom technique et le Blueprint interne, puis appelle
+  `BlueprintStore.save`. Le format de stockage et les capacités du Builder (dont les portes) restent inchangés.
+  Un dessin invalide n’est pas enregistré. Le modèle reçoit le feedback pour resoumettre l’ensemble.
+  Une panne de stockage termine la délégation, sans demander au modèle de corriger le disque.
+- `lookup_material` reste disponible dans les queries des autres agents, pas dans ce rôle simplifié.
 
 Une soumission acceptée retourne `blueprintId`, `formatVersion`, `minecraftVersion`, `name`,
 `description`, `dimensions: { width, depth, height }`, `materials`. La facture est calculée en code.
@@ -260,7 +265,7 @@ Il ne démarre pas de serveur debug et n'ajoute rien à la session de l'interfac
 Son dernier paramètre facultatif `{ llm, blueprintsDirectory }` est une injection applicative pour les tests,
 jamais un argument modifiable par le modèle. Par défaut : client configuré et `data/blueprints/`.
 Voir [le cycle de sélection/remplacement/arrêt](agent-workflow.md#construction-dans-le-workflow-lot-5).
-Les prompts coordinator/planner/actioner reçoivent `{{construction_context}}` ; le prompt Architect est inchangé.
+Les prompts coordinator/planner/actioner reçoivent `{{construction_context}}`. Le prompt Architect reste séparé.
 `agent_summary_<session>.md` inclut désormais la référence sélectionnée et les matériaux, sans grille.
 L'inspecteur distingue « blueprint validated, not built » et les appels physiques `build` à leur origine.
 
@@ -269,10 +274,10 @@ npm.cmd run smoke:build-workflow
 ```
 
 Même serveur, bots, coin de test et nettoyage que `smoke:build`. Les matériaux sont fournis par le
-controller : 55 planches, 25 blocs de cobblestone et une porte. Le test appelle le vrai
+controller : 80 planches de chêne. La fixture texte est `architect-shelter.txt`. Le test appelle le vrai
 bootstrap/workflow avec un client LLM **scripté**, pas Ollama : conception sans modification du monde,
 puis nouvelle demande avec Architect → planner → actionneur → build → complétion.
-Le controller vérifie indépendamment les 100 cellules contraintes, dont les états des deux moitiés de porte.
+Le controller vérifie indépendamment les 100 cellules contraintes : 80 blocs et 20 cellules d’air.
 L'inspecteur de ce smoke utilise le port 3003 pendant l'essai ; ses rounds, arguments et résultats
 sont conservés dans les traces JSONL normales. Les modèles sont étiquetés `scripted-fixture-no-llm`.
 Cela valide l'intégration et l'exécution Minecraft, **pas** la fiabilité des décisions de Qwen.

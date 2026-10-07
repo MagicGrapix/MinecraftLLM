@@ -1,11 +1,8 @@
-import { BlueprintSchema, type MaterialRequirement } from "../building/Blueprint";
+import type { MaterialRequirement } from "../building/Blueprint";
+import { SubmitDrawingSchema, parseArchitectDrawing } from "../building/ArchitectDrawing";
 import type { BlueprintStore } from "../building/BlueprintStore";
-import { SUPPORTED_DOORS } from "../building/BlueprintDoors";
-import { BLUEPRINT_SOLID_BLOCKS } from "../building/BuildingConfig";
 import { failure, success, type TaskResult } from "../execution/TaskResult";
 import type { LLMTool, LLMToolCall } from "../llm/LLMClient";
-import type { MaterialCatalog } from "../world/MaterialCatalog";
-import { LookupMaterialSchema, LOOKUP_MATERIAL_DESCRIPTION, lookupMaterial, blueprintSupport } from "../world/queries/LookupMaterial";
 import { invalidToolArguments, parseToolArguments } from "../shared/ToolArgumentFeedback";
 import { toJsonSchema } from "./ToolCatalogBuilder";
 
@@ -30,30 +27,18 @@ export interface ArchitectToolOutcome {
 export class ArchitectTools {
   readonly definitions: readonly LLMTool[] = [
     {
-      name: "lookup_material",
-      description: LOOKUP_MATERIAL_DESCRIPTION,
-      parameters: toJsonSchema(LookupMaterialSchema),
-    },
-    {
       name: "submit_blueprint",
-      description: "Does: Validate and save the complete blueprint passed directly as arguments.\nSuccess: Returns an immutable blueprintId, dimensions and calculated material bill; ends this delegation automatically.\nLimits: Does not build, obtain materials, verify terrain access or prove the design meets the player's intent.\nNotes: On validation errors, fix the indicated paths and resubmit the full drawing. Never put doors in the palette; declare them in dependencies.doors.",
-      parameters: toJsonSchema(BlueprintSchema),
+      description: "Does: Validate and save the complete text drawing.\nSuccess: Returns a blueprint reference, inferred dimensions and block count; ends this delegation.\nLimits: Does not build or prove that the drawing meets the request.\nNotes: On error, correct the indicated layer or row and resubmit the entire drawing.",
+      parameters: toJsonSchema(SubmitDrawingSchema),
     },
   ];
 
-  constructor(readonly catalog: MaterialCatalog, private readonly store: Pick<BlueprintStore, "save">) {}
-
-  supportedMaterials(): { cubes: string[]; doors: string[] } {
-    return {
-      cubes: BLUEPRINT_SOLID_BLOCKS.filter(name => blueprintSupport(this.catalog, name) === "palette_cube"),
-      doors: SUPPORTED_DOORS.filter(name => blueprintSupport(this.catalog, name) === "door_dependency"),
-    };
-  }
+  constructor(private readonly store: Pick<BlueprintStore, "save">) {}
 
   async execute(call: LLMToolCall, signal: AbortSignal): Promise<ArchitectToolOutcome> {
     signal.throwIfAborted();
     if (!this.definitions.some(tool => tool.name === call.name)) {
-      return { result: failure("INVALID_ARGUMENT", "Unknown Architect tool. Use lookup_material or submit_blueprint.", {
+      return { result: failure("INVALID_ARGUMENT", "Unknown Architect tool. Use submit_blueprint with one drawing string.", {
         facts: { reason: "UNKNOWN_TOOL", tool: call.name.slice(0, 128) },
       }) };
     }
@@ -64,16 +49,15 @@ export class ArchitectTools {
         facts: { reason: "INVALID_TOOL_ARGUMENTS", tool: call.name },
       }) };
     }
-    if (call.name === "lookup_material") {
-      const parsed = LookupMaterialSchema.safeParse(args);
-      if (!parsed.success) return { result: failure("INVALID_ARGUMENT", invalidToolArguments(call.name, args, parsed.error.issues, LookupMaterialSchema), {
-        facts: { issues: parsed.error.issues.slice(0, 5).map(issue => ({ path: issue.path.join("."), message: issue.message })) },
-      }) };
-      return { result: success(lookupMaterial(this.catalog, parsed.data)) };
-    }
+    const parsed = SubmitDrawingSchema.safeParse(args);
+    if (!parsed.success) return { result: failure("INVALID_ARGUMENT", invalidToolArguments(call.name, args, parsed.error.issues, SubmitDrawingSchema), {
+      facts: { reason: "INVALID_TOOL_ARGUMENTS", issues: parsed.error.issues.slice(0, 5).map(issue => ({ path: issue.path.join("."), message: issue.message })) },
+    }) };
+    const drawing = parseArchitectDrawing(parsed.data.drawing);
+    if (!drawing.ok) return { result: drawing };
 
     // Store validates before publishing. Await publication even if stop arrives during filesystem I/O.
-    const saved = await this.store.save(args);
+    const saved = await this.store.save(drawing.value);
     if (!saved.ok) return { result: saved, fatal: saved.error.facts?.reason !== "INVALID_BLUEPRINT" };
     const { blueprint, id, formatVersion, minecraftVersion, materials } = saved.value;
     const accepted: ArchitectReport = {

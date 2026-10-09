@@ -11,19 +11,19 @@ import { OpenAICompatibleLLMClient } from "../../../src/llm/OpenAICompatibleLLMC
 import { MaterialCatalog } from "../../../src/world/MaterialCatalog";
 import { architectDrawingFixture } from "../../support/blueprints";
 
-const input: TrialInput = { request: "Design a small shelter", instruction: "", constraints: [], observations: "", maxTokens: 8192, reasoningEffort: "none" };
+const input: TrialInput = { mode: "complete", request: "Design a small shelter", instruction: "", constraints: [], observations: "", maxTokens: 8192, reasoningEffort: "none" };
 const catalog = new MaterialCatalog(minecraftData("1.21.11"));
 type Handler = (body: Record<string, unknown>, options: { signal?: AbortSignal }) => Promise<unknown>;
-function response(args: unknown) {
+function response(args: unknown, name = "submit_blueprint") {
   return { choices: [{ finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [
-    { id: "call_1", type: "function", function: { name: "submit_blueprint", arguments: typeof args === "string" ? args : JSON.stringify(args) } },
+    { id: "call_1", type: "function", function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) } },
   ] } }], usage: { prompt_tokens: 123, completion_tokens: 45, total_tokens: 168 } };
 }
 async function setup(t: TestContext, handler: Handler) {
   const root = await mkdtemp(join(tmpdir(), "architect-workbench-"));
   const prompts = join(root, "prompts");
   await mkdir(prompts);
-  for (const name of ["architect.md", "context-summary.md"]) await writeFile(join(prompts, name), await readFile(resolve("prompts", name)));
+  for (const name of ["architect.md", "architect-layers.md", "context-summary.md"]) await writeFile(join(prompts, name), await readFile(resolve("prompts", name)));
   const workbench = new ArchitectWorkbench({ directory: join(root, "trials"), promptsDirectory: prompts,
     catalog, model: "test-model", temperature: 0.2, defaults: { maxTokens: 4096, reasoningEffort: "medium" },
     createClient: inspector => new OpenAICompatibleLLMClient({ model: "test-model", apiKey: "secret-not-in-artifacts", baseUrl: "http://unused.invalid", requestTimeoutMs: 1000, inspector }, { create: handler }),
@@ -184,4 +184,40 @@ test("local HTTP server rejects foreign origins, invalid inputs, traversal and o
   release(response(await architectDrawingFixture()));
   await workbench.waitForIdle();
   assert.equal((await post("/api/stop", {})).status, 200);
+});
+
+test("layered workbench traces templates, rejected edits, backward edits and final publication using real validation", async t => {
+  const layers = ["AAAAAA\nAAAAAA\nAAAAAA\nAAAAAA\nAAAAAA", "AA.AAA\nA....A\nA.....\nA....A\nAAAAAA",
+    "AAAAAA\nA....A\nA.....\nA....A\nAAAAAA", "AAAAAA\nAAAAAA\nAAAAAA\nAAAAAA\nAAAAAA"];
+  const sequence = [
+    response({ width: 6, depth: 5, height: 4, description: "Floor, walls with east doorway and north window, walls with upper doorway, roof." }, "start_blueprint"),
+    response({ layer: 1, drawing: layers[0] }, "set_blueprint_layer"),
+    response({}, "finish_blueprint"),
+    response({ layer: 2, drawing: layers[1]!.replace("A....A", "A.....A") }, "set_blueprint_layer"),
+    response({ layer: 2, drawing: layers[2] }, "set_blueprint_layer"),
+    response({ layer: 3, drawing: layers[2] }, "set_blueprint_layer"),
+    response({ layer: 4, drawing: layers[3] }, "set_blueprint_layer"),
+    response({ layer: 2, drawing: layers[1] }, "set_blueprint_layer"),
+    response({}, "finish_blueprint"),
+  ];
+  let i = 0;
+  const { workbench } = await setup(t, async body => {
+    const tools = body.tools as { function: { name: string } }[];
+    assert.deepEqual(tools.map(t => t.function.name), ["start_blueprint", "set_blueprint_layer", "finish_blueprint"]);
+    assert.doesNotMatch(JSON.stringify(body.messages), /\{\{max_width\}\}/);
+    return sequence[i++];
+  });
+  const summary = workbench.start({ ...input, mode: "layers" });
+  await workbench.waitForIdle();
+  const trial = (await workbench.get(summary.id))!;
+  assert.equal(trial.status, "accepted");
+  assert.equal(trial.settings.maxCalls, 16);
+  assert.equal(trial.calls.length, sequence.length);
+  assert.match(trial.prompts[0]!.path, /architect-layers.md$/);
+  assert.deepEqual(trial.calls.map(c => c.round!.toolExecutions[0]!.ok), [true, true, false, false, true, true, true, true, true]);
+  assert.match(trial.calls[3]!.round!.toolExecutions[0]!.result!, /Row 2: 7 characters; expected 6/);
+  assert.match(trial.calls[7]!.round!.toolExecutions[0]!.result!, /4\/4 layers defined/);
+  assert.deepEqual(trial.blueprint!.blueprint.layers.map(rows => rows.join("\n")), layers);
+  assert.deepEqual(trial.blueprint!.materials, [{ item: "oak_planks", quantity: 93 }]);
+  assert.equal((await readdir(join(trial.directory, "blueprints"))).length, 1);
 });

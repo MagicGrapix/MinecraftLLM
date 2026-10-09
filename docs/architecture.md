@@ -25,6 +25,10 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `scripts/dev/architect/` est un atelier web hors Minecraft, lancé par `dev:architect`.
   Il instancie le vrai `ArchitectAgent` et un store isolé par essai ; aucun composant de production
   ne dépend de cet atelier. Voir [isolation, traces et UI](architect-workbench.md).
+  Il compare le dessin complet au mode expérimental par couches : `ArchitectDraft` conserve le brouillon,
+  `LayeredArchitectTools` fournit start/set/finish. La boucle dépend du petit contrat `ArchitectToolset` ;
+  chaque nouvelle délégation remet le brouillon à zéro. Les deux modes partagent la publication validée.
+  Le bootstrap Minecraft conserve le mode dessin complet ; aucun changement du builder.
 
 - `src/bootstrap/createAgentRuntime.ts` assemble clients, queries, capabilities, agents, chat et inspecteur.
 - `WorkflowAgent.ts` dirige les délégations et garde `WorkflowState`. `ActionRunner` dans `ActionTypes.ts`

@@ -38,7 +38,7 @@ succès utilisable. Une nouvelle demande joueur ou un nouveau plan vide les rapp
 
 `ArchitectAgent.run(delegation, { signal?, generationId?, reflection? })` reçoit une demande utilisateur,
 des compléments facultatifs (instruction de délégation, contraintes, observations et extrait de discussion).
-Il crée une conversation privée neuve. `prompts/architect.md` est son unique prompt de rôle.
+Il crée une conversation privée neuve. `prompts/architect.md` est son prompt de rôle en production.
 Son system contient seulement les règles de dessin, la légende fixe et les limites en texte.
 La demande et les compléments forment un seul message user protégé ; une instruction identique
 à la demande n’est pas dupliquée. Les observations ne donnent aucun droit d’action ou de lecture du monde.
@@ -56,6 +56,11 @@ Le plafond d’entrée de 20k inclut aussi le schéma du champ drawing et le fee
 `ArchitectDrawing` convertit les couches texte A/point en Blueprint interne ; le modèle ne fournit
 ni dimensions, ni palette, ni portes. Les limites d’appels et la version Minecraft ne sont pas injectées dans le prompt.
 Les phases de trace sont `architect` et `architect_context_summary`, pas des modes planning/review.
+
+L'atelier peut sélectionner une variante par couches : `architect-layers.md`, `LayeredArchitectTools`
+et seize appels maximum, sans changer le bot. La même boucle appelle start/set/finish et conserve tous
+les échanges natifs. Chaque résultat contient le brouillon complet ; seule la réussite de finish termine
+la délégation. Le brouillon est remis à zéro au début de la suivante. Voir [l'atelier](architect-workbench.md).
 
 `requestStop()` interrompt le signal et attend la promesse en cours. Une nouvelle délégation est refusée
 tant que celle-ci n'est pas terminée. Une écriture déjà commencée reste attendue : elle peut laisser un

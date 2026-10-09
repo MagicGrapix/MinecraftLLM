@@ -8,7 +8,7 @@ import type { LLMClient, LLMMessage, LLMRequestTrace } from "../llm/LLMClient";
 import { LLMError } from "../llm/LLMError";
 import type { PromptTemplate } from "../prompts/PromptTemplate";
 import { writeTrace } from "../TraceLog";
-import { ArchitectTools, type ArchitectReport, type ArchitectToolOutcome } from "./ArchitectTools";
+import type { ArchitectToolset, ArchitectReport, ArchitectToolOutcome } from "./ArchitectTools";
 import { ContextCompactor, type ContextBudget } from "./ContextCompactor";
 import { MessageHistory, withValidationFeedback } from "./MessageHistory";
 
@@ -24,7 +24,7 @@ export interface ArchitectDelegation {
 
 export interface ArchitectOptions {
   readonly llm: LLMClient;
-  readonly tools: ArchitectTools;
+  readonly tools: ArchitectToolset;
   readonly prompt: PromptTemplate;
   readonly contextSummaryPrompt: PromptTemplate;
   readonly inspector?: AgentInspector;
@@ -91,6 +91,7 @@ export class ArchitectAgent {
     let calls = 0;
     try {
       signal.throwIfAborted();
+      this.options.tools.reset?.();
       for (const message of delegation.conversation ?? []) history.append(message);
       history.append({ role: "user", content: architectUserMessage(delegation) });
       const system = this.options.prompt.render({
@@ -129,7 +130,7 @@ export class ArchitectAgent {
         }
         const call = response.message.toolCalls?.[0];
         if (response.message.toolCalls?.length !== 1 || !call?.id?.trim()) {
-          correction = "Return exactly one native submit_blueprint tool call with a nonempty call id and one drawing string. Text alone does not submit a blueprint.";
+          correction = `Return exactly one native ${this.options.tools.definitions.map(tool => tool.name).join(" or ")} tool call with a nonempty call id and the required arguments. Text alone does not submit a blueprint.`;
           this.options.inspector?.annotate(trace, { validationError: correction });
           this.options.inspector?.finalizeRound(trace, "invalid_response");
           writeTrace("architect.invalid_response", { generationId, round, response, correction });
@@ -156,7 +157,10 @@ export class ArchitectAgent {
           return failure("INTERRUPTED", "Architect stopped.", { facts: { calls,
             ...(outcome.accepted ? { savedBlueprintId: outcome.accepted.blueprintId } : {}) } });
         }
-        history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id, content }]);
+        // Keep native call/result roles, but let drawing tools return real ASCII rows instead of escaped JSON strings.
+        const historyContent = outcome.feedback === undefined ? content
+          : `${actionNumber === undefined ? "" : `Action #${actionNumber}\n`}${outcome.feedback}`;
+        history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id, content: historyContent }]);
         this.options.inspector?.finalizeRound(trace, outcome.fatal ? "error"
           : !outcome.accepted && round === this.maxCalls - 1 ? "tool_round_limit" : "completed");
         console.info("Architect tool completed.", { tool: call.name, ok: outcome.result.ok });

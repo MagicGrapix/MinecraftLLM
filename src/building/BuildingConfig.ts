@@ -30,6 +30,7 @@ export const BUILD_LIMITS = Object.freeze({
 /** Includes invalid responses/corrections; summary calls use the shared bounded compactor. */
 export const ARCHITECT_LIMITS = Object.freeze({
   maxCalls: 8,
+  layeredMaxCalls: 16,
   maxTokens: 4_096,
   summaryRetries: 2,
 });

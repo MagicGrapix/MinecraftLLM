@@ -7,8 +7,9 @@
   <div class="workspace">
     <aside class="sidebar">
       <h2>Nouvel essai</h2>
-      <p class="muted">Même agent, mêmes prompts et validation. Contexte neuf à chaque lancement.</p>
+      <p class="muted">Même boucle Architect et validation. Compare les deux méthodes, avec un contexte neuf à chaque lancement.</p>
       <form id="form">
+        <label for="mode">Méthode de dessin</label><select id="mode"><option value="layers" selected>Couche par couche · expérimental</option><option value="complete">Dessin complet · actuel dans le bot</option></select>
         <label for="request">Demande du joueur</label><textarea id="request" required maxlength="8000" rows="5" placeholder="Dessine un abri en planches de chêne de 5 × 5, avec une ouverture et un toit."></textarea>
         <details><summary>Contexte de délégation</summary>
           <label for="instruction">Instruction du coordinateur</label><textarea id="instruction" maxlength="8000" rows="3" placeholder="Facultatif : complément à la demande, sans la répéter"></textarea>

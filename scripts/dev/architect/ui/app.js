@@ -11,9 +11,18 @@ function toolArguments(title, args, open = false) {
   const value = parsed(args);
   if (typeof value?.drawing !== "string") return fold(title, value, open);
   const d = el("details"); d.open = open;
-  d.append(el("summary", title), el("p", "drawing · texte reçu, sans transformation", "hint"), pre(value.drawing),
+  d.append(el("summary", title), el("p", `${value.layer === undefined ? "drawing" : `Layer ${value.layer}`} · texte reçu, sans transformation`, "hint"), pre(value.drawing),
     fold("Arguments JSON exacts", args));
   return d;
+}
+function toolFeedback(target, raw) {
+  const result = typeof raw === "string" ? parsed(raw) : raw;
+  const data = result?.ok ? result.value : result?.error?.facts;
+  if (typeof data?.draft !== "string") { target.append(pre(result)); return; }
+  const message = result.ok ? data.message : result.error?.message;
+  if (message) target.append(el("p", message, result.ok ? "" : "notice"));
+  if (data.annotatedDrawing) target.append(el("h3", "Tentative rejetée · annotations"), pre(data.annotatedDrawing));
+  target.append(el("h3", "Brouillon courant · état conservé"), pre(data.draft), fold("Résultat JSON exact", result));
 }
 function card(title, cls = "") { const c = el("article", undefined, `card ${cls}`); c.append(el("div", title, "tag")); return c; }
 function showError(error) { $("error").textContent = String(error); $("error").hidden = false; }
@@ -92,7 +101,7 @@ function renderDetail() {
   detail.replaceChildren();
   $("trial-id").textContent = trial.id;
   $("title").textContent = trial.request;
-  $("status").textContent = `${names[trial.status]} · ${trial.calls.length} appel(s) · ${duration(trial.startedAt, trial.finishedAt)} · ${trial.settings.model}`;
+  $("status").textContent = `${names[trial.status]} · ${trial.input.mode === "layers" ? "Couche par couche" : "Dessin complet"} · ${trial.calls.length} appel(s) · ${duration(trial.startedAt, trial.finishedAt)} · ${trial.settings.model}`;
   $("refresh").hidden = displayed.revision === latest?.revision;
   if (trial.artifactError) detail.append(el("p", `Erreur de sauvegarde : ${trial.artifactError}`, "notice"));
   if (tab === "sources") return renderSources(detail, trial);
@@ -131,7 +140,8 @@ function renderConversation(detail, call) {
       const sections = msg.content.split(/(?=^#{1,3} )/m).filter(Boolean);
       for (const section of sections) c.append(fold(section.split("\n")[0].replace(/^#+\s*/, ""), section, true));
       c.append(fold("Message système exact, sans découpage", msg.content));
-    } else if (msg.content !== null && msg.content !== undefined) c.append(pre(typeof msg.content === "string" ? parsed(msg.content) : msg.content));
+    } else if (msg.role === "tool") toolFeedback(c, msg.content);
+    else if (msg.content !== null && msg.content !== undefined) c.append(pre(typeof msg.content === "string" ? parsed(msg.content) : msg.content));
     for (const tool of msg.tool_calls || []) c.append(toolArguments(`Appel rejoué · ${tool.function?.name} · ${tool.id}`, tool.function?.arguments, true));
     detail.append(c);
   });
@@ -155,7 +165,8 @@ function renderConversation(detail, call) {
   detail.append(response);
   for (const tool of round?.toolExecutions || []) {
     const c = card(`${tool.name} · ${tool.ok === true ? "succès" : tool.ok === false ? "refus / erreur" : "en cours"}`, tool.ok === false ? "bad" : "good");
-    c.append(toolArguments("Arguments soumis", tool.arguments), el("h3", "Feedback réel de l’outil"), pre(tool.result ? parsed(tool.result) : "En attente")); detail.append(c);
+    c.append(toolArguments("Arguments soumis", tool.arguments), el("h3", "Feedback réel de l’outil"));
+    toolFeedback(c, tool.result || "En attente"); detail.append(c);
   }
 }
 function renderSources(detail, trial) {
@@ -170,7 +181,17 @@ function renderBlueprints(detail, trial) {
   for (const call of trial.calls) {
     const tools = call.round?.response?.toolCalls ?? call.rawResponse?.choices?.[0]?.message?.tool_calls ?? [];
     for (const tool of tools) {
-      if ((tool.name || tool.function?.name) !== "submit_blueprint") continue;
+      const name = tool.name || tool.function?.name;
+      if (["start_blueprint", "set_blueprint_layer", "finish_blueprint"].includes(name)) {
+        count++;
+        const feedback = call.round?.toolExecutions?.find(t => t.toolCallId === tool.id);
+        const c = card(`${count} · ${name} · ${feedback?.ok === true ? "succès" : feedback?.ok === false ? "refus" : "non exécuté"}`, feedback?.ok === true ? "good" : "bad");
+        c.append(toolArguments("Arguments soumis", tool.arguments ?? tool.function?.arguments, name === "set_blueprint_layer"));
+        toolFeedback(c, feedback?.result || "Aucun changement appliqué.");
+        detail.append(c);
+        continue;
+      }
+      if (name !== "submit_blueprint") continue;
       count++;
       const feedback = call.round?.toolExecutions?.find(t => t.toolCallId === tool.id);
       const c = card(`Soumission ${count} · ${feedback?.ok === true ? "acceptée" : feedback?.ok === false ? "refusée" : "non exécutée"}`, feedback?.ok === true ? "good" : "bad");
@@ -214,13 +235,13 @@ function renderBlueprints(detail, trial) {
       detail.append(c);
     }
   }
-  if (!count) detail.append(el("p", "Aucun appel submit_blueprint reçu pour l’instant. Consulte Conversation pour les erreurs de format ou limites de sortie.", "muted"));
+  if (!count) detail.append(el("p", "Aucun outil de dessin reçu pour l’instant. Consulte Conversation pour les erreurs de format ou limites de sortie.", "muted"));
   if (trial.blueprint) detail.append(fold("Blueprint sauvegardé et quantités calculées", trial.blueprint));
 }
 $("form").onsubmit = async event => {
   event.preventDefault(); $("error").hidden = true; $("start").disabled = true;
   try {
-    const trial = await api("/api/trials", { request: $("request").value, instruction: $("instruction").value,
+    const trial = await api("/api/trials", { mode: $("mode").value, request: $("request").value, instruction: $("instruction").value,
       constraints: $("constraints").value.split("\n").map(s => s.trim()).filter(Boolean), observations: $("observations").value,
       maxTokens: Number($("tokens").value), reasoningEffort: $("reasoning").value });
     state = await api("/api/state"); await selectTrial(trial.id);

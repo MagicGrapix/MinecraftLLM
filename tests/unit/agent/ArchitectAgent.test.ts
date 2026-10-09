@@ -6,6 +6,7 @@ import test, { type TestContext } from "node:test";
 import minecraftData from "minecraft-data";
 import { ArchitectAgent, architectUserMessage, type ArchitectOptions } from "../../../src/agent/ArchitectAgent";
 import { ArchitectTools } from "../../../src/agent/ArchitectTools";
+import { LayeredArchitectTools } from "../../../src/agent/LayeredArchitectTools";
 import { BlueprintStore } from "../../../src/building/BlueprintStore";
 import { BlueprintValidator } from "../../../src/building/BlueprintValidator";
 import { ARCHITECT_LIMITS } from "../../../src/building/BuildingConfig";
@@ -282,3 +283,48 @@ async function tickUntil(predicate: () => boolean): Promise<void> {
   }
   throw new Error("Expected asynchronous boundary was not reached");
 }
+
+test("layered delegation keeps native tool history, finishes explicitly and resets its draft next run", async t => {
+  const base = await setup(t);
+  const tools = new LayeredArchitectTools(base.store);
+  const { agent, llm } = await setup(t, { tools, prompt: await PromptTemplate.load(resolve("prompts/architect-layers.md")) });
+  llm.enqueue(tool("start_blueprint", { width: 3, depth: 2, height: 1, description: "Flat floor" }));
+  llm.enqueue(request => {
+    assert.deepEqual(request.tools!.map(t => t.name), ["start_blueprint", "set_blueprint_layer", "finish_blueprint"]);
+    assert.match(request.messages.at(-1)!.content!, /not defined/);
+    assert.match(request.messages.at(-1)!.content!, /Layer 1 — not defined:\nXXX\nXXX/);
+    assert.throws(() => JSON.parse(request.messages.at(-1)!.content!)); // Plain multiline drawing, not an escaped JSON payload.
+    return tool("set_blueprint_layer", { layer: 1, drawing: "AAA\nAAA" });
+  });
+  llm.enqueue(async request => {
+    assert.deepEqual(request.messages.map(m => m.role), ["system", "assistant", "user", "assistant", "tool", "assistant", "tool"]);
+    assert.doesNotMatch(request.messages[0]!.content!, /Current draft:/);
+    assert.match(request.messages.at(-1)!.content!, /1\/1 layers defined/);
+    assert.deepEqual(await readdir(base.root), []);
+    return tool("finish_blueprint", {});
+  });
+  const report = value(await agent.run(delegation));
+  assert.deepEqual(report.dimensions, { width: 3, depth: 2, height: 1 });
+  assert.equal("draft" in report, false);
+  assert.deepEqual(value(await base.store.load(report.blueprintId)).blueprint.layers, [["AAA", "AAA"]]);
+  llm.enqueue(tool("finish_blueprint", {}));
+  llm.enqueue(request => {
+    assert.match(request.messages.at(-1)!.content!, /No draft yet/);
+    return tool("start_blueprint", { width: 1, depth: 1, height: 1, description: "New floor" });
+  });
+  llm.enqueue(tool("set_blueprint_layer", { layer: 1, drawing: "A" }));
+  llm.enqueue(tool("finish_blueprint", {}));
+  assert.deepEqual(value(await agent.run(delegation)).dimensions, { width: 1, depth: 1, height: 1 });
+});
+
+test("a truncated layer edit is not applied or saved", async t => {
+  const base = await setup(t);
+  const tools = new LayeredArchitectTools(base.store);
+  const { agent, llm } = await setup(t, { tools, prompt: await PromptTemplate.load(resolve("prompts/architect-layers.md")) });
+  llm.enqueue(tool("start_blueprint", { width: 1, depth: 1, height: 1, description: "Floor" }));
+  llm.enqueue({ ...tool("set_blueprint_layer", { layer: 1, drawing: "A" }), finishReason: "length" });
+  assert.equal(error(await agent.run(delegation)).facts?.reason, "TRUNCATED_RESPONSE");
+  const finish = await tools.execute({ id: "check", name: "finish_blueprint", arguments: "{}" }, new AbortController().signal);
+  assert.equal(error(finish.result).facts?.reason, "INVALID_BLUEPRINT");
+  assert.deepEqual(await readdir(base.root), []);
+});

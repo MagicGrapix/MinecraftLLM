@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { ArchitectAgent } from "../../../src/agent/ArchitectAgent";
 import { ArchitectTools, type ArchitectReport } from "../../../src/agent/ArchitectTools";
+import { LayeredArchitectTools } from "../../../src/agent/LayeredArchitectTools";
 import { BlueprintStore, type StoredBlueprint } from "../../../src/building/BlueprintStore";
 import { BlueprintValidator } from "../../../src/building/BlueprintValidator";
 import { ARCHITECT_LIMITS } from "../../../src/building/BuildingConfig";
@@ -16,6 +17,7 @@ import { subscribeTrace } from "../../../src/TraceLog";
 import type { MaterialCatalog } from "../../../src/world/MaterialCatalog";
 
 export const TrialInputSchema = z.object({
+  mode: z.enum(["complete", "layers"]).default("complete"),
   request: z.string().trim().min(1).max(8000),
   instruction: z.string().trim().max(8000).default(""),
   constraints: z.array(z.string().trim().min(1).max(1000)).max(20).default([]),
@@ -84,7 +86,8 @@ export class ArchitectWorkbench {
     const trial: Trial = { id, request: input.request, input, status: "running", startedAt: new Date().toISOString(),
       revision: 1, directory: resolve(this.options.directory, id), prompts: [], calls: [],
       settings: { model: this.options.model, temperature: this.options.temperature,
-        maxCalls: ARCHITECT_LIMITS.maxCalls, minecraftVersion: this.options.catalog.minecraftVersion } };
+        maxCalls: input.mode === "layers" ? ARCHITECT_LIMITS.layeredMaxCalls : ARCHITECT_LIMITS.maxCalls,
+        minecraftVersion: this.options.catalog.minecraftVersion } };
     const controller = new AbortController();
     this.trials.set(id, { summary: summarize(trial), detail: trial });
     // Schedule only after reserving the active slot (including prompt loading and disk writes).
@@ -129,7 +132,7 @@ export class ArchitectWorkbench {
     try {
       await mkdir(trial.directory, { recursive: true });
       signal.throwIfAborted();
-      trial.prompts = await Promise.all(["architect.md", "context-summary.md"].map(async name => {
+      trial.prompts = await Promise.all([trial.input.mode === "layers" ? "architect-layers.md" : "architect.md", "context-summary.md"].map(async name => {
         const path = resolve(this.options.promptsDirectory, name);
         return { path, source: await readFile(path, "utf8") };
       }));
@@ -161,10 +164,11 @@ export class ArchitectWorkbench {
       });
       const store = new BlueprintStore(new BlueprintValidator(this.options.catalog), { directory: join(trial.directory, "blueprints") });
       const agent = new ArchitectAgent({ llm: this.options.createClient(inspector), inspector,
-        tools: new ArchitectTools(store),
+        tools: trial.input.mode === "layers" ? new LayeredArchitectTools(store) : new ArchitectTools(store),
         prompt: PromptTemplate.fromString(trial.prompts[0]!.path, trial.prompts[0]!.source),
         contextSummaryPrompt: PromptTemplate.fromString(trial.prompts[1]!.path, trial.prompts[1]!.source),
         maxTokens: trial.input.maxTokens, reasoningEffort: trial.input.reasoningEffort,
+        maxCalls: trial.settings.maxCalls,
         temperature: this.options.temperature });
       trial.result = await agent.run({ userRequest: trial.input.request,
         instruction: trial.input.instruction || undefined,

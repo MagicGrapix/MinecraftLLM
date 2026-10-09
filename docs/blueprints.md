@@ -259,6 +259,16 @@ Les fichiers générés restent dans `data/blueprints/` ; les logs courts et les
 soumissions, erreurs et rounds d'inspecteur) restent dans `logs/`. Ctrl+C demande un arrêt attendu.
 Il ne démarre pas de serveur debug et n'ajoute rien à la session de l'interface 3001 déjà ouverte.
 
+### Expérience de conception par couches
+
+L'[atelier Architect](architect-workbench.md#couche-par-couche) propose aussi `start_blueprint`,
+`set_blueprint_layer` et `finish_blueprint`. `ArchitectDraft` garde les dimensions, le plan textuel
+et les couches acceptées en mémoire pendant une délégation. X n'existe que dans le gabarit ; il ne peut
+jamais être enregistré comme matériau ou comme air. Une couche invalide n'altère pas le brouillon.
+`LayeredArchitectTools` ne publie qu'après finish, via le même parseur et `saveArchitectBlueprint`
+que la soumission complète. Il ne s'agit pas d'un nouveau format Blueprint ni d'un builder différent.
+Le protocole par couches reste expérimental dans l'atelier, pas activé par le coordinateur Minecraft.
+
 ## Intégration (lot 5)
 
 `createAgentRuntime` partage client LLM, catalogue connecté et répertoire Blueprint entre Architect et Builder.

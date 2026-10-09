@@ -1,4 +1,4 @@
-import type { MaterialRequirement } from "../building/Blueprint";
+import type { Blueprint, MaterialRequirement } from "../building/Blueprint";
 import { SubmitDrawingSchema, parseArchitectDrawing } from "../building/ArchitectDrawing";
 import type { BlueprintStore } from "../building/BlueprintStore";
 import { failure, success, type TaskResult } from "../execution/TaskResult";
@@ -19,12 +19,20 @@ export interface ArchitectReport {
 
 export interface ArchitectToolOutcome {
   readonly result: TaskResult<unknown>;
+  /** Optional readable native-tool message; structured result stays in logs/inspector. */
+  readonly feedback?: string;
   readonly accepted?: ArchitectReport;
   readonly fatal?: boolean;
 }
 
+export interface ArchitectToolset {
+  readonly definitions: readonly LLMTool[];
+  execute(call: LLMToolCall, signal: AbortSignal): Promise<ArchitectToolOutcome>;
+  reset?(): void;
+}
+
 /** Offline-only tool surface. Deliberately has no runtime, Executor or controller. */
-export class ArchitectTools {
+export class ArchitectTools implements ArchitectToolset {
   readonly definitions: readonly LLMTool[] = [
     {
       name: "submit_blueprint",
@@ -56,15 +64,20 @@ export class ArchitectTools {
     const drawing = parseArchitectDrawing(parsed.data.drawing);
     if (!drawing.ok) return { result: drawing };
 
-    // Store validates before publishing. Await publication even if stop arrives during filesystem I/O.
-    const saved = await this.store.save(drawing.value);
-    if (!saved.ok) return { result: saved, fatal: saved.error.facts?.reason !== "INVALID_BLUEPRINT" };
-    const { blueprint, id, formatVersion, minecraftVersion, materials } = saved.value;
-    const accepted: ArchitectReport = {
-      blueprintId: id, formatVersion, minecraftVersion, name: blueprint.name, description: blueprint.description,
-      dimensions: { width: blueprint.width, depth: blueprint.depth, height: blueprint.layers.length },
-      materials: structuredClone(materials),
-    };
-    return { result: success(accepted), accepted };
+    return saveArchitectBlueprint(this.store, drawing.value);
   }
+}
+
+/** Both design modes share the same validated, immutable publication and handoff. */
+export async function saveArchitectBlueprint(store: Pick<BlueprintStore, "save">, drawing: Blueprint): Promise<ArchitectToolOutcome> {
+  // Store validates before publishing. Await publication even if stop arrives during filesystem I/O.
+  const saved = await store.save(drawing);
+  if (!saved.ok) return { result: saved, fatal: saved.error.facts?.reason !== "INVALID_BLUEPRINT" };
+  const { blueprint, id, formatVersion, minecraftVersion, materials } = saved.value;
+  const accepted: ArchitectReport = {
+    blueprintId: id, formatVersion, minecraftVersion, name: blueprint.name, description: blueprint.description,
+    dimensions: { width: blueprint.width, depth: blueprint.depth, height: blueprint.layers.length },
+    materials: structuredClone(materials),
+  };
+  return { result: success(accepted), accepted };
 }

@@ -9,7 +9,7 @@ Le port est la valeur par défaut dans `scripts/dev/architect/Server.ts`, indép
 
 ## Essais
 
-- Choisir « Couche par couche » (sélection initiale dans la page) ou « Dessin complet » (mode inchangé du bot).
+- Choisir « Layer by layer » (sélection initiale dans la page) ou « Complete drawing » (mode inchangé du bot).
   Le choix concerne cet essai uniquement, pas la configuration globale. L'API sans `mode` garde le mode `complete`.
 - Saisir la demande ; éventuellement fournir une instruction de délégation, des contraintes et des observations.
   La demande et les compléments sont regroupés dans un seul message user ; une instruction identique à la demande n’est pas répétée.
@@ -25,6 +25,10 @@ Le port est la valeur par défaut dans `scripts/dev/architect/Server.ts`, indép
 - Un nouvel essai crée un agent, un historique et un store neufs. Aucun historique d'essai précédent
   n'est transmis. Les fichiers `architect.md` ou `architect-layers.md`, et `context-summary.md`, du répertoire de prompts configuré
   sont relus à ce moment ; les textes lus sont à la fois archivés et utilisés, sans deuxième lecture.
+
+L'interface, ses exemples, les prompts et les libellés de contexte générés sont en anglais.
+Les demandes, instructions, contraintes et observations saisies restent dans leur langue d'origine :
+aucune traduction automatique ni modification des anciens essais ou des réponses du modèle.
 
 La boucle LLM, le store et la validation sont ceux de production. Le mode couches ajoute un prompt et
 trois outils expérimentaux, non activés dans le bot. Ce n'est pas un test de délégation par le coordinateur :
@@ -76,14 +80,14 @@ Le format stocké, le builder et les agents Minecraft restent inchangés.
   (16 couches, 32 lignes, 64 caractères), les arguments complets restent accessibles.
   En mode couches : initialisation, couches soumises, retours annotés et pile courante après chaque outil.
   Conversation affiche aussi le feedback texte déplié ; le JSON exact reste disponible séparément.
-- Sources & entrées : version des templates utilisée et paramètres de délégation.
-- JSON exact : corps réellement envoyé à l'API, réponse brute avant parsing, round de l'inspecteur
+- Sources & inputs : version des templates utilisée et paramètres de délégation.
+- Exact JSON : corps réellement envoyé à l'API, réponse brute avant parsing, round de l'inspecteur
   et téléchargement de l'essai entier. Pas de clé API dans ces données.
 
 Les cartes d'appels portent les erreurs en rouge. Une réponse `finish_reason: length` est signalée
 même si son parsing échoue ensuite. La réponse n'est pas streamée : on peut voir la requête pendant
 la génération, puis la réponse entière à son arrivée. Le panneau de lecture n'est jamais remplacé
-par un rafraîchissement automatique : sélectionner un appel/onglet ou « Actualiser ce détail » pour
+par un rafraîchissement automatique : sélectionner un appel/onglet ou « Refresh this detail » pour
 charger les nouveautés. Les listes d'essais/appels peuvent évoluer sans interrompre cette lecture.
 
 Un blueprint accepté prouve la validation du format, des matériaux et des dépendances prises en charge.

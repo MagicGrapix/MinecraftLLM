@@ -1,9 +1,27 @@
 import { z } from "zod";
 
+// Shared by the Minecraft agents and the Architect workbench. Restart after changing.
+export const LLM_BACKEND: "llamacpp" | "ollama" = "llamacpp";
+
+const LLM_CONNECTIONS = {
+  llamacpp: {
+    baseUrl: "http://127.0.0.1:8080/v1",
+    apiKey: "local",
+    // Single-model llama-server uses its loaded GGUF; this is a request/display label.
+    model: "qwen27b",
+  },
+  ollama: {
+    baseUrl: "http://localhost:11434/v1",
+    apiKey: "ollama",
+    model: "qwen3.5:9b",
+  },
+};
+const llmDefaults = LLM_CONNECTIONS[LLM_BACKEND];
+
 const EnvironmentSchema = z.object({
-  LLM_BASE_URL: z.string().url().default("http://localhost:11434/v1"),
-  LLM_API_KEY: z.string().min(1).default("ollama"),
-  LLM_MODEL: z.string().min(1).default("qwen3.5:9b"),
+  LLM_BASE_URL: z.string().url().default(llmDefaults.baseUrl),
+  LLM_API_KEY: z.string().min(1).default(llmDefaults.apiKey),
+  LLM_MODEL: z.string().min(1).default(llmDefaults.model),
   LLM_TEMPERATURE: numericEnvironment(0.2, 0, 2),
   LLM_REASONING_EFFORT: z
     .enum(["none", "low", "medium", "high", "max"])

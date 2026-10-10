@@ -3,7 +3,9 @@
 ## Lancer
 
 Depuis la racine : `npm.cmd run dev:architect`, puis http://127.0.0.1:3004/.
-Ollama doit être disponible pour lancer un essai. Ouvrir la page ne fait aucun appel LLM.
+Le serveur LLM sélectionné dans `src/agent/AgentConfig.ts` doit être disponible pour lancer un essai.
+`LLM_BACKEND = "llamacpp"` utilise le serveur existant sur le port 8080 ; `"ollama"` revient au 9B.
+Ce choix est partagé avec le bot ; redémarrer l'atelier après modification. Ouvrir la page ne fait aucun appel LLM.
 Minecraft, le coordinateur, l'actionneur et le world controller ne sont ni lancés ni rejoints.
 Le port est la valeur par défaut dans `scripts/dev/architect/Server.ts`, indépendante du debug du bot (3001).
 

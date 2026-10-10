@@ -5,7 +5,7 @@ Le coordinateur dialogue avec le joueur, le planner crée une checklist, l'actio
 
 ## Démarrer
 
-Depuis la racine du projet, avec Minecraft et Ollama déjà lancés :
+Depuis la racine du projet, avec Minecraft et le serveur LLM déjà lancés :
 
 ```powershell
 npm.cmd install
@@ -17,9 +17,15 @@ Dans Minecraft, écrire une demande au bot. Pendant une requête, seuls `stop` e
 Les messages ordinaires reçus pendant son travail sont ignorés.
 Le bot principal n'a pas besoin d'OP.
 
-Les valeurs par défaut sont dans `src/agent/AgentConfig.ts`.
+La connexion LLM est dans `src/agent/AgentConfig.ts` : `LLM_BACKEND = "llamacpp"`
+utilise le serveur déjà lancé sur `http://127.0.0.1:8080/v1`. Le bot et l'atelier partagent ce choix.
+Le libellé `qwen27b` est accepté par le serveur llama.cpp à modèle unique ; c'est le GGUF chargé
+par le serveur qui détermine le modèle réellement utilisé. Aucun serveur LLM n'est lancé par le projet.
+Pour revenir au 9B Ollama, remplacer cette constante par `"ollama"`, puis redémarrer le processus.
+Les adresses et modèles des deux connexions sont juste en dessous dans le même fichier.
 `.env.example` documente les variables acceptées ; l'application ne charge pas automatiquement un fichier `.env`.
-En PowerShell, une surcharge s'écrit par exemple `$env:LLM_MODEL = "qwen3.5:9b"`.
+Les variables `LLM_BASE_URL`, `LLM_API_KEY` et `LLM_MODEL`, si définies dans le terminal,
+restent prioritaires ; aucune variable n'est nécessaire pour utiliser le choix du code.
 
 Les réglages de comportement restent des constantes dans `src/config.ts` :
 
@@ -27,7 +33,7 @@ Les réglages de comportement restent des constantes dans `src/config.ts` :
 - `TOOL_REPLAY_MODE` : présentation native ou compacte des anciens échanges d'outils.
 - `ACTION_MAX_TOOL_CALLS` : 256 appels d'outils maximum par délégation.
 
-La limite de sortie reste de 4 096 tokens par défaut. La fenêtre réelle d'Ollama est un réglage distinct :
+La limite de sortie reste de 4 096 tokens par défaut. La fenêtre réelle du serveur LLM est un réglage distinct :
 changer le seuil de compression n'agrandit pas la fenêtre du modèle.
 
 ## Tester et construire le monde
@@ -39,7 +45,8 @@ npm.cmd run dev:world
 ```
 
 `npm test` est hors ligne : compilation, vérification TypeScript et tests avec faux bot/LLM.
-Le smoke appelle réellement Ollama. Le contrôleur de monde rejoint réellement Minecraft et nécessite
+Le smoke appelle réellement le backend sélectionné ; le diagnostic `check:ollama` reste spécifique à Ollama.
+Le contrôleur de monde rejoint réellement Minecraft et nécessite
 `op world_controller` dans la console serveur, sans donner OP au bot principal.
 
 Commandes du contrôleur : `tree`, `forest 10 25`, `ore iron 8`, `preview forest 10 25`, `clear`, `reset`.
@@ -47,7 +54,7 @@ Commandes du contrôleur : `tree`, `forest 10 25`, `ore iron 8`, `preview forest
 `inventory clear all` détruit uniquement son inventaire.
 Voir [le contrat du contrôleur](docs/contracts.md).
 
-Pour tester uniquement la conception de blueprints avec Ollama, sans connexion Minecraft :
+Pour tester uniquement la conception de blueprints avec le backend sélectionné, sans connexion Minecraft :
 
 ```powershell
 npm.cmd run smoke:architect

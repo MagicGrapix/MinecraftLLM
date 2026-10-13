@@ -19,6 +19,13 @@
   Le premier rejette les recettes nécessitant une table ; le second accepte les recettes 2x2 et 3x3,
   vérifie l'accès à la table avant exécution et son état après. Aucun ne fabrique ses ingrédients
   ni ne navigue. Le nombre produit peut dépasser la quantité demandée selon le rendement de la recette.
+  Chaque recette attend un inventaire serveur complet puis vérifie les quantités attendues, ingrédients compris,
+  la grille personnelle vide et le curseur vide avant la suivante. Une différence inattendue, même un ramassage
+  concurrent, empêche la confirmation et arrête la série. L'attente est immédiate puis toutes les 100 ms,
+  pendant 3 secondes maximum (`ACTION_CONFIRMATION`, `src/config.ts`). La prédiction locale seule ne suffit pas.
+  À expiration, `ACTION_NOT_CONFIRMED` précise le gain confirmé, le gain observé et les opérations tentées ;
+  vérifier l'inventaire avant de redemander des items. Une erreur ne rejoue aucune recette automatiquement.
+  L'adaptateur de confirmation est vérifié pour Java 1.21.11 ; les autres versions sont refusées explicitement.
 - `finish_step` rend un rapport sans cocher de case. `complete_step` exige le dernier rapport réussi
   de l'étape et de la version courante du plan, puis met à jour la checklist. Les rapports sont conservés
   par étape : une délégation suivante n'empêche pas de vérifier une étape précédente. Retenter une étape

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Bot } from "mineflayer";
-import type { Recipe } from "prismarine-recipe";
 import type { MinecraftRuntime } from "../../../src/runtime/MinecraftRuntime";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
 import type { ExecutionContext } from "../../../src/capabilities/Capability";
 import { CraftFromInventoryCapability, CraftFromTableCapability } from "../../../src/capabilities/Craft";
+import { fakeCraftBot as fakeBot, fakeRecipe } from "../../support/CraftBot";
 
 test("craft verifies the produced inventory quantity", async () => {
   let logs = 1;
@@ -150,9 +150,10 @@ test("table crafting passes the observed table to Mineflayer for both 2x2 and 3x
   const table = { name: "crafting_table", stateId: 1, position: { x: 2, y: 64, z: 0 } };
   for (const requiresTable of [false, true]) {
     let produced = 0;
+    let materials = 3;
     const recipe = { ...fakeRecipe(270, 1, [{ id: 5, count: -3 }]), requiresTable };
     const bot = fakeBot({
-      counts: (id) => id === 5 ? 3 : id === 270 ? produced : 0,
+      counts: (id) => id === 5 ? materials : id === 270 ? produced : 0,
       recipes: [recipe],
       craft: async () => undefined,
       blockAt: () => table,
@@ -166,6 +167,7 @@ test("table crafting passes the observed table to Mineflayer for both 2x2 and 3x
       assert.equal(operations, 1);
       assert.equal(observedTable, table);
       produced += 1;
+      materials -= 3;
     };
     const result = await new CraftFromTableCapability().execute({
       item: "wooden_pickaxe", quantity: 1, tablePosition: { x: 2, y: 64, z: 0 },
@@ -206,66 +208,6 @@ test("inventory crafting turns one log into planks then a table without station 
   assert.equal((await capability.execute({ item: "crafting_table", quantity: 1 }, createContext(bot))).ok, true);
   assert.deepEqual(counts, { 17: 0, 5: 0, 58: 1 });
 });
-
-function fakeRecipe(
-  resultId: number,
-  resultCount: number,
-  ingredients: Array<{ id: number; count: number }>,
-): Recipe {
-  return {
-    result: { id: resultId, metadata: null, count: resultCount },
-    delta: [
-      ...ingredients.map((item) => ({ ...item, metadata: null })),
-      { id: resultId, metadata: null, count: resultCount },
-    ],
-    requiresTable: false,
-  } as Recipe;
-}
-
-function fakeBot(options: {
-  counts: (id: number) => number;
-  recipes: Recipe[];
-  craft: () => Promise<void>;
-  blockAt?: () => unknown;
-  canSeeBlock?: () => boolean;
-}): Bot {
-  const itemsById = {
-    5: { id: 5, name: "oak_planks" },
-    17: { id: 17, name: "oak_log" },
-    18: { id: 18, name: "birch_log" },
-    58: { id: 58, name: "crafting_table" },
-    270: { id: 270, name: "wooden_pickaxe" },
-  };
-  return {
-    currentWindow: null,
-    entity: {
-      position: {
-        distanceTo: () => 2,
-      },
-    },
-    registry: {
-      itemsByName: {
-        oak_planks: itemsById[5],
-        crafting_table: itemsById[58],
-        wooden_pickaxe: itemsById[270],
-      },
-      items: itemsById,
-    },
-    inventory: {
-      count: (id: number) => options.counts(id),
-      items: () => Object.values(itemsById)
-        .map(item => ({ name: item.name, count: options.counts(item.id) }))
-        .filter(item => item.count > 0),
-    },
-    recipesAll: () => options.recipes,
-    craft: options.craft,
-    blockAt: options.blockAt ?? (() => null),
-    canSeeBlock: options.canSeeBlock ?? (() => true),
-    closeWindow: async () => undefined,
-    on: () => undefined,
-    removeListener: () => undefined,
-  } as unknown as Bot;
-}
 
 function createContext(bot: Bot): ExecutionContext {
   return {

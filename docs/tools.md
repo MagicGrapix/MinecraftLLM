@@ -101,3 +101,15 @@ Les deux entrées et le moteur commun sont dans `src/capabilities/Craft.ts` ; de
 enregistrement restent dans `src/bootstrap/createCapabilities.ts`. Le moteur ne fabrique pas les
 ingrédients manquants et ne cherche/n'approche/ne pose pas la table. Les résultats gardent la
 station utilisée comme donnée d'observation. Le skill `craft_item` référence les deux nouveaux tools.
+
+Chaque recette est confirmée séparément par l'inventaire serveur avant d'enchaîner la suivante :
+résultat rangé, ingrédients consommés, grille et curseur vides. Les constantes `ACTION_CONFIRMATION`
+de `src/config.ts` fixent un polling local de 100 ms et une attente maximale de 3 secondes, sans
+réémettre le craft. `ACTION_NOT_CONFIRMED` peut laisser une production partielle : `craftedQuantity`
+est le gain confirmé, `observedGain` la dernière différence serveur disponible (ou null),
+`expectedGain` le gain attendu après la recette tentée. Les inventaires complets restent dans les traces
+`craft.confirmation`/`craft.unconfirmed`. La confirmation de cette version cible Java 1.21.11.
+
+`npm.cmd run smoke:craft` vérifie sans LLM les recettes 2x2/3x3, les quantités 7/64/7 et les ingrédients
+via une lecture NBT indépendante du controller OP. Il utilise `craft_test_bot`, `test_controller`
+et une cellule initialement vide à (-35,-60,-35), puis enlève sa table et vide son seul inventaire de test.

@@ -52,12 +52,12 @@ export function createCapabilityRegistry(
   register(
     registry,
     new CraftFromInventoryCapability(),
-    "Does: Craft an item using the bot's 2x2 inventory grid.\nSuccess: At least the requested output quantity was observed as gained in inventory.\nLimits: Cannot make recipes requiring a 3x3 grid; does not craft missing ingredients automatically.\nNotes: quantity is minimum output, not recipe repetitions. Whole batches may produce extra items; read craftedQuantity. One log makes four planks; two planks make four sticks.",
+    "Does: Craft an item using the bot's 2x2 inventory grid.\nSuccess: Server inventory confirmed each recipe's output and ingredients, with empty crafting grid and cursor.\nLimits: Cannot make recipes requiring a 3x3 grid; does not craft missing ingredients automatically.\nNotes: quantity is minimum output, not recipe repetitions. Whole batches may produce extra items; read craftedQuantity. On ACTION_NOT_CONFIRMED, inspect inventory before retrying: some items may already exist. One log makes four planks; two planks make four sticks.",
   );
   register(
     registry,
     new CraftFromTableCapability(),
-    "Does: Craft an item at an existing reachable crafting table using its 3x3 grid. Also supports 2x2 recipes.\nSuccess: At least the requested output quantity was observed as gained in inventory and the table remained unchanged.\nLimits: Does not find, approach or place a table; does not craft missing ingredients automatically.\nNotes: Supply the table's observed integer tablePosition. quantity is minimum output, not recipe repetitions. Whole batches may produce extra items; read craftedQuantity.",
+    "Does: Craft an item at an existing reachable crafting table using its 3x3 grid. Also supports 2x2 recipes.\nSuccess: Server inventory confirmed each recipe's output and ingredients; the grid/cursor are empty and the table remained unchanged.\nLimits: Does not find, approach or place a table; does not craft missing ingredients automatically.\nNotes: Supply the table's observed integer tablePosition. quantity is minimum output, not recipe repetitions. Whole batches may produce extra items; read craftedQuantity. On ACTION_NOT_CONFIRMED, inspect inventory before retrying.",
   );
   register(
     registry,

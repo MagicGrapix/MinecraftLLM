@@ -1,14 +1,15 @@
 import type { Recipe, RecipeItem } from "prismarine-recipe";
 import { z } from "zod";
+import { ACTION_CONFIRMATION } from "../config";
 import { failure, success, type TaskResult } from "../execution/TaskResult";
-import {
-  countInventoryItem,
-  snapshotInventory,
-} from "../runtime/InventoryAdapter";
+import { snapshotInventory } from "../runtime/InventoryAdapter";
 import { toVec3 } from "../runtime/PositionAdapter";
 import { errorMessage, normalizeMinecraftName } from "../shared/helper";
 import { BlockPositionSchema } from "../shared/types";
 import type { Capability, ExecutionContext } from "./Capability";
+import { hasEmptyCraftingArea, InventoryObservationError, ServerInventoryConfirmation } from "../runtime/ServerInventoryConfirmation";
+import type { ConfirmationTiming } from "../runtime/waitForConfirmation";
+import { writeTrace } from "../TraceLog";
 
 const MAX_CRAFT_OUTPUT_QUANTITY = 64;
 
@@ -60,7 +61,8 @@ interface RecipeCandidate {
 export class CraftFromInventoryCapability implements Capability<CraftFromInventoryInput, CraftOutput> {
   readonly name = "craft_from_inventory_2x2";
   readonly inputSchema = CraftFromInventoryInputSchema;
-  private readonly crafting = new CraftingOperation();
+  private readonly crafting: CraftingOperation;
+  constructor(timing: ConfirmationTiming = ACTION_CONFIRMATION) { this.crafting = new CraftingOperation(timing); }
 
   execute(input: CraftFromInventoryInput, context: ExecutionContext): Promise<TaskResult<CraftOutput>> {
     return this.crafting.execute({ ...input, station: "inventory" }, context);
@@ -70,7 +72,8 @@ export class CraftFromInventoryCapability implements Capability<CraftFromInvento
 export class CraftFromTableCapability implements Capability<CraftFromTableInput, CraftOutput> {
   readonly name = "craft_from_table_3x3";
   readonly inputSchema = CraftFromTableInputSchema;
-  private readonly crafting = new CraftingOperation();
+  private readonly crafting: CraftingOperation;
+  constructor(timing: ConfirmationTiming = ACTION_CONFIRMATION) { this.crafting = new CraftingOperation(timing); }
 
   execute(input: CraftFromTableInput, context: ExecutionContext): Promise<TaskResult<CraftOutput>> {
     return this.crafting.execute({ ...input, station: "crafting_table" }, context);
@@ -79,6 +82,7 @@ export class CraftFromTableCapability implements Capability<CraftFromTableInput,
 
 /** Shared recipe selection, physical execution, cancellation and inventory verification. */
 class CraftingOperation {
+  constructor(private readonly timing: ConfirmationTiming) {}
 
   async execute(
     input: CraftInput,
@@ -138,27 +142,25 @@ class CraftingOperation {
       );
     }
 
-    const candidates = recipes
-      .map((recipe) => buildCandidate(bot, recipe, input.quantity))
-      .sort(compareCandidates);
-    const selected = candidates[0]!;
-    if (selected.missingTotal > 0) {
-      return failure(
-        "MISSING_ITEM",
-        `Missing ingredients to craft "${itemName}".`,
-        {
-          facts: {
-            item: itemName,
-            station: input.station,
-            recipeSignature: selected.signature,
-            missingIngredients: selected.missingIngredients,
-          },
-        },
-      );
-    }
-
-    const beforeCount = countInventoryItem(bot, itemName);
-    const beforeInventory = snapshotInventory(bot);
+    let observation: ServerInventoryConfirmation | undefined;
+    let beforeInventory: Readonly<Record<string, number>> | null = null;
+    let confirmedOperations = 0;
+    let attemptedOperations = 0;
+    let craftedQuantity = 0;
+    let expectedGain = 0;
+    const progress = () => ({ item: itemName, requestedQuantity: input.quantity, craftedQuantity, expectedGain, confirmedOperations, attemptedOperations });
+    const publish = () => context.reportProgress?.({ craft: progress() });
+    const unconfirmed = (stage: string, cause?: string): TaskResult<CraftOutput> => {
+      const current = observation?.snapshot;
+      writeTrace("craft.unconfirmed", { taskId: context.taskId, ...progress(), stage, cause,
+        inventoryBefore: beforeInventory, serverInventory: current, localInventory: snapshotInventory(bot) });
+      return failure("ACTION_NOT_CONFIRMED", "Crafting effect was not confirmed. Inspect inventory before retrying; some items may already have been produced.", {
+        retryable: true,
+        facts: { ...progress(), stage, confirmationTimeoutMs: this.timing.timeoutMs,
+          observedGain: current && beforeInventory ? (current.items[itemName] ?? 0) - (beforeInventory[itemName] ?? 0) : null,
+          ...(cause ? { cause } : {}) },
+      });
+    };
     const closeCraftingWindow = (): void => {
       const window = bot.currentWindow;
       if (window && String(window.type).startsWith("minecraft:crafting")) {
@@ -176,6 +178,20 @@ class CraftingOperation {
     bot.on("windowOpen", closeCraftingWindowAfterAbort);
 
     try {
+      publish();
+      observation = new ServerInventoryConfirmation(bot, this.timing);
+      if (!await observation.synchronize(context.signal)) return unconfirmed("initial_inventory");
+      const initial = observation.snapshot!;
+      if (!hasEmptyCraftingArea(initial) || !localCraftingAreaEmpty(bot)) return failure("BLOCKED", "Empty the crafting grid and cursor before crafting.");
+      beforeInventory = initial.items;
+      const candidates = recipes.map(recipe => buildCandidate(bot, recipe, input.quantity)).sort(compareCandidates);
+      const selected = candidates[0]!;
+      if (selected.missingTotal > 0) {
+        return failure("MISSING_ITEM", `Missing ingredients to craft "${itemName}".`, {
+          facts: { item: itemName, station: input.station, recipeSignature: selected.signature, missingIngredients: selected.missingIngredients },
+        });
+      }
+      const expectedInventory = { ...beforeInventory };
       // Mineflayer cannot cancel an inventory craft already in progress. Run
       // one operation at a time and keep the Executor occupied until the
       // current operation settles if the task is interrupted.
@@ -185,14 +201,33 @@ class CraftingOperation {
         operationIndex += 1
       ) {
         context.signal.throwIfAborted();
+        attemptedOperations++;
+        publish();
         const craftOperation = bot.craft(
           selected.recipe,
           1,
           tableBlock ?? undefined,
         );
         context.deferCancellationUntil(craftOperation);
-        await craftOperation;
+        let cause: string | undefined;
+        try { await craftOperation; }
+        catch (error) { if (context.signal.aborted) throw error; cause = errorMessage(error); }
         context.signal.throwIfAborted();
+        for (const delta of selected.recipe.delta) {
+          const name = bot.registry.items[delta.id]!.name;
+          expectedInventory[name] = (expectedInventory[name] ?? 0) + delta.count;
+        }
+        expectedGain = (expectedInventory[itemName] ?? 0) - (beforeInventory[itemName] ?? 0);
+        const confirmed = await observation.synchronize(context.signal, state =>
+          hasEmptyCraftingArea(state) && sameInventory(expectedInventory, state.items) &&
+          sameInventory(state.items, snapshotInventory(bot)) && localCraftingAreaEmpty(bot),
+        );
+        writeTrace("craft.confirmation", { taskId: context.taskId, operation: attemptedOperations, confirmed, cause,
+          expectedInventory: { ...expectedInventory }, serverInventory: observation.snapshot, localInventory: snapshotInventory(bot) });
+        if (!confirmed) return unconfirmed("recipe", cause);
+        confirmedOperations++;
+        craftedQuantity = (observation.snapshot!.items[itemName] ?? 0) - (beforeInventory[itemName] ?? 0);
+        publish();
       }
 
       if (input.station === "crafting_table") {
@@ -207,27 +242,14 @@ class CraftingOperation {
             "The crafting table changed while crafting.",
             {
               retryable: true,
-              facts: { tablePosition: input.tablePosition },
+              facts: { tablePosition: input.tablePosition, ...progress() },
             },
           );
         }
       }
 
-      const craftedQuantity = countInventoryItem(bot, itemName) - beforeCount;
       if (craftedQuantity < input.quantity) {
-        return failure(
-          "ACTION_NOT_CONFIRMED",
-          `Crafting did not produce the requested quantity of "${itemName}".`,
-          {
-            retryable: true,
-            facts: {
-              requestedQuantity: input.quantity,
-              craftedQuantity,
-              inventoryBefore: beforeInventory,
-              inventoryAfter: snapshotInventory(bot),
-            },
-          },
-        );
+        return unconfirmed("final_quantity");
       }
 
       return success({
@@ -239,12 +261,13 @@ class CraftingOperation {
       });
     } catch (error: unknown) {
       if (context.signal.aborted) throw error;
+      if (error instanceof InventoryObservationError) return failure("WORLD_CHANGED", error.message, { facts: progress() });
 
       const message = errorMessage(error);
       if (message.includes("missing ingredient")) {
         return failure("MISSING_ITEM", message, {
           retryable: true,
-          facts: { item: itemName },
+          facts: progress(),
         });
       }
       if (
@@ -252,14 +275,23 @@ class CraftingOperation {
         message.includes("crafting table") ||
         message.includes("window")
       ) {
-        return failure("BLOCKED", message, { retryable: true });
+        return failure("BLOCKED", message, { retryable: true, facts: progress() });
       }
       throw error;
     } finally {
+      observation?.dispose();
       context.signal.removeEventListener("abort", closeCraftingWindow);
       bot.removeListener("windowOpen", closeCraftingWindowAfterAbort);
     }
   }
+}
+
+function sameInventory(expected: Readonly<Record<string, number>>, actual: Readonly<Record<string, number>>): boolean {
+  return [...new Set([...Object.keys(expected), ...Object.keys(actual)])].every(name => (expected[name] ?? 0) === (actual[name] ?? 0));
+}
+
+function localCraftingAreaEmpty(bot: ExecutionContext["runtime"]["bot"]): boolean {
+  return bot.inventory.selectedItem === null && bot.inventory.slots.slice(0, 5).every(item => item === null);
 }
 
 function buildCandidate(

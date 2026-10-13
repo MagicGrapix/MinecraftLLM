@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : **plan uniquement ; aucun lot implémenté par ce document**.
+Statut : **lot 1 implémenté et vérifié dans Minecraft sans LLM ; lots 2 à 6 à faire**.
 Cocher les tâches après implémentation et vérification, puis renseigner le journal final.
 Ce plan complète [le plan Blueprint / Builder](blueprint-builder.md) sans reprendre ses lots reportés.
 
@@ -19,10 +19,10 @@ Ce plan complète [le plan Blueprint / Builder](blueprint-builder.md) sans repre
 - Garder le correctif des réponses textuelles imitant les tools hors périmètre pour l'instant.
 - Décrire l'abri comme ayant une entrée ouverte ; ne pas ajouter de fabrication/pose de porte au workflow.
 
-Deux questions ont été posées à Quentin ; les propositions ci-dessous restent à confirmer :
+Choix validés par Quentin le 13 octobre :
 
-- **Ressources initiales** : proposer bûches, terre et cobblestone ; autre option, ajouter charbon et fer dès cette version.
-- **Scaffolding après collecte** : proposer un retrait lorsque l'accès est sûr et un signalement des blocs laissés ; autre option, tout laisser et le signaler.
+- **Ressources initiales** : bûches, terre et cobblestone ; charbon et fer ensuite.
+- **Scaffolding après collecte** : retrait lorsque l'accès est sûr et signalement des blocs laissés.
 
 Les constantes suivantes sont des valeurs initiales proposées, à ajuster avec les essais :
 rayon de recherche 32 blocs, maximum 50 depuis l'origine de l'appel ; quantité de 1 à 256 items ;
@@ -36,26 +36,29 @@ Point de départ : `src/capabilities/Craft.ts` attend chaque `bot.craft`, mais c
 après la série. Les tests positifs actuels actualisent leur faux inventaire avant de résoudre la promesse.
 Mineflayer peut aussi prédire des changements locaux avant confirmation du serveur.
 
-- [ ] Définir `ACTION_CONFIRMATION` dans `src/config.ts`, avec `pollIntervalMs: 100` et `timeoutMs: 3000`.
-- [ ] Ajouter un petit mécanisme d'attente annulable dans `src/runtime/`, partagé avec la pose seulement pour les parties réellement communes.
-- [ ] Observer les confirmations serveur avant de lancer l'opération ; ne pas accepter une simple prédiction locale.
-- [ ] Choisir dans l'adaptateur d'inventaire un mécanisme de confirmation/resynchronisation serveur vérifiable pour la version installée.
+- [x] Définir `ACTION_CONFIRMATION` dans `src/config.ts`, avec `pollIntervalMs: 100` et `timeoutMs: 3000`.
+- [x] Ajouter un petit mécanisme d'attente annulable dans `src/runtime/`, partagé avec la pose seulement pour les parties réellement communes.
+- [x] Observer les confirmations serveur avant de lancer l'opération ; ne pas accepter une simple prédiction locale.
+- [x] Choisir dans l'adaptateur d'inventaire un mécanisme de confirmation/resynchronisation serveur vérifiable pour la version installée.
   Une mise à jour d'un slot sans rapport avec la recette ne confirme pas le craft. Ne pas envoyer une requête réseau à chaque tick du polling.
-- [ ] Confirmer chaque exécution de recette avant la suivante, notamment le résultat rangé, les ingrédients et l'absence d'item bloqué sur le curseur.
-- [ ] Conserver le contrat de quantité minimale produite : demander 7 planches exécute deux recettes et peut en produire 8.
-- [ ] Au bout du délai, rendre `ACTION_NOT_CONFIRMED` avec gain attendu/observé et état de confirmation ; conserver le diagnostic détaillé dans les traces.
-- [ ] En cas d'échec partiel, arrêter la série et rapporter le gain déjà confirmé. Ne pas rejouer automatiquement toute la demande.
-- [ ] Respecter `AbortSignal`, déconnexion et barrières `deferCancellationUntil` ; aucune opération tardive concurrente.
+- [x] Confirmer chaque exécution de recette avant la suivante, notamment le résultat rangé, les ingrédients et l'absence d'item bloqué sur le curseur.
+- [x] Conserver le contrat de quantité minimale produite : demander 7 planches exécute deux recettes et peut en produire 8.
+- [x] Au bout du délai, rendre `ACTION_NOT_CONFIRMED` avec gain attendu/observé et état de confirmation ; conserver le diagnostic détaillé dans les traces.
+- [x] En cas d'échec partiel, arrêter la série et rapporter le gain déjà confirmé. Ne pas rejouer automatiquement toute la demande.
+- [x] Respecter `AbortSignal`, déconnexion et barrières `deferCancellationUntil` ; aucune opération tardive concurrente.
 
 Vérification :
 
-- [ ] Tester confirmation immédiate, confirmation retardée, aucune confirmation, mise à jour non pertinente et prédiction annulée par le serveur.
-- [ ] Tester plusieurs recettes successives, quantité non multiple du rendement, inventaire initial non vide et échec après production partielle.
-- [ ] Tester annulation pendant l'attente et absence de listeners/timers résiduels.
-- [ ] Faire un smoke sans LLM des crafts 2x2/3x3 avec inventaire vérifié indépendamment depuis le controller.
+- [x] Tester confirmation immédiate, confirmation retardée, aucune confirmation, mise à jour non pertinente et prédiction annulée par le serveur.
+- [x] Tester plusieurs recettes successives, quantité non multiple du rendement, inventaire initial non vide et échec après production partielle.
+- [x] Tester annulation pendant l'attente et absence de listeners/timers résiduels.
+- [x] Faire un smoke sans LLM des crafts 2x2/3x3 avec inventaire vérifié indépendamment depuis le controller.
   Inclure des demandes 7 et 64, puis une séquence visant au moins 79 planches ; contrôler ingrédients, curseur et absence d'items inattendus.
-- [ ] Si les créations inattendues de boutons ou les incohérences persistent, examiner la synchronisation des clics de crafting.
+- [x] Si les créations inattendues de boutons ou les incohérences persistent, examiner la synchronisation des clics de crafting.
   Ne pas considérer le polling final comme une preuve que la cause est corrigée.
+  Aucun item inattendu lors du smoke ; le défaut historique n'est pas reproduit dans cet essai contrôlé.
+  Le contrôle compare tous les totaux d'items à la recette et refuse aussi les changements concurrents inattendus.
+  L'adaptateur protocolaire est borné à Java 1.21.11, sans modifications de `node_modules`.
 
 ## Lot 2 — Confirmer la pose malgré une erreur ambiguë
 
@@ -200,4 +203,11 @@ Le travail sur la forme des réponses LLM et les lots de construction reportés 
 ## Journal de suivi
 
 - 2026-10-13 : plan créé ; aucune implémentation ou exécution Minecraft/LLM dans cette étape.
-- Prochaine étape : intégrer les deux réponses de périmètre, puis implémenter le lot 1 lorsque demandé.
+- 2026-10-13 : recommandations validées, lot 1 livré. Smoke `npm.cmd run smoke:craft` : demandes 7/64/7
+  produisant 8/64/8 planches (80 au total), table, sticks, pioche en 3x3 et recette 2x2 à la table.
+  Inventaires relus indépendamment par NBT depuis le controller ; curseur/grille vides, aucun item inattendu.
+  Trace : `logs/trace_1791892745018_30960.jsonl`. Table temporaire retirée et inventaire du bot de test vidé.
+  `npm.cmd test` : compilation, vérifications TypeScript et **519 tests réussis** (12 nouveaux tests de confirmation).
+  La première exécution dans le sandbox Windows a rencontré des `EPERM` sur `realpath` ; la suite complète
+  relancée avec les permissions normales est verte. Aucun appel LLM pendant cette validation.
+- Prochaine étape : lot 2 (pose) lorsque demandé ; aucune modification de pose ou de collecte dans le lot 1.

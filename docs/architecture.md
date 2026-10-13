@@ -56,6 +56,9 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `capabilities/Craft.ts` expose `craft_from_inventory_2x2` et `craft_from_table_3x3`.
   Deux schémas objets distincts fixent la station en interne et partagent le même moteur de recettes,
   annulation et vérification. L'ancien tool `craft` n'est plus exposé. Voir [les arguments](tools.md#crafting).
+  `runtime/ServerInventoryConfirmation.ts` observe les paquets serveur et demande une resynchronisation
+  complète avant la série puis après chaque recette, sans modifier les dépendances installées.
+  `waitForConfirmation.ts` borne le polling local, annulable. Une recette non confirmée arrête la série.
 - `src/world/` traduit les observations Mineflayer. `WorldQueries.getNearbyEntities` est conservée
   comme API interne, notamment pour `get_dropped_items`, sans tool générique exposé au LLM.
   `findNearestBlocks` retourne une Promise : `BlockSearch.ts` parcourt les cellules chargées par lots
@@ -149,4 +152,6 @@ Actualiser la page concernée lorsque ces frontières changent ; les détails lo
 ## Travaux planifiés
 
 Le [plan Blueprint / Architect / Builder](plans/blueprint-builder.md) suit cette évolution par lots.
+Le [plan confirmations et collecte](plans/reliable-actions-resource-collection.md) suit la fiabilisation
+des opérations puis la future capability de collecte ; seuls ses lots cochés sont disponibles.
 Seuls les lots cochés sont livrés ; les sections ci-dessus et [les contrats Blueprint](blueprints.md) décrivent le comportement actuel.

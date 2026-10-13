@@ -169,6 +169,9 @@ Le dessin doit déjà avoir été enregistré, par exemple par un script ou par 
    pas de collision avec le bot, retour au sol encore possible après la pose.
 5. Naviguer avec `canDig=false`, `canPlace=false`, équiper, revérifier les préconditions puis poser.
 6. Attendre les paquets serveur pour la cellule (les deux moitiés pour une porte) et comparer l'état attendu. Aucun retry aveugle après une réponse incertaine.
+   Pour les cubes, cette confirmation appartient à `PlaceCapability` : lecture immédiate puis polling local
+   toutes les 100 ms pendant au plus 3 secondes après le retour Mineflayer, y compris un rejet ambigu.
+   Le Builder n'ajoute pas une deuxième attente. Les portes gardent leur confirmation spécialisée des propriétés.
 7. Sortir de l'emprise puis vérifier tous les blocs et tout l'air requis, sans se fier au seul compteur de poses.
 
 `BuildExit` utilise un graphe voxel conservateur dans la marge : marche cardinale, saut d'un bloc,

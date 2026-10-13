@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : **lot 1 implémenté et vérifié dans Minecraft sans LLM ; lots 2 à 6 à faire**.
+Statut : **lots 1 et 2 implémentés et vérifiés dans Minecraft sans LLM ; lots 3 à 6 à faire**.
 Cocher les tâches après implémentation et vérification, puis renseigner le journal final.
 Ce plan complète [le plan Blueprint / Builder](blueprint-builder.md) sans reprendre ses lots reportés.
 
@@ -68,22 +68,22 @@ mais retourne immédiatement lorsque la capability échoue, avant d'attendre sa 
 La séquence « air, erreur, bloc attendu reçu plus tard » a été reproduite en simulation ;
 elle n'est pas prouvée comme cause des trois échecs de la session Minecraft.
 
-- [ ] Centraliser la confirmation d'une pose dans le chemin commun à `place` et au Builder ; éviter deux délais de trois secondes cumulés.
-- [ ] Capturer destination et bloc attendu, puis installer l'observation serveur avant l'envoi de la pose.
-- [ ] Sur succès Mineflayer ou erreur ambiguë après envoi, observer immédiatement puis toutes les 100 ms, au plus trois secondes après le retour de cette tentative.
-- [ ] Accepter une confirmation du bloc attendu déjà reçue pendant l'appel, ou reçue pendant cette attente, à la bonne destination.
-- [ ] Conserver les vérifications de propriétés exigées par le Builder ; la confirmation commune ne les remplace pas.
-- [ ] Ne pas réenvoyer de pose pendant l'attente. À expiration, retourner `ACTION_NOT_CONFIRMED` avec cause initiale, cible et dernier état observé.
-- [ ] Garder les échecs de précondition explicites : inventaire vide, support absent, destination occupée avant envoi. Ils ne nécessitent pas cette attente.
-- [ ] Une cellule inconnue, une déconnexion ou une annulation ne deviennent jamais un succès ; conserver la distinction avec un bloc incorrect effectivement observé.
-- [ ] Conserver les protections d'annulation et la fin réelle de la promesse physique avant libération du verrou.
+- [x] Centraliser la confirmation d'une pose dans le chemin commun à `place` et au Builder ; éviter deux délais de trois secondes cumulés.
+- [x] Capturer destination et bloc attendu, puis installer l'observation serveur avant l'envoi de la pose.
+- [x] Sur succès Mineflayer ou erreur ambiguë après envoi, observer immédiatement puis toutes les 100 ms, au plus trois secondes après le retour de cette tentative.
+- [x] Accepter une confirmation du bloc attendu déjà reçue pendant l'appel, ou reçue pendant cette attente, à la bonne destination.
+- [x] Conserver les vérifications de propriétés exigées par le Builder ; la confirmation commune ne les remplace pas.
+- [x] Ne pas réenvoyer de pose pendant l'attente. À expiration, retourner `ACTION_NOT_CONFIRMED` avec cause initiale, cible et dernier état observé.
+- [x] Garder les échecs de précondition explicites : inventaire vide, support absent, destination occupée avant envoi. Ils ne nécessitent pas cette attente.
+- [x] Une cellule inconnue, une déconnexion ou une annulation ne deviennent jamais un succès ; conserver la distinction avec un bloc incorrect effectivement observé.
+- [x] Conserver les protections d'annulation et la fin réelle de la promesse physique avant libération du verrou.
 
 Vérification :
 
-- [ ] Tester bout en bout dans l'adaptateur : erreur Mineflayer sur air puis confirmation tardive du bon bloc => succès sans seconde pose.
-- [ ] Tester air persistant, mauvais bloc, prédiction locale seule, confirmation reçue pendant l'appel, arrêt et déconnexion.
-- [ ] Faire un smoke sans LLM avec le petit blueprint existant et contrôle indépendant des cellules depuis le controller.
-- [ ] Enregistrer le déroulement des confirmations pour distinguer un vrai refus d'un diagnostic trop précoce.
+- [x] Tester bout en bout dans l'adaptateur : erreur Mineflayer sur air puis confirmation tardive du bon bloc => succès sans seconde pose.
+- [x] Tester air persistant, mauvais bloc, prédiction locale seule, confirmation reçue pendant l'appel, arrêt et déconnexion.
+- [x] Faire un smoke sans LLM avec le petit blueprint existant et contrôle indépendant des cellules depuis le controller.
+- [x] Enregistrer le déroulement des confirmations pour distinguer un vrai refus d'un diagnostic trop précoce.
 
 ## Lot 3 — Collecteur : contrat et boucle de base
 
@@ -210,4 +210,16 @@ Le travail sur la forme des réponses LLM et les lots de construction reportés 
   `npm.cmd test` : compilation, vérifications TypeScript et **519 tests réussis** (12 nouveaux tests de confirmation).
   La première exécution dans le sandbox Windows a rencontré des `EPERM` sur `realpath` ; la suite complète
   relancée avec les permissions normales est verte. Aucun appel LLM pendant cette validation.
-- Prochaine étape : lot 2 (pose) lorsque demandé ; aucune modification de pose ou de collecte dans le lot 1.
+- 2026-10-13 : lot 2 livré. `PlaceCapability` confirme les poses directes et les cubes du Builder,
+  même après rejet ambigu ; suppression de la seconde attente dans `MineflayerBuildOperations`.
+  `ACTION_NOT_CONFIRMED` conserve cible, nom attendu, dernier état local/serveur et cause initiale.
+  Les préconditions restent immédiates ; seuls les items ayant un bloc du même ID sont acceptés.
+  La confirmation spécialisée des portes et leurs vérifications de propriétés sont inchangées.
+  `npm.cmd test` : **545 tests réussis**, dont 26 nouveaux tests. Le cas air/refus/bloc tardif
+  utilise le plugin de pose Mineflayer installé, avec événements réseau simulés, sans seconde pose.
+  Smoke `npm.cmd run smoke:build` réussi sans LLM : deux cubes puis abri de 80 blocs,
+  arrêt après deux poses, reprise des 78 restantes, vérification indépendante et rappel sans nouvelle pose.
+  **82 poses confirmées**, aucune erreur de pose dans ce smoke ; il ne reproduit pas le défaut historique.
+  Trace : `logs/trace_1791894030582_60460.jsonl` (`place.confirmation`, relié au taskId parent).
+  La structure temporaire a été retirée et l'herbe restaurée ; le serveur et le bot principal n'ont pas été redémarrés.
+- Prochaine étape : lot 3 (collecteur de base) lorsque demandé ; aucune collecte automatique ajoutée dans les lots 1–2.

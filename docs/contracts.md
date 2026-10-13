@@ -15,6 +15,18 @@
   Il ne prouve pas que la ressource est entrée dans l'inventaire.
 - `get_dropped_items` décrit les stacks observées au sol. `get_inventory` décrit l'inventaire actuel
   du bot. Un item présent ne prouve pas un gain : comparer avec l'observation initiale.
+- `place` confirme le nom du bloc à la destination grâce à un paquet serveur reçu depuis le début
+  de la tentative, concordant avec la cellule actuellement chargée. Une prédiction locale seule ne suffit pas.
+  La même confirmation sert au Builder, sans deuxième attente. Après résolution ou rejet de `bot.placeBlock`,
+  elle vérifie immédiatement puis toutes les 100 ms, au plus 3 secondes (`ACTION_CONFIRMATION`).
+  Le délai Mineflayer précédant cette vérification s'ajoute à ces 3 secondes ; aucune pose n'est réémise.
+  Une erreur Mineflayer ambiguë peut donc devenir un succès si le bloc attendu est ensuite confirmé.
+  Sinon, `ACTION_NOT_CONFIRMED` conserve la cause, la cible et les derniers états local/serveur :
+  `verification` distingue cellule `unknown`, état `unconfirmed` et bloc serveur incorrect `mismatch`.
+  Une déconnexion/mort/respawn invalide la tentative (`WORLD_CHANGED`), même après un paquet correct.
+  Les préconditions échouent sans attente ni envoi. Seuls les items ayant un ID de bloc identique sont
+  pris en charge ; l'orientation et les structures multiblocs ne sont pas garanties par `place`.
+  Le Builder conserve ses vérifications propres de cellules et de propriétés des portes.
 - `craft_from_inventory_2x2` et `craft_from_table_3x3` vérifient le gain d'inventaire demandé.
   Le premier rejette les recettes nécessitant une table ; le second accepte les recettes 2x2 et 3x3,
   vérifie l'accès à la table avant exécution et son état après. Aucun ne fabrique ses ingrédients

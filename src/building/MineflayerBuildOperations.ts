@@ -5,9 +5,7 @@ import { DigCapability } from "../capabilities/Dig";
 import { PlaceCapability, type PlaceInput } from "../capabilities/Place";
 import { failure, type TaskResult } from "../execution/TaskResult";
 import { toVec3 } from "../runtime/PositionAdapter";
-import { ServerBlockObservation } from "../runtime/ServerBlockObservation";
 import type { Position } from "../shared/types";
-import { BUILD_LIMITS } from "./BuildingConfig";
 import { canPlaceFrom } from "./BuildPlacement";
 import type { BuildOperations } from "./BuildTypes";
 import type { DoorPlacement } from "./Blueprint";
@@ -63,22 +61,7 @@ export class MineflayerBuildOperations implements BuildOperations {
     if (this.bot.heldItem?.name !== block || !eyes || !canPlaceFrom(this, input, eyes, this.position())) {
       return failure("WORLD_CHANGED", "The placement preconditions changed while equipping.");
     }
-    const offset: Record<PlaceInput["face"], Position> = {
-      top: { x: 0, y: 1, z: 0 }, bottom: { x: 0, y: -1, z: 0 }, north: { x: 0, y: 0, z: -1 },
-      south: { x: 0, y: 0, z: 1 }, east: { x: 1, y: 0, z: 0 }, west: { x: -1, y: 0, z: 0 },
-    };
-    const target = toVec3(input.referencePosition).plus(toVec3(offset[input.face]));
-    const observed = new ServerBlockObservation(this.bot, target);
-    try {
-      // Await the actual Mineflayer promise even on cancellation. Executor retains the lock.
-      const result = await this.placement.execute(this.placement.inputSchema.parse({ referencePosition: input.referencePosition, face: input.face }), this.context);
-      signal.throwIfAborted();
-      if (!result.ok) return result;
-      await observed.wait(signal, BUILD_LIMITS.confirmationMs, (b) => b.name === block);
-      if (!observed.matches((b) => b.name === block)) return failure("ACTION_NOT_CONFIRMED", "The server did not confirm the expected construction block. Observe before retrying.", {
-        facts: { position: target, expected: block, observed: this.blockAt(target)?.name ?? null },
-      });
-      return result;
-    } finally { observed.dispose(); }
+    // Place owns server confirmation, including ambiguous Mineflayer errors; no second wait here.
+    return this.placement.execute(this.placement.inputSchema.parse({ referencePosition: input.referencePosition, face: input.face }), this.context);
   }
 }

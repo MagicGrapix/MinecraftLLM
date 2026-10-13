@@ -59,6 +59,11 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `runtime/ServerInventoryConfirmation.ts` observe les paquets serveur et demande une resynchronisation
   complète avant la série puis après chaque recette, sans modifier les dépendances installées.
   `waitForConfirmation.ts` borne le polling local, annulable. Une recette non confirmée arrête la série.
+- `capabilities/Place.ts` porte la confirmation commune aux poses directes et aux cubes du Builder.
+  `ServerBlockObservation` distingue paquets serveur et prédictions locales ; `waitForConfirmation`
+  attend le bloc attendu, même après un rejet Mineflayer ambigu, sans deuxième envoi.
+  La promesse physique reste une barrière d'annulation. Les traces `place.confirmation` relient tentative,
+  retour Mineflayer, observations et résultat au `taskId` parent ; les portes gardent leur contrôle spécialisé.
 - `src/world/` traduit les observations Mineflayer. `WorldQueries.getNearbyEntities` est conservée
   comme API interne, notamment pour `get_dropped_items`, sans tool générique exposé au LLM.
   `findNearestBlocks` retourne une Promise : `BlockSearch.ts` parcourt les cellules chargées par lots

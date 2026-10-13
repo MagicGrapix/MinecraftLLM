@@ -31,6 +31,19 @@ Les autres descriptions courtes sont conservées ; il n'y a pas de prose dupliqu
 
 Le catalogue est construit au démarrage. Redémarrer le bot après édition.
 
+## Pose
+
+`place({ referencePosition, face })` pose le bloc équipé contre un support existant.
+La destination est la cellule adjacente dans la direction de la face, pas `referencePosition`.
+Le succès exige le nom attendu, un paquet serveur à cette destination et une lecture locale concordante.
+Les items sans bloc du même nom (par exemple `stick` ou `redstone`) sont refusés avant envoi.
+Une erreur Mineflayer après la tentative n'est pas immédiatement définitive : vérification immédiate,
+puis toutes les 100 ms pendant 3 secondes maximum, sans nouvelle pose ni requête réseau de polling.
+À expiration, `ACTION_NOT_CONFIRMED` demande d'observer avant de retenter ; la modification peut encore arriver.
+Les états inconnus restent distincts d'un bloc incorrect. L'orientation n'est pas validée par ce tool.
+Les traces `place.confirmation` donnent `attempt`, `settled`, les changements `observed`, puis
+`confirmed`, `expired` ou `interrupted`, avec cible, bloc attendu, états reçus et cause Mineflayer éventuelle.
+
 ## Construction (lots 2–3 et 7)
 
 `build({ blueprintId, origin: { x, y, z } })` construit un blueprint déjà enregistré par `BlueprintStore`.

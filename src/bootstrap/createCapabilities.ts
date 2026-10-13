@@ -42,7 +42,7 @@ export function createCapabilityRegistry(
   register(
     registry,
     new PlaceCapability(),
-    "Does: Place the held block against a reference block's selected face.\nSuccess: The placement operation completed at the returned position.\nLimits: Does not verify a complete structure.\nNotes: Equip the intended block first. The destination is adjacent to referencePosition; inspect it with get_block.",
+    "Does: Place the held block against a reference block's selected face.\nSuccess: An inbound server update confirmed the expected block at the returned position.\nLimits: Does not verify orientation or a complete structure. Only items with a matching block ID are supported.\nNotes: Equip the intended block first. The destination is adjacent to referencePosition. On ACTION_NOT_CONFIRMED, inspect it before retrying; the placement may still take effect.",
   );
   register(
     registry,

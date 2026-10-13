@@ -70,6 +70,10 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `MineflayerBuildOperations` réutilise goto/equip/place sous le même contexte, sans rappeler l'Executor.
   `BuildVerification` contrôle terrain/stock/cellules ; `BuildPlacement` choisit les faces et postures ;
   `BuildExit` écarte les postures sans retour conservateur au sol après la prochaine pose.
+  `BuildScaffolding` propose de courts escaliers extérieurs en terre seulement lorsqu'un placement manque d'accès.
+  `BuildCapability` conserve leur propriété en mémoire par runtime/dimension/blueprint/origine, entre deux appels.
+  Les poses temporaires et leur retrait réutilisent le même verrou et le même signal ; goto ne casse ni ne pose.
+  Une interruption conserve le suivi pour reprendre ; un nettoyage incomplet interdit le succès.
   `BlueprintDoors` développe une porte en deux cellules et un item ; `BuildDoor`/`PlaceBuildDoor` assurent sa pose orientée et la confirmation des deux moitiés.
   `GotoMovements` reconnaît les formes des portes déjà ouvertes ; l'ouverture reste une action `use_block` séparée.
   `agent/ArchitectAgent.ts` fournit une délégation isolée : `submit_blueprint({ drawing })`,

@@ -387,7 +387,7 @@ export class WorkflowAgent {
         const step = this.task.steps[call.input.step - 1];
         const latest = this.task.reports[call.input.step];
         if (!step || !latest || latest.step !== step.step || latest.planVersion !== this.task.planVersion || latest.report.status !== "success") {
-          throw new Error("Completion requires a matching successful report for this step in the current plan.");
+          throw new Error(`Completion requires a matching successful report for this step in the current plan. Obtain a successful run_step report for step ${call.input.step} before complete_step. Direct world queries and other steps' reports do not satisfy this requirement.`);
         }
         step.status = "done";
         if (this.task.currentStep === step.step) this.task.currentStep = null;

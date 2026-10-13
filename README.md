@@ -19,8 +19,8 @@ Le bot principal n'a pas besoin d'OP.
 
 La connexion LLM est dans `src/agent/AgentConfig.ts` : `LLM_BACKEND = "llamacpp"`
 utilise le serveur déjà lancé sur `http://127.0.0.1:8080/v1`. Le bot et l'atelier partagent ce choix.
-Le libellé `qwen27b` est accepté par le serveur llama.cpp à modèle unique ; c'est le GGUF chargé
-par le serveur qui détermine le modèle réellement utilisé. Aucun serveur LLM n'est lancé par le projet.
+Le modèle par défaut est `qwen-27b`, identifiant exposé par llama-swap. Ce nom doit correspondre à un
+modèle de `/v1/models` pour sélectionner le bon backend. Aucun serveur LLM n'est lancé par le projet.
 Pour revenir au 9B Ollama, remplacer cette constante par `"ollama"`, puis redémarrer le processus.
 Les adresses et modèles des deux connexions sont juste en dessous dans le même fichier.
 `.env.example` documente les variables acceptées ; l'application ne charge pas automatiquement un fichier `.env`.

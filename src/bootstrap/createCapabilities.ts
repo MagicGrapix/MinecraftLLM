@@ -23,7 +23,7 @@ export function createCapabilityRegistry(
 ): CapabilityRegistry {
   const registry = new CapabilityRegistry();
   register(registry, new BuildCapability(blueprintsDirectory),
-    "Does: Build or resume a saved blueprint of solid blocks and supported oak-door dependencies at a fixed origin.\nSuccess: Required blocks, air and both door halves were observed correct; the bot left the footprint. Does not prove habitability.\nLimits: No resource gathering, crafting, clearing or scaffolding. Requires flat full-block ground including a two-block margin, a loaded site within 50 blocks, and all remaining materials. Doors must be closed, unpowered and match the expected facing/hinge; conflicting doors are not replaced.\nNotes: Up to 300 seconds. Failure may leave a partial structure. Reuse blueprintId and origin to resume; never assume failure means nothing changed.");
+    "Does: Build or resume a saved blueprint at a fixed origin; add and remove short exterior dirt stairs when needed.\nSuccess: Required blocks, air and door states were observed correct; the bot left the footprint and its tracked scaffolding was removed. Does not prove habitability or dirt-drop pickup.\nLimits: Requires flat full-block ground including a two-block margin, a loaded site within 50 blocks, all remaining materials and up to 24 extra dirt for access. No gathering, crafting or terrain clearing. Doors must match their expected states; conflicting blocks are not replaced.\nNotes: Up to 300 seconds. Failure or stop may leave a partial structure and tracked dirt. Reuse blueprintId and origin in the same bot session to resume construction/cleanup. Scaffolding is reported separately and never spends dirt reserved for the blueprint.");
   register(
     registry,
     new GotoCapability(),
@@ -52,12 +52,12 @@ export function createCapabilityRegistry(
   register(
     registry,
     new CraftFromInventoryCapability(),
-    "Does: Craft an item using the bot's 2x2 inventory grid.\nSuccess: The requested output quantity was observed as gained in inventory.\nLimits: Cannot make recipes requiring a 3x3 grid; does not craft missing ingredients automatically.\nNotes: One log makes four planks; four planks make one crafting table. quantity is an output count, not recipe repetitions.",
+    "Does: Craft an item using the bot's 2x2 inventory grid.\nSuccess: At least the requested output quantity was observed as gained in inventory.\nLimits: Cannot make recipes requiring a 3x3 grid; does not craft missing ingredients automatically.\nNotes: quantity is minimum output, not recipe repetitions. Whole batches may produce extra items; read craftedQuantity. One log makes four planks; two planks make four sticks.",
   );
   register(
     registry,
     new CraftFromTableCapability(),
-    "Does: Craft an item at an existing reachable crafting table using its 3x3 grid. Also supports 2x2 recipes.\nSuccess: The requested output quantity was observed as gained in inventory and the table remained unchanged.\nLimits: Does not find, approach or place a table; does not craft missing ingredients automatically.\nNotes: Supply the table's observed integer tablePosition. quantity is an output count, not recipe repetitions.",
+    "Does: Craft an item at an existing reachable crafting table using its 3x3 grid. Also supports 2x2 recipes.\nSuccess: At least the requested output quantity was observed as gained in inventory and the table remained unchanged.\nLimits: Does not find, approach or place a table; does not craft missing ingredients automatically.\nNotes: Supply the table's observed integer tablePosition. quantity is minimum output, not recipe repetitions. Whole batches may produce extra items; read craftedQuantity.",
   );
   register(
     registry,

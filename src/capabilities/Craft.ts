@@ -13,7 +13,7 @@ import type { Capability, ExecutionContext } from "./Capability";
 const MAX_CRAFT_OUTPUT_QUANTITY = 64;
 
 const CraftQuantitySchema = z.number().int().positive().max(MAX_CRAFT_OUTPUT_QUANTITY)
-  .describe("Requested output item quantity, not recipe executions. Use an integer number, not a string. Recipes may yield more. Maximum 64.");
+  .describe("Minimum output item quantity to produce, not recipe executions. Whole batches may produce more; craftedQuantity reports the actual gain. Use an integer number, not a string. Maximum request 64.");
 
 const CraftFromInventoryInputSchema = z.object({
   item: z.string().trim().min(1).describe('Exact output item ID, e.g. "oak_planks" or "crafting_table".'),

@@ -7,8 +7,8 @@ const LLM_CONNECTIONS = {
   llamacpp: {
     baseUrl: "http://127.0.0.1:8080/v1",
     apiKey: "local",
-    // Single-model llama-server uses its loaded GGUF; this is a request/display label.
-    model: "qwen27b",
+    // Must match the model ID exposed by llama-swap.
+    model: "qwen-27b",
   },
   ollama: {
     baseUrl: "http://localhost:11434/v1",

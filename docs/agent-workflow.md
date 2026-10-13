@@ -6,6 +6,11 @@ Le coordinateur est la conversation du joueur. Il choisit un tool par tour : ré
 déléguer une étape, demander un blueprint, consulter le monde, cocher une étape ou mettre à jour le résumé de tâche.
 Il n'exécute aucune capability Minecraft lui-même.
 
+Le prompt lui demande de transmettre au planner l'objectif, les contraintes du joueur, les faits observés
+et les blocages. Le planner décide les sous-objectifs, prérequis de craft, stations et quantités ; le
+coordinateur ne lui impose pas une recette ou une séquence de tools. Pour `run_step`, il transmet le but
+et le critère de l'étape courante, en laissant les arguments d'exécution à l'actionneur.
+
 Le planner reçoit la conversation joueur/assistant restante, son résumé compacté, le monde actuel,
 la checklist et l'instruction du coordinateur. Il produit un seul JSON :
 `{"steps":[{"title":"...","successCriteria":"..."}]}`.
@@ -15,6 +20,15 @@ Il s'en sert pour proposer des sous-objectifs réalisables et tenir compte des o
 par chaque tool. Les cibles et arguments d'exécution restent à l'actionneur. Le planner ne reçoit aucun
 tool appelable dans la requête API et ne possède pas de boucle d'exécution.
 Le code numérote les étapes à partir de 1. Un nouveau plan remplace l'ancien et invalide tous ses rapports.
+
+Le prompt regroupe une action et sa vérification dans une seule étape. Une inspection distincte reste
+possible si elle vérifie une autre propriété, par exemple pouvoir entrer dans une construction.
+Les critères quantifiés nomment l'item et la comparaison : stock total minimal, gain depuis le début
+de l'étape ou quantité exacte explicitement demandée. Les rendements de craft sont des lots entiers :
+le besoin d'un `stick` peut produire quatre sticks, et les ingrédients restants ne doivent pas être
+déclarés absents sans nécessité. Ces règles guident le LLM ; `successCriteria` reste du texte, pas une
+expression déterministe. Le planner n'a pas d'outil de consultation des recettes ; l'actionneur peut
+résoudre une incertitude à partir des résultats réels des tools de craft.
 
 L'actionneur reçoit une étape avec son critère, l'objectif utilisateur, la checklist complète, le résumé
 de tâche et les derniers rapports des étapes déjà tentées. Il travaille uniquement sur l'étape déléguée.
@@ -26,6 +40,12 @@ Le résultat réel est ajouté avant le prochain appel LLM. Chaque nouvelle dél
 `complete_step` exige le dernier rapport réussi de cette étape dans le plan courant.
 La validation du critère de réussite reste à la charge du coordinateur : ce contrôle de correspondance
 n'est pas une vérification déterministe de l'objectif.
+
+Une lecture directe du coordinateur ou le rapport d'une autre étape ne remplace pas ce rapport.
+Le refus de `complete_step` précise l'étape à déléguer avec `run_step`. Pour vérifier le résultat,
+le coordinateur utilise les TaskResults et le World Context courant ; il ne relit que les informations
+manquantes, incertaines ou susceptibles d'avoir changé. Le code n'empêche pas une lecture redondante
+ni une checklist trop détaillée : leur réduction dépend encore des prompts.
 
 `WorkflowState` garde un dernier rapport par numéro d'étape, avec ses TaskResults complets et sa version
 de plan. Déléguer une autre étape n'écrase pas ce rapport : le coordinateur peut donc cocher une étape

@@ -1,6 +1,7 @@
 import type { ExecutionContext } from "../capabilities/Capability";
 import { GotoCapability } from "../capabilities/Goto";
 import { EquipCapability } from "../capabilities/Equip";
+import { DigCapability } from "../capabilities/Dig";
 import { PlaceCapability, type PlaceInput } from "../capabilities/Place";
 import { failure, type TaskResult } from "../execution/TaskResult";
 import { toVec3 } from "../runtime/PositionAdapter";
@@ -17,6 +18,7 @@ export class MineflayerBuildOperations implements BuildOperations {
   private readonly goto = new GotoCapability();
   private readonly equip = new EquipCapability();
   private readonly placement = new PlaceCapability();
+  private readonly digging = new DigCapability();
   constructor(private readonly context: ExecutionContext) {}
   private get bot() { return this.context.runtime.bot; }
   // Mineflayer game.js supplies these in Java; upstream GameState typings omit them.
@@ -37,6 +39,14 @@ export class MineflayerBuildOperations implements BuildOperations {
   }
   async move(position: Position): Promise<TaskResult> {
     return this.goto.execute(this.goto.inputSchema.parse({ position, range: 0, canDig: false, canPlace: false }), this.context);
+  }
+  async removeScaffold(position: Position, expectedStateId: number): Promise<TaskResult> {
+    this.context.signal.throwIfAborted();
+    const block = this.blockAt(position);
+    if (block?.name !== "dirt" || block.stateId !== expectedStateId) {
+      return failure("WORLD_CHANGED", "The tracked scaffold changed; it will not be removed.", { facts: { position } });
+    }
+    return this.digging.execute({ position }, this.context);
   }
   async placeDoor(door: DoorPlacement): Promise<TaskResult> {
     this.context.signal.throwIfAborted();

@@ -31,7 +31,7 @@ Les autres descriptions courtes sont conservées ; il n'y a pas de prose dupliqu
 
 Le catalogue est construit au démarrage. Redémarrer le bot après édition.
 
-## Construction (lots 2–3)
+## Construction (lots 2–3 et 7)
 
 `build({ blueprintId, origin: { x, y, z } })` construit un blueprint déjà enregistré par `BlueprintStore`.
 L'origine entière est la cellule locale (0,0,0), pas la position du bot ; elle reste fixe pour reprendre.
@@ -45,7 +45,13 @@ Le succès vérifie toutes les cellules contraintes et la sortie du bot hors de 
 Un échec conserve les blocs posés et un bilan partiel ; rappeler avec la même référence et la même origine.
 Les dépendances `oak_door` sont posées après les cubes : un item, deux moitiés confirmées (orientation, charnière, fermée/non alimentée).
 Une porte existante incompatible est un conflit, pas une invitation à la démolir. Le succès ne prouve pas l'habitabilité.
-Il n'y a ni collecte/craft, ni démolition, ni échafaudage automatique dans ce lot.
+Si nécessaire, le Builder pose des escaliers extérieurs en terre : trois blocs de haut maximum,
+24 blocs temporaires maximum, uniquement dans la marge. La terre destinée au dessin reste réservée.
+`MISSING_SCAFFOLD_MATERIALS` indique séparément la terre de construction et la terre d'accès manquante.
+Il ne récolte ni ne crafte ces matériaux. Le nettoyage retire seulement la terre suivie et encore conforme,
+depuis le sol. Une erreur/annulation peut laisser des blocs : `progress.scaffolding` donne les positions
+restantes et incertaines. Rappeler le même blueprint/origine dans la même session reprend le chantier.
+Après redémarrage, aucun ancien bloc n'est revendiqué automatiquement. Les drops ne sont pas forcément ramassés.
 L’Architect expose uniquement `submit_blueprint({ drawing: string })` : couches ASCII séparées par
 une ligne vide, A = oak_planks, point = air requis. Dimensions et palette sont calculées en code.
 Une erreur localise la couche/ligne (numérotation 1-based) ; le modèle resoumet le dessin complet.
@@ -79,7 +85,9 @@ L'actionneur dispose de deux tools physiques aux schémas objets simples, sans `
   visible et à portée ; cette grille accepte aussi les recettes 2x2.
 
 Le champ `station` n'est pas un argument. L'ancien tool `craft` n'est plus enregistré.
-`quantity` est un nombre entier de 1 à 64 : quantité de sortie souhaitée, pas nombre de recettes.
+`quantity` est un nombre entier de 1 à 64 : gain minimal de sortie souhaité, pas nombre de recettes.
+Les recettes produisent des lots entiers : `stick` avec `quantity: 1` peut produire quatre sticks à partir
+de deux planches. Le résultat `craftedQuantity` indique le gain réel ; un surplus n'est pas un échec.
 `tablePosition` est la cellule observée, sous forme d'objet de coordonnées entières.
 
 Exemples de deux appels successifs pour obtenir une table à partir d'une bûche :

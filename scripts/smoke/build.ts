@@ -25,10 +25,13 @@ import { cleanupSteps } from "../../src/runtime/cleanup";
 import { blueprintFixture } from "../../tests/support/blueprints";
 import { bounded, until } from "../../tests/e2e/async";
 import { runBuildingWorkflowSmoke } from "./build-workflow";
+import { readFileSync } from "node:fs";
+import type { BuildProgress } from "../../src/building/BuildTypes";
 
 /** Explicit live test. No LLM, no whole-arena reset, no changes to player inventories. */
 async function main() {
   const withDoors = process.argv.includes("--doors");
+  const withScaffolding = process.argv.includes("--scaffolding");
   const username = "build_test_bot";
   const config = loadWorldBuilderConfig({ ...process.env, WORLD_CONTROLLER_USERNAME: "test_controller", WORLD_AGENT_USERNAME: username });
   const origin = new Vec3(-24, -60, -24);
@@ -46,15 +49,18 @@ async function main() {
     if (result.error) throw new Error(result.error);
   };
   const clearFixture = async () => {
-    for (const block of ["oak_door", "oak_planks", "cobblestone"]) {
-      await command(`fill ${origin.x} ${origin.y} ${origin.z} ${origin.x + 4} ${origin.y + 3} ${origin.z + 4} air replace ${block}`);
+    for (const block of withScaffolding ? ["oak_planks", "dirt"] : ["oak_door", "oak_planks", "cobblestone"]) {
+      const min = withScaffolding ? origin.offset(-2, 0, -2) : origin;
+      const max = withScaffolding ? origin.offset(6, 5, 6) : origin.offset(4, 3, 4);
+      await command(`fill ${min.x} ${min.y} ${min.z} ${max.x} ${max.y} ${max.z} air replace ${block}`);
     }
     // Covered grass can naturally turn to dirt while building; restore the test lawn.
     await command(`fill ${origin.x} ${origin.y - 1} ${origin.z} ${origin.x + 4} ${origin.y - 1} ${origin.z + 4} grass_block replace dirt`);
+    if (withScaffolding) await command(`fill ${origin.x - 2} ${origin.y - 1} ${origin.z - 2} ${origin.x + 6} ${origin.y - 1} ${origin.z + 6} grass_block replace dirt`);
     await until(() => {
-      for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) {
+      for (let x = withScaffolding ? -2 : 0; x <= (withScaffolding ? 6 : 4); x++) for (let z = withScaffolding ? -2 : 0; z <= (withScaffolding ? 6 : 4); z++) {
         if (controller.bot.blockAt(origin.offset(x, -1, z))?.name !== "grass_block") return false;
-        for (let y = 0; y < 4; y++) if (controller.bot.blockAt(origin.offset(x, y, z))?.name !== "air") return false;
+        for (let y = 0; y <= (withScaffolding ? 5 : 3); y++) if (controller.bot.blockAt(origin.offset(x, y, z))?.name !== "air") return false;
       }
       return true;
     }, 3000, "Test structure removed and grass restored");
@@ -66,6 +72,7 @@ async function main() {
     await controller.initialize(transport);
     for (let x = -2; x <= 6; x++) for (let z = -2; z <= 6; z++) {
       assert.ok(["grass_block", "dirt"].includes(controller.bot.blockAt(origin.offset(x, -1, z))?.name ?? ""), "Expected flat grass/dirt support");
+      if (withScaffolding) assert.equal(controller.bot.blockAt(origin.offset(x, -1, z))?.name, "grass_block", "Scaffold smoke requires an untouched grass baseline");
       for (let y = 0; y <= 5; y++) assert.equal(controller.bot.blockAt(origin.offset(x, y, z))?.name, "air", "Refusing occupied/unloaded smoke area");
     }
     ownsSite = true;
@@ -88,9 +95,16 @@ async function main() {
     const tasks = new TaskFactory();
     let confirmed = 0;
     let interruptAt = Infinity;
+    let interruptScaffold = withScaffolding;
+    let temporaryPlaced = 0, temporaryRemoved = 0;
     unsubscribe = subscribeTrace((event, raw) => {
       if (event !== "build.event") return;
       const data = raw as { event: string; position?: unknown };
+      if (data.event === "scaffold_place_confirmed") {
+        temporaryPlaced++;
+        if (interruptScaffold) { interruptScaffold = false; executor!.abortCurrent("Smoke stop after first scaffold"); }
+      }
+      if (data.event === "scaffold_remove_confirmed") temporaryRemoved++;
       if (data.event === "place_confirmed") {
         confirmed++;
         if (confirmed % 10 === 0) console.info("Confirmed blocks:", confirmed);
@@ -101,6 +115,29 @@ async function main() {
       const result = await executor!.execute(tasks.create({ capability: "build", input: { blueprintId, origin: { x: origin.x, y: origin.y, z: origin.z } } }));
       console.info("Build result:", JSON.stringify(result)); return result;
     };
+    if (withScaffolding) {
+      await command(`clear ${username}`); await command(`give ${username} oak_planks 5`); await command(`give ${username} dirt 24`);
+      await until(() => runtime.bot.inventory.items().some(i => i.name === "dirt" && i.count === 24), 3000, "Scaffolding stock");
+      const saved = await store.save(JSON.parse(readFileSync(join(__dirname, "../../tests/fixtures/blueprints/tall-oak-pillar.json"), "utf8")));
+      assert.ok(saved.ok);
+      const stopped = await build(saved.value.id);
+      assert.ok(!stopped.ok && stopped.error.code === "INTERRUPTED", JSON.stringify(stopped));
+      await executor.waitForIdle(10_000);
+      const resumed = await build(saved.value.id); assert.ok(resumed.ok, JSON.stringify(resumed));
+      assert.deepEqual((resumed.value as BuildProgress).scaffolding.remaining, []);
+      assert.ok(temporaryPlaced > 0); assert.equal(temporaryRemoved, temporaryPlaced);
+      await until(() => {
+        for (let x = -2; x <= 6; x++) for (let z = -2; z <= 6; z++) for (let y = 0; y <= 5; y++) {
+          if (controller.bot.blockAt(origin.offset(x, y, z))?.name !== (x === 0 && z === 0 && y < 5 ? "oak_planks" : "air")) return false;
+        }
+        return true;
+      }, 5000, "Independent pillar and scaffold cleanup verification");
+      const again = await build(saved.value.id); assert.ok(again.ok);
+      assert.equal((again.value as BuildProgress).placedThisCall, 0);
+      assert.equal((again.value as BuildProgress).scaffolding.placedThisCall, 0);
+      console.info(`Scaffold smoke passed: stop/resume, five permanent blocks, ${temporaryPlaced} temporary dirt placed and removed, idempotent retry. No LLM.`);
+      return;
+    }
     await command(`clear ${username}`); await command(`give ${username} oak_planks 2`);
     await until(() => runtime.bot.inventory.items().some((i) => i.name === "oak_planks" && i.count === 2), 3000, "First stock");
     const small = await store.save({ name: "smoke_two", description: "Two blocks", width: 3, depth: 1, palette: { A: "oak_planks" }, layers: [["AA."]], dependencies: { doors: [] } });

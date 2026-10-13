@@ -76,6 +76,10 @@ Scénarios disponibles :
   Le sol et la marge doivent rester intacts, sauf herbe devenue terre sous le plancher. Consommation exacte
   des matériaux, bot vivant au sol, verrou physique libre et fenêtre fermée sont aussi exigés.
   Cela ne prouve pas une absence de modification ailleurs dans le monde, ni le respect d'une demande par un LLM.
+- `build_with_scaffolding` : pilier fixe de cinq blocs, cinq planches et 24 terres fournies, sans LLM.
+  Contrôle 250 cellules : pilier, marge de deux blocs, sous-sol et air supérieur. Toute terre temporaire
+  restante, destruction du sol, cellule inconnue ou bot resté en hauteur fait échouer la vérification.
+  La récupération des drops de terre n'est pas exigée. Les traces `scaffold_*` montrent les accès utilisés.
 
 Les scénarios supplémentaires sont répartis dans `InteractionScenarios.ts`, `NavigationScenarios.ts` et `BuildingScenarios.ts`,
 réexportés par `scenarios.ts`. Les fixtures utilisent des positions fixes et s'adaptent à `surfaceY`.

@@ -9,7 +9,9 @@
 
 Date : 5 octobre 2026.
 
-Statut : **lots 1 à 5 implémentés ; lots 6 et 7 restant à faire**. Le workflow est vérifié dans Minecraft avec réponses LLM scriptées ; la génération de maisons avec Qwen reste à fiabiliser (voir le bilan du lot 4).
+Statut au 10 octobre 2026 : **lots 1 à 5 et lot 7 implémentés ; lot 6 partiel et reporté à la demande de Quentin**.
+Le workflow est vérifié dans Minecraft avec réponses LLM scriptées. L'essai isolé du 9 octobre avec le 27B
+a produit un abri 5×5×4 correct en sept appels ; cela ne valide pas encore le workflow complet réel.
 Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprints.md) décrivent ce qui est réellement disponible.
 
 ## Utiliser ce document
@@ -20,7 +22,8 @@ Ce document reste le plan de suivi. Les [contrats Blueprint actuels](../blueprin
 - Mettre à jour les docs de comportement actuel lorsque le code correspondant existe, pas avant.
 - Conserver les prompts personnels de Quentin ; ne modifier que les passages nécessaires à l'intégration.
 
-**Prochaine étape : lot 6 — campagnes de bout en bout et approvisionnement.**
+**Lot 7 livré et vérifié.** Les cases ouvertes du lot 6 restent reportées, à reprendre sur demande.
+Le mode Architect par couches fonctionne dans l'atelier ; son activation dans le bot reste également à faire.
 
 ## 1. Décisions retenues
 
@@ -465,6 +468,9 @@ Ce test ne prouve pas que Qwen choisit ces délégations ni qu'il sait s'approvi
 
 ### Lot 6 — Campagnes de bout en bout et approvisionnement
 
+**Reporté le 10 octobre 2026 à la demande de Quentin.** Conserver les travaux et cases restantes ci-dessous ;
+ne pas lancer la campagne de conception/approvisionnement LLM dans le cadre du lot 7.
+
 - [x] Étendre l'observation E2E, auparavant limitée à 64 cellules/nom seul.
 - [x] Ajouter une limite explicite adaptée au volume borné et les propriétés utiles des blocs pour les portes ; vérifier l'ensemble du volume, pas un échantillon.
 - [x] Faire l'observation finale après arrêt des producteurs et `physicalIdle`, avec délai et cellules inconnues traitées explicitement.
@@ -485,16 +491,38 @@ Campagne ciblée `campaign_1791209143577_7aa94fb8` : **réussite en 38,16 s**, 7
 aucun écart/inconnu, consommation de 55 planches, 25 cobblestone et une porte. Observation finale
 après settlement confirmée ; blueprint accepté lié au rapport. Terrain remis à plat et bots déconnectés.
 Un seul essai réel à ce stade, pas encore cinq répétitions. Le prompt Architect reste inchangé.
-Restent la campagne avec conception LLM, l'approvisionnement et les répétitions : **lot 6 en cours**, pas terminé.
+Restent la campagne avec conception LLM, l'approvisionnement et les répétitions : **lot 6 partiel et reporté**, pas terminé.
 
 ### Lot 7 — Accès temporaires et nettoyage, après stabilisation
 
-- [ ] Implémenter une stratégie limitée d'échafaudage en terre, avec stock et emprise bornés.
-- [ ] Suivre les blocs temporaires posés et protéger tous les blocs définitifs.
-- [ ] Tester reprise, annulation et nettoyage incomplet sans destruction du terrain d'origine.
-- [ ] Ajouter un scénario dont l'accès nécessite réellement les blocs temporaires.
+- [x] Implémenter une stratégie limitée d'échafaudage en terre, avec stock et emprise bornés.
+- [x] Suivre les blocs temporaires posés et protéger tous les blocs définitifs.
+- [x] Tester reprise, annulation et nettoyage incomplet sans destruction du terrain d'origine.
+- [x] Ajouter un scénario dont l'accès nécessite réellement les blocs temporaires.
 
 Sortie : le bot peut accéder à une construction plus exigeante et annoncer honnêtement le nettoyage restant. Ce lot n'est pas requis pour valider la première petite maison accessible depuis le sol.
+
+Livré le 2026-10-10 : `BuildScaffolding` construit de courts escaliers extérieurs en terre dans la marge
+existante de deux blocs, jusqu'à trois blocs de haut et 24 blocs temporaires suivis. Les matériaux du
+blueprint restent réservés. Le Builder ne récolte pas la terre et n'en crée pas ; un manque retourne
+`MISSING_SCAFFOLD_MATERIALS`. La navigation reste sans casse ni pose automatique du pathfinder.
+
+Chaque pose temporaire est enregistrée avant envoi, puis confirmée. Le nettoyage retire uniquement
+les blocs suivis, encore identiques, depuis le sol et du haut vers le bas. Un stop n'engage aucun nettoyage
+automatique ; rappeler `build` avec le même blueprint, origine, dimension et runtime reprend le suivi.
+Un bloc modifié ou non confirmé reste intact avec une erreur structurée et les positions restantes.
+Limites : suivi en mémoire de la session, pas après redémarrage ; pas de récupération garantie des drops ;
+un remplacement externe par exactement le même état de bloc n'est pas distinguable par observation.
+
+Vérifications : **506 tests réussis**, compilation et typechecks inclus. Régressions sur réservation de terre,
+reprise, annulation pendant une pose en vol et pendant le nettoyage, blocs modifiés/incertains,
+nettoyage incomplet et oracle indépendant. `build_with_scaffolding` est disponible dans la suite E2E
+avec une colonne fixe de cinq blocs, stock fourni et zéro appel LLM ; campagne non lancée ici.
+
+`npm.cmd run smoke:scaffolding` réussi sur Minecraft 1.21.11 : arrêt après deux blocs définitifs et un
+bloc temporaire, reprise en 10,8 s, cinq blocs définitifs vérifiés, **six blocs de terre temporaires posés
+et retirés**, puis rappel idempotent. Trace : `logs/trace_1791639349757_30064.jsonl`.
+Fixture retirée, sol de test restauré et bots de test déconnectés. Aucun appel LLM ni campagne du lot 6.
 
 ## 11. Vérification et définition de « terminé »
 
@@ -545,3 +573,9 @@ La première version complète correspond aux lots 1 à 6 :
 - 2026-10-05, lot 6 commencé : socle E2E de construction, scénario physique fixe sans LLM, oracle indépendant,
   stockage isolé et preuves de vérification dans le rapport. Voir le bilan et les cases restantes ci-dessus.
   Commit de sauvegarde préalable : `a8ff625` (`architecture lot 5`), poussé sur `refactor-redo`.
+
+- 2026-10-10, lot 6 reporté à la demande de Quentin ; aucune campagne LLM lancée.
+  Lot 7 livré : escaliers temporaires bornés, suivi par chantier, nettoyage conservateur sous le même Executor,
+  scénario fixe et smoke physique avec arrêt/reprise. 506 tests réussis et six blocs temporaires retirés en jeu.
+  Les prompts personnels et le protocole Architect restent inchangés. Aucun commit/push demandé pour ce lot.
+  À reprendre sur demande : essais LLM du lot 6 et activation du protocole Architect par couches dans le bot.

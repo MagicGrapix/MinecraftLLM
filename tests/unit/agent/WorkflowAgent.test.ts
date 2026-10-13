@@ -226,6 +226,39 @@ test("planner creates indices, actioner gets context, completion and summary are
   } finally { await h.close(); }
 });
 
+test("direct observations and another step's successful report cannot complete an undelegated step", async () => {
+  const h = await harness();
+  try {
+    const sword = { name: "wooden_sword", displayName: "Wooden Sword", type: 911, metadata: 0, count: 1, slot: 37 };
+    h.world.getInventory = () => ({ items: [sword], selectedItem: sword });
+    tool(h.llm, "ask_planner", { instruction: "Equip the sword and verify selection." });
+    json(h.llm, { steps: [
+      { title: "Equip sword", successCriteria: "wooden_sword is selected." },
+      { title: "Verify selection", successCriteria: "selectedItem is wooden_sword." },
+    ] });
+    tool(h.llm, "run_step", { step: 1, instruction: "Equip and confirm selection." });
+    tool(h.llm, "get_inventory", {});
+    tool(h.llm, "complete_step", { step: 2 });
+    tool(h.llm, "run_step", { step: 2, instruction: "Verify selection." });
+    tool(h.llm, "complete_step", { step: 1 });
+    tool(h.llm, "complete_step", { step: 2 });
+    tool(h.llm, "reply", { outcome: "success", message: "Equipped." });
+    h.actions.push(
+      { status: "success", message: "Sword equipped and selection confirmed.", outcomes: [] },
+      { status: "success", message: "Selection independently observed.", outcomes: [] },
+    );
+    h.agent.submitUserMessage("owner", "Equip the sword.");
+    await idle(h.agent);
+    const rejected = JSON.parse(h.llm.requests[5]!.messages.at(-1)!.content!);
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error.message, /run_step report for step 2/);
+    assert.match(rejected.error.message, /Direct world queries and other steps' reports/);
+    assert.match(section(h.llm.requests[5]!.messages, "Task Context")!, /- \[ \] 2\. Verify selection/);
+    assert.deepEqual(h.actionInstructions.map(instruction => instruction.step.step), [1, 2]);
+    assert.deepEqual(h.agent.task.steps.map(step => step.status), ["done", "done"]);
+  } finally { await h.close(); }
+});
+
 test("steps can be checked after later delegations without losing their reports", async () => {
   for (const replay of ["native", "compact"] as const) {
     const h = await harness(0, replay);

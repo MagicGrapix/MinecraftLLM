@@ -1,0 +1,9 @@
+{
+  "name": "tall_oak_pillar",
+  "description": "Five-block pillar requiring temporary raised work positions.",
+  "width": 1,
+  "depth": 1,
+  "palette": { "A": "oak_planks" },
+  "layers": [["A"], ["A"], ["A"], ["A"], ["A"]],
+  "dependencies": { "doors": [] }
+}

@@ -175,9 +175,10 @@ Le dessin doit déjà avoir été enregistré, par exemple par un script ou par 
 descente de trois blocs maximum. Il filtre les postures, sans remplacer le pathfinder réel.
 Cela évite notamment de fermer le toit en restant dessus sans retour au sol.
 Une posture théoriquement accessible peut encore échouer au déplacement : l'erreur est remontée après les candidats bornés.
-Ce n'est pas un solveur de constructibilité pour tout dessin valide ; certains plans nécessitent un échafaudage ou un autre ordre non pris en charge.
+Ce n'est pas un solveur de constructibilité pour tout dessin valide ; certains plans nécessitent un accès ou un ordre non pris en charge.
 
-Seules les cellules prévues sont posées. Les cellules `.` doivent rester de l'air réel ; un liquide n'est pas de l'air.
+Les blocs définitifs sont posés uniquement dans les cellules prévues ; les accès temporaires sont décrits ci-dessous.
+Les cellules `.` doivent rester de l'air réel ; un liquide n'est pas de l'air.
 `_` est ignoré, pas déblayé. Un bloc incorrect est signalé, jamais détruit. Un changement de dimension interrompt le chantier.
 La comparaison des blocs pleins se fait par nom ; aucune orientation particulière n'est requise par cette palette.
 Le support de pose est limité à la palette de blocs pleins plus `grass_block` et `bedrock`, pour éviter les interactions de coffres/tables.
@@ -204,6 +205,42 @@ Les traces `build.event` portent `taskId`, référence, origine, type d'événem
 `action.task_started` relie ce taskId au `actionNumber` du journal de tools.
 Les déplacements/poses internes ne créent pas de tours LLM ni de faux appels dans la conversation.
 Le `ToolCallJournal` existant capture l'inventaire avant/après le `build` entier (ou indisponible si encore en terminaison).
+
+### Échafaudages limités (lot 7)
+
+Lorsque les postures existantes ne permettent plus de poser, `BuildScaffolding` cherche un escalier
+extérieur d'une à trois marches en terre. Il simule les blocs pour vérifier qu'une nouvelle posture
+permet une pose du blueprint et un retour au sol. Il sélectionne d'abord le moins de blocs nouveaux.
+Chaque pose et déplacement est ensuite vérifié sur le monde réel. Ce n'est pas une garantie de chemin.
+
+- Les escaliers restent hors de l'emprise, dans la marge de deux blocs. Aucune cellule du dessin,
+  même ignorée, ni aucun bloc déjà présent n'est remplacé par de la terre temporaire.
+- Limites dans `BUILD_LIMITS` : 24 blocs suivis au maximum, trois blocs de haut. Aucun pilier sous le bot,
+  accès intérieur, terrassement ou échafaudage automatique du pathfinder. Goto garde canDig/canPlace=false.
+- Le stock destiné aux blocs définitifs est réservé. Avant chaque pose temporaire, le surplus de terre
+  doit couvrir les nouvelles marches restantes. Un manque renvoie `MISSING_ITEM` avec
+  `reason=MISSING_SCAFFOLD_MATERIALS`, besoins définitifs/temporaires, disponible et manque.
+  La nécessité de cet accès peut apparaître après le début du chantier ; le bilan partiel est conservé.
+- Chaque cible est enregistrée avant l'envoi de sa pose, avec son ancien état d'air. Seule une pose
+  confirmée donne le droit de retirer la terre. Une pose incertaine ou un bloc ayant changé est signalé,
+  sans retrait automatique. La comparaison utilise le type et le stateId observés.
+- Après construction et sortie, le nettoyage travaille du haut vers le bas depuis le sol extérieur.
+  Il casse seulement les blocs suivis, encore conformes, visibles et à portée ; la confirmation serveur
+  de `DigCapability` reste obligatoire. Les drops peuvent rester au sol. L'herbe couverte peut devenir terre.
+- `progress.scaffolding` sépare `placedThisCall`, `removedThisCall`, `remaining` et `uncertain` du dessin.
+  Des événements `scaffold_*` relient le plan, chaque pose et chaque retrait au même appel `build`.
+- Un échec ou stop ne lance pas de nettoyage supplémentaire. La liste reste dans `BuildCapability`
+  pour le même runtime/dimension/blueprint/origine ; un nouvel appel peut finir la construction ou le nettoyage.
+  Un nettoyage échoué renvoie `SCAFFOLD_CLEANUP_INCOMPLETE`, sa cause et les positions restantes.
+  Le succès exige aussi un nettoyage terminé et la vérification finale du blueprint.
+- Cette propriété n'est pas persistée pour reprendre après redémarrage. Le code ne suppose jamais qu'une
+  terre déjà présente lui appartient. La réapparition externe d'un bloc strictement identique n'est pas
+  distinguable par une simple observation de stateId.
+
+`npm.cmd run smoke:scaffolding` teste un pilier de cinq blocs, stock fourni, arrêt après une pose temporaire,
+reprise sur la même capability, vérification indépendante du nettoyage et rappel sans nouvelle pose.
+Il utilise le coin réservé du smoke ci-dessous et restaure sa zone, sans LLM ni reset complet de l'arène.
+Le scénario `build_with_scaffolding` fournit aussi une vérification de campagne sans LLM.
 
 ### Smoke Minecraft explicite
 

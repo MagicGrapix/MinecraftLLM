@@ -17,9 +17,9 @@ const schemas = {
 };
 const descriptions: Record<keyof typeof schemas, string> = {
   reply: "Send a concise player-facing reply and end this request. Success requires a verified completed checklist.",
-  ask_planner: "Ask the single-shot planner to replace the current checklist. The returned step numbers are 1-based indices of this new plan. This is the only way to create steps.",
+  ask_planner: "Ask the single-shot planner to replace the current checklist. Pass the objective, player constraints, observed facts and blockers; let the planner decide subgoals and crafting prerequisites. Do not dictate a recipe or tool sequence. Returned step numbers are 1-based indices. This is the only way to create steps.",
   ask_architect: "Does: Delegate a drawing to the Architect with the player's constraints.\nSuccess: Selects a validated saved blueprint and its calculated material bill; clears the previous checklist/reports.\nLimits: Does not build, acquire resources, or prove the design meets the request.\nNotes: Design-only requests end with a reply. For construction, ask the planner AFTER the blueprint is accepted. Failure keeps the previous selection; never treat it as the requested new design.",
-  run_step: "Delegate one existing step of the CURRENT plan to the action agent. Wait for its report; this does not check off the step.",
+  run_step: "Delegate one existing step of the CURRENT plan with its goal, success criterion and constraints. Let the action agent choose execution tools and positions. Wait for its report; this does not check off the step.",
   complete_step: "Does: Mark one step of the current plan complete.\nSuccess: The checklist was updated.\nLimits: Performs no independent world verification.\nNotes: Requires that step's latest report to be successful. Verify its evidence before calling; other steps' reports do not replace it.",
   refresh_summary: "Generate and store a concise factual replacement summary in a separate LLM call. Returns an acknowledgement, not the summary text; the latest summary appears in the next system context.",
 };

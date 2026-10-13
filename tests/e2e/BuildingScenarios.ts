@@ -5,6 +5,7 @@ import { containsPosition } from "../../src/devworld/ArenaBounds";
 import type { Position } from "../../src/shared/types";
 import { MAX_OBSERVED_BLOCKS } from "./BlockObservations";
 import type { BlockObservation, Observation, Scenario } from "./types";
+import { scaffoldingScenario } from "./ScaffoldingScenario";
 
 // Independent fixed oracle: the test never trusts the builder's success/progress report.
 const house = BlueprintSchema.parse(JSON.parse(readFileSync(join(__dirname, "../fixtures/blueprints/small-oak-house.json"), "utf8")));
@@ -92,4 +93,4 @@ export const buildingScenarios: readonly Scenario[] = [{
     return positions;
   },
   verify: verifyFixedShelter,
-}];
+}, scaffoldingScenario];

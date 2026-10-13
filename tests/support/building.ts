@@ -23,8 +23,10 @@ export class TestBuildOperations implements BuildOperations {
   stock = new Map<string, number>([["oak_planks", 55], ["cobblestone", 25]]);
   moves: Position[] = [];
   placements: Position[] = [];
+  removals: Position[] = [];
   onMove?: () => Promise<TaskResult>;
   onPlace?: () => Promise<TaskResult>;
+  onRemove?: () => Promise<TaskResult>;
   key(p: Position) { return `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`; }
   set(p: Position, name: string | null) { this.cells.set(this.key(p), name); }
   blockAt(p: Position): Block | null {
@@ -55,5 +57,12 @@ export class TestBuildOperations implements BuildOperations {
     }
     this.placements.push(door.position); this.stock.set(door.item, (this.stock.get(door.item) ?? 0) - 1);
     return success({});
+  }
+  async removeScaffold(position: Position, expectedStateId: number): Promise<TaskResult> {
+    if (this.onRemove) { const result = await this.onRemove(); if (!result.ok) return result; }
+    const block = this.blockAt(position);
+    if (block?.name !== "dirt" || block.stateId !== expectedStateId) throw new Error("Unsafe scaffold removal");
+    this.set(position, "air"); this.removals.push(position);
+    return success({}); // Drops are not guaranteed to be collected.
   }
 }

@@ -17,7 +17,7 @@ export const BLUEPRINT_SOLID_BLOCKS: readonly string[] = Object.freeze([
   "cobblestone", "stone", "dirt", "glass",
 ]);
 
-/** Local safety policy, not Minecraft engine limits. No automatic scaffolding. */
+/** Local safety policy, not Minecraft engine limits. */
 export const BUILD_LIMITS = Object.freeze({
   timeoutMs: 300_000,
   maxRadius: 50,
@@ -25,6 +25,8 @@ export const BUILD_LIMITS = Object.freeze({
   maxCandidates: 8,
   placementReach: 4.5,
   confirmationMs: 3_000,
+  maxScaffoldBlocks: 24,
+  maxScaffoldHeight: 3,
 });
 
 /** Includes invalid responses/corrections; summary calls use the shared bounded compactor. */

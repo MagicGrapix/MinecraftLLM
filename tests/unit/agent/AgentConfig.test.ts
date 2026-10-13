@@ -10,7 +10,7 @@ test("runtime defaults keep completion and compression budgets separate", () => 
 test("shared LLM configuration follows the backend selected in the code", () => {
   const config = loadAgentConfig({});
   const expected = LLM_BACKEND === "llamacpp"
-    ? ["http://127.0.0.1:8080/v1", "local", "qwen27b"]
+    ? ["http://127.0.0.1:8080/v1", "local", "qwen-27b"]
     : ["http://localhost:11434/v1", "ollama", "qwen3.5:9b"];
   assert.deepEqual([config.llmBaseUrl, config.llmApiKey, config.llmModel], expected);
 });

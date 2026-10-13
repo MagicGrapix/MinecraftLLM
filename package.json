@@ -14,6 +14,7 @@
     "smoke:ollama": "ts-node scripts/smoke/ollama.ts",
     "smoke:architect": "ts-node scripts/smoke/architect.ts",
     "smoke:build": "ts-node scripts/smoke/build.ts",
+    "smoke:scaffolding": "ts-node scripts/smoke/build.ts --scaffolding",
     "smoke:doors": "ts-node scripts/smoke/build.ts --doors",
     "smoke:build-workflow": "ts-node scripts/smoke/build.ts --workflow",
     "check:ollama": "ts-node scripts/diagnostics/check-ollama-context.ts",

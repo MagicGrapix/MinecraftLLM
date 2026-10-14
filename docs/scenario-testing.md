@@ -8,7 +8,7 @@ avec blueprint fixe et stock fourni, sans créer d'agent ni de client LLM.
 
 ## Lancer une campagne
 
-Le serveur Minecraft doit déjà tourner, et Ollama pour les scénarios LLM. Le lanceur ne redémarre pas le serveur.
+Le serveur Minecraft doit déjà tourner, et le backend LLM configuré (llama-swap ou Ollama) pour les scénarios LLM. Le lanceur ne redémarre pas le serveur.
 Dans la console du serveur, une seule fois :
 
 ```text
@@ -29,8 +29,8 @@ npm.cmd run test:scenarios -- --repeat 5
 npm.cmd run test:scenarios
 ```
 
-La dernière commande lance les douze scénarios une fois chacun. `--repeat 5` les répète cinq fois chacun
-(60 essais pour la suite entière). Les répétitions d'un scénario sont consécutives, avec reset complet à chaque fois.
+La dernière commande lance tous les scénarios une fois chacun. `--repeat 5` les répète cinq fois chacun.
+`--list` donne la liste actuelle. Les répétitions d'un scénario sont consécutives, avec reset complet à chaque fois.
 Le reset modifie l'arène configurée du world builder
 (par défaut X/Z -48..48, Y -64..-30), y compris ses blocs souterrains et ses entités hors joueurs.
 Le profil restauré est bedrock -64, terre -63/-62, herbe -61, air au-dessus.
@@ -286,7 +286,24 @@ stock initial 1 + demande 4 bûches, refus sans pioche, collecte de 2 cobbleston
 Les totaux finaux sont relus par NBT depuis le controller, indépendamment du bilan du collecteur.
 Le test restaure ses cellules et les sources de terre prélevées, puis vide uniquement l'inventaire du bot de test.
 Ne pas intervenir dans cette zone pendant l'essai. Les traces utilisent `collect.event` et `collect.smoke` ;
-ce smoke n'est pas une campagne HTML ni un test de relief/scaffolding ou du raisonnement du modèle.
+ce smoke écrit des traces JSONL, pas une campagne HTML.
+
+Options de validation de la collecte :
+
+- `npm.cmd run smoke:collect -- --terrain --edge-cases` : sans LLM, ajoute une bûche à Y+7 avec puis
+  sans dirt initial, une butte, un creux, un obstacle, deux bûches pour une demande de trois (échec partiel
+  attendu), et un stop 50 ms après le début d'un dig. Les fixtures fixes sont dans
+  `tests/fixtures/collection/scenes.ts`. Inventaire NBT et cellules sont vérifiés par le controller.
+  Ces fixtures ne font pas de reset global ; le harness restaure uniquement les cellules qu'il suit.
+- `npm.cmd run smoke:collect -- --llm` : après la collecte déterministe de base, utilise le vrai LLM
+  configuré et les prompts de production. Stock initial vide sauf 24 dirt d'accès, cinq troncs fixes
+  de quatre bûches ; demande quatre bûches supplémentaires puis approvisionnement, craft et abri 5×5×4.
+  Origine imposée (-26,-60,-26), deux cellules d'air superposées pour l'entrée, aucune porte.
+  Un garde de test refuse un appel `build` hors origine/dimensions autorisées avant toute construction.
+  Chaque demande est bornée à dix minutes. La vérification contrôle chaque cellule depuis le controller,
+  le plancher/toit, l'air intérieur et l'entrée ; elle ne se fie pas à `build.ok` ou au texte du modèle.
+  `collect.workflow_summary` donne modèle, durée, appels par agent/tool et erreurs ; les blueprints
+  restent dans `logs/collection_workflow_<session>/`. Aucune campagne de répétitions n'est implicite.
 
 `npm.cmd run smoke:architect` teste séparément le rôle de conception avec le LLM configuré et les noms
 du registre Minecraft configuré. Aucun serveur Minecraft/controller n'est contacté. Le blueprint accepté
@@ -299,7 +316,7 @@ stock fourni et construction physique : demande de dessin sans modification, pui
 vérifiées. Le bootstrap de production, les prompts, le store et l'Executor sont conservés ; seul le client
 LLM est remplacé. Les observations indépendantes contrôlent aussi les propriétés des portes.
 Il utilise le même coin et le même nettoyage que `smoke:doors`, et des traces JSONL, pas une campagne HTML.
-Ce smoke ne mesure ni les capacités du modèle réel ni l'approvisionnement : ces campagnes restent à ajouter au lot 6.
+Ce smoke scripté ne mesure ni les capacités du modèle réel ni l'approvisionnement : utiliser `smoke:collect -- --llm` pour cet essai distinct.
 Le premier scénario `build_small_shelter` fournit maintenant le contrôle physique indépendant et le rapport HTML,
 mais sans le workflow LLM. Il ne remplace pas le smoke des délégations.
 

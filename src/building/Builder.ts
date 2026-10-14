@@ -8,7 +8,7 @@ import { canPlaceFrom, placementCandidates, workPositions, type PlacementCandida
 import { checkBuildMaterials, checkBuildSite, inspectBuild } from "./BuildVerification";
 import { safeExitStances } from "./BuildExit";
 import { canPlaceDoor, doorCandidates } from "./BuildDoor";
-import { BuildScaffolding } from "./BuildScaffolding";
+import { BuildScaffolding, recoverableBuildMove } from "./BuildScaffolding";
 
 export interface BuilderOptions {
   readonly signal: AbortSignal;
@@ -90,7 +90,7 @@ export class Builder {
             signal.throwIfAborted();
             if (!moved.ok) {
               attempts.push({ position: feet, code: moved.error.code });
-              if (!["NO_PATH", "OUT_OF_REACH", "BLOCKED"].includes(moved.error.code)) return fail(moved);
+              if (!recoverableBuildMove(moved)) return fail(moved);
               continue;
             }
           }
@@ -146,7 +146,7 @@ export class Builder {
           if (this.ops.dimension !== progress.dimension) return reject("WORLD_CHANGED", "The bot changed dimension during construction.");
           exited = moved.ok && outside(this.ops.position()) && Math.abs(this.ops.position().y - input.origin.y) < 0.01;
           if (exited) break;
-          if (!moved.ok && !["NO_PATH", "OUT_OF_REACH", "BLOCKED"].includes(moved.error.code)) return fail(moved);
+          if (!moved.ok && !recoverableBuildMove(moved)) return fail(moved);
         }
       }
       if (!exited) return reject("NO_PATH", "Construction may be complete, but the bot could not leave the footprint safely.", { reason: "EXIT_BLOCKED" });

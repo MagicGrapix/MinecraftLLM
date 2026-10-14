@@ -2,6 +2,7 @@
 name: gather
 description: Gather a requested quantity of a resource found in the world.
 required_capabilities:
+  - collect_resource
   - goto
   - equip
   - dig
@@ -21,22 +22,30 @@ from currently known chunks, such as logs or stone.
 
 ## Information to obtain before acting
 
-1. Call `get_inventory` to measure the quantity already held.
+1. Read the current inventory snapshot; call `get_inventory` only if it is missing or uncertain.
 2. Use the delegated success criterion to calculate the remaining quantity. If the
    request asks for additional resources, use the initial inventory as a baseline;
    an existing item does not prove a new item was collected.
-3. Look for matching loose items with `get_dropped_items` before digging more blocks.
+3. When using atomic tools rather than `collect_resource`, look for matching loose items with `get_dropped_items` before digging more blocks.
    Use `names` to filter item names, `maxDistance` for the search radius, and
    `count` for the maximum number of returned entities, not the quantity to collect.
    Each result contains `item`, `count`, `position` and `distance`.
    Without a name filter, unidentified drops have `item: null` and `count: null`;
    their contents are unknown. This tool finds loose items, not placed blocks.
-4. If no suitable drop is visible, call `find_nearest_blocks` with the exact Minecraft block name.
+4. For manual collection with no suitable drop visible, call `find_nearest_blocks` with the exact Minecraft block name.
 5. Check whether a suitable tool is available before proposing `equip`.
 
 ## Recommended strategy
 
-Work in short horizons. For each known block target:
+For logs, dirt or cobblestone, prefer `collect_resource({ item: "oak_log", quantity: 4 })`.
+It searches, navigates, mines and picks up drops without intermediate LLM calls.
+`quantity` is additional inventory, not target stock. Calculate the missing amount from the
+step baseline/current inventory. On partial failure, subtract only a confirmed gain
+(`inventoryKnown: true`); otherwise query inventory before deciding what remains.
+It can acquire spare dirt for bounded access; missing harvest tools are not crafted.
+Read `scaffoldsLeft` separately from collection success. Do not repeat unchanged failures.
+
+For a specific block target or a resource outside that catalogue, use the atomic tools:
 
 1. Call `goto` with `goal: "interact"` at the observed block position and wait for
    its result. If a suitable tool is available, optionally call `equip` before
@@ -84,6 +93,7 @@ inventory; otherwise verify the requested total quantity.
 
 ## Known limitations
 
-This skill does not explore new chunks, craft tools, or provide a separate
-collection capability. Pickup depends on reaching the drop and must be verified
-in the inventory.
+The collector searches loaded chunks within 32 blocks of its starting position,
+stays within 50 blocks, and stops after bounded failures or 300 seconds.
+It does not explore new chunks or craft tools. Unknown player buildings are not
+automatically recognized; use a testing area. Manual pickup must be verified in inventory.

@@ -36,7 +36,7 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   );
   const loader = new SkillLoader(
     registry,
-    capabilities("goto", "equip", "dig"),
+    capabilities("collect_resource", "goto", "equip", "dig"),
     createDefaultWorldQueryRegistry(emptyWorld),
   );
 
@@ -49,7 +49,7 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   });
 
   const gather = await loader.load("gather");
-  assert.deepEqual(gather.requiredCapabilities, ["goto", "equip", "dig"]);
+  assert.deepEqual(gather.requiredCapabilities, ["collect_resource", "goto", "equip", "dig"]);
   assert.deepEqual(gather.requiredQueries, [
     "get_inventory",
     "find_nearest_blocks",

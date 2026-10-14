@@ -53,6 +53,10 @@ Dans les rapports de scénarios, les compteurs d'opérations internes/physiques 
 leurs durées sont imbriquées et ne doivent pas être additionnées à celle du parent.
 L'UI ne recharge pas encore les anciennes sessions JSONL et il n'y a pas de rotation automatique des fichiers.
 
+Le smoke réel `smoke:collect -- --llm` ajoute `collect.workflow_request`, `collect.workflow_completed`
+et `collect.workflow_summary` : demande exacte, inventaire contrôlé, durée, modèle et compteurs par rôle/tool.
+`passed` n'est vrai qu'après les assertions indépendantes du scénario. Ce test n'est pas une campagne HTML.
+
 ## Lire une erreur
 
 1. Trouver le call rouge et sa réponse brute : `finish_reason: length` signifie une sortie tronquée,

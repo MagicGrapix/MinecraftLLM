@@ -19,6 +19,10 @@ import { terrainFixture } from "../../support/collectionTerrain";
 import { CollectionTrace } from "../../../src/collection/CollectionTrace";
 import { GotoCapability } from "../../../src/capabilities/Goto";
 import { failure } from "../../../src/execution/TaskResult";
+import { ToolCatalogBuilder, formatToolReference } from "../../../src/agent/ToolCatalogBuilder";
+import { CoordinatorTools } from "../../../src/agent/CoordinatorTools";
+import { WorldQueryRegistry } from "../../../src/world/queries/WorldQueryRegistry";
+import { collectionScenes } from "../../fixtures/collection/scenes";
 
 const data = mcData("1.21.11"), Block = blockLoader("1.21.11"), Item = itemLoader("1.21.11");
 const position = new Vec3(3, 0, 0);
@@ -26,6 +30,27 @@ const block = (name: string, p = position) => {
   const b = Block.fromStateId(data.blocksByName[name]!.minStateId, 0); b.position = p; return b;
 };
 const item = (name: string, slot = 36) => { const i = new Item(data.itemsByName[name]!.id, 1); i.slot = slot; return i; };
+
+test("collector is callable by actioner, documented to planner, and absent from coordinator tools", () => {
+  const queries = new WorldQueryRegistry({} as never);
+  const tools = new ToolCatalogBuilder(createCapabilityRegistry({} as never), queries).build();
+  const collect = tools.find(t => t.name === "collect_resource")!;
+  assert.ok(collect); assert.match(collect.description, /24 supports/);
+  assert.match(formatToolReference(tools), /### collect_resource/);
+  assert.ok(!new CoordinatorTools(queries).catalog().some(t => t.name === "collect_resource"));
+});
+
+test("collection regression scenes have unique bounded cells and explicit gain/stop oracles", () => {
+  const origin = { x: -35, y: -60, z: -35 };
+  const scenes = collectionScenes(origin);
+  assert.deepEqual(scenes.map(s => s.name), ["hill", "hollow", "obstacle", "partial", "stop"]);
+  for (const s of scenes) {
+    assert.equal(new Set(s.blocks.map(b => JSON.stringify(b.position))).size, s.blocks.length);
+    assert.ok(s.blocks.every(b => Math.hypot(b.position.x - origin.x, b.position.y - origin.y, b.position.z - origin.z) < 10));
+    assert.equal(s.blocks.filter(b => b.name === "oak_log").length, s.stopDuringDig ? 1 : s.expectedGain);
+  }
+  assert.ok(scenes.find(s => s.name === "partial")!.requested > 2);
+});
 
 for (const requested of ["oak_log", "dirt"]) {
   test(`missing dirt reserve stops bounded access without spending requested ${requested}`, async t => {

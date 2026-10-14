@@ -12,7 +12,10 @@ import { isAir, isFullCube } from "./BuildVerification";
 
 const key = (p: Position) => `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`;
 const vec = (p: Position) => new Vec3(p.x, p.y, p.z);
-const recoverable = (result: TaskResult) => !result.ok && ["NO_PATH", "OUT_OF_REACH", "BLOCKED"].includes(result.error.code);
+/** A path-search budget is local to one stance, unlike the enclosing action deadline. */
+export const recoverableBuildMove = (result: TaskResult) => !result.ok &&
+  (["NO_PATH", "OUT_OF_REACH", "BLOCKED"].includes(result.error.code) ||
+    (result.error.code === "TIMEOUT" && result.error.facts?.reason === "Timeout"));
 
 interface ScaffoldOptions {
   signal: AbortSignal;
@@ -88,7 +91,7 @@ export class BuildScaffolding {
       let placed = false;
       for (const candidate of candidates) {
         const moved = await this.move(candidate.feet);
-        if (!moved.ok) { if (recoverable(moved)) continue; return moved; }
+        if (!moved.ok) { if (recoverableBuildMove(moved)) continue; return moved; }
         const stock = this.checkStock(reserved, layout.added.length - i); if (!stock.ok) return stock;
         const eyes = this.ops.eyes();
         if (!eyes || !canPlaceFrom(this.ops, candidate, eyes, this.ops.position()) ||
@@ -128,7 +131,7 @@ export class BuildScaffolding {
       let removed = false;
       for (const candidate of candidates) {
         const moved = await this.move(candidate);
-        if (!moved.ok) { if (recoverable(moved)) continue; return moved; }
+        if (!moved.ok) { if (recoverableBuildMove(moved)) continue; return moved; }
         const block = this.ops.blockAt(entry.position);
         if (!block || block.name !== "dirt" || block.stateId !== entry.stateId) {
           return failure("WORLD_CHANGED", "Tracked dirt changed before cleanup; it was left intact.", { facts: { position: entry.position } });

@@ -81,6 +81,29 @@ test("uncertain placement stops, preserves partial progress, and a new call reob
   const resumed = await run(ops); assert.ok(resumed.ok); assert.equal(resumed.value.placedThisCall, 1);
 });
 
+test("a local pathfinder timeout tries another work position, not a second build call", async () => {
+  const ops = new TestBuildOperations(); ops.feet = new Vec3(-10, 0, -10);
+  ops.onMove = async () => ops.moves.length === 1
+    ? failure("TIMEOUT", "Path search budget", { facts: { reason: "Timeout" } })
+    : { ok: true, value: {} };
+  const result = await run(ops); assert.ok(result.ok, JSON.stringify(result));
+  assert.ok(ops.moves.length >= 2); assert.equal(ops.placements.length, 2);
+});
+
+test("unknown timeouts and action cancellation never fall through to another position", async () => {
+  for (const cancel of [false, true]) {
+    const ops = new TestBuildOperations(), controller = new AbortController();
+    ops.feet = new Vec3(-10, 0, -10);
+    ops.onMove = async () => {
+      if (cancel) controller.abort(new Error("action deadline"));
+      return failure("TIMEOUT", "Deadline", cancel ? { facts: { reason: "Timeout" } } : {});
+    };
+    if (cancel) await assert.rejects(run(ops, simple, controller.signal), /action deadline/);
+    else { const result = await run(ops); assert.ok(!result.ok && result.error.code === "TIMEOUT"); }
+    assert.equal(ops.moves.length, 1); assert.equal(ops.placements.length, 0);
+  }
+});
+
 test("stop after an in-flight placement never starts the following placement", async () => {
   const ops = new TestBuildOperations(), controller = new AbortController();
   ops.onPlace = async () => { controller.abort(new Error("stop")); return { ok: true, value: {} }; };

@@ -44,7 +44,7 @@ Les états inconnus restent distincts d'un bloc incorrect. L'orientation n'est p
 Les traces `place.confirmation` donnent `attempt`, `settled`, les changements `observed`, puis
 `confirmed`, `expired` ou `interrupted`, avec cible, bloc attendu, états reçus et cause Mineflayer éventuelle.
 
-## Collecte automatique (lot 3)
+## Collecte automatique
 
 `collect_resource({"item":"oak_log","quantity":4})` cherche, approche, équipe un outil disponible,
 casse et ramasse jusqu'à obtenir **quatre items supplémentaires**, sans appel LLM interne.
@@ -79,7 +79,9 @@ pas le nombre de sources cassées ; lire aussi `inventoryKnown` avant toute repr
 
 Un seul appel et un seul diff d'inventaire parent sont enregistrés. Les traces JSONL `collect.event` détaillent
 recherche, accès, équipement, dig, déplacement et confirmation avec `taskId` et index local ; elles ne créent
-pas de faux appels LLM. Leur affichage imbriqué dans la UI reste pour le lot 5.
+pas de faux appels LLM. Dans Debug (local), ouvrir « Internal operations » sous le tool pour les
+consulter par pages de 50 ; erreurs en rouge, sélection figée. Le rapport scénario sépare les opérations
+internes des appels du modèle. Les causes longues sont raccourcies dans le bilan, pas dans la trace.
 
 `npm.cmd run smoke:collect` vérifie cette boucle sans LLM : voir [les tests physiques](scenario-testing.md).
 

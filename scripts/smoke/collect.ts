@@ -22,11 +22,18 @@ import { blockPositionKey } from "../../src/world/BlockSearch";
 import { bounded, until } from "../../tests/e2e/async";
 import { entityNbt } from "../../tests/support/entityNbt";
 import type { Position } from "../../src/shared/types";
+import { collectionScenes } from "../../tests/fixtures/collection/scenes";
+import { collectionWorkflow } from "./collection-workflow";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { SESSION_ID } from "../../src/TraceLog";
 
-/** Explicit no-LLM survival test. Never resets the arena or the main player's inventory. */
+/** Survival fixtures; real LLM is opt-in. Never resets the arena or the main player's inventory. */
 async function main() {
   const username = "collect_test_bot";
   const terrain = process.argv.includes("--terrain");
+  const edgeCases = process.argv.includes("--edge-cases");
+  const liveLlm = process.argv.includes("--llm");
   const config = loadWorldBuilderConfig({ ...process.env, WORLD_CONTROLLER_USERNAME: "test_controller", WORLD_AGENT_USERNAME: username });
   const origin = new Vec3(-35, -60, -35);
   const wood = [0, 1, 2, 3].map(y => origin.offset(3, y, 0));
@@ -54,6 +61,24 @@ async function main() {
       const name = item.id.replace(/^minecraft:/, ""); counts[name] = (counts[name] ?? 0) + (item.count ?? 1);
     }
     return counts;
+  };
+  const restoreBlocks = async () => {
+    // Remove opaque fixtures before restoring grass, otherwise it can turn back into dirt.
+    for (const { position: p, name } of [...restore.values()].sort((a, b) =>
+      Number(b.name === "air") - Number(a.name === "air") || a.position.y - b.position.y)) {
+      assert.ok(containsPosition(config.arena, p), "Refusing cleanup outside arena");
+      if (controller.bot.blockAt(new Vec3(p.x, p.y, p.z))?.name !== name) await command(`setblock ${p.x} ${p.y} ${p.z} ${name}`);
+    }
+    await until(() => [...restore.values()].every(v => controller.bot.blockAt(new Vec3(v.position.x, v.position.y, v.position.z))?.name === v.name), 5000, "Fixture restoration");
+  };
+  const clearTestDrops = async () => {
+    if (!transport) return;
+    for (const e of Object.values(controller.bot.entities)) {
+      if (initialEntities.has(e.id) || e.name !== "item" || !e.uuid ||
+          !minedPositions.some(p => e.position.distanceTo(new Vec3(p.x, p.y, p.z)) < 3)) continue;
+      const item = e.getDroppedItem();
+      if (item && ["oak_log", "cobblestone", "dirt"].includes(item.name)) await command(`kill ${e.uuid}`);
+    }
   };
   try {
     await bounded(controller.connect(), 15_000, "Controller connection");
@@ -83,6 +108,11 @@ async function main() {
     const registry = new CapabilityRegistry(); registry.register(new CollectResourceCapability()); registry.freeze();
     executor = new Executor({ runtime, world, registry }); const tasks = new TaskFactory();
     unsubscribe = subscribeTrace((event, raw) => {
+      if (event === "build.event") {
+        const e = raw as { event: string; position?: Position };
+        if (e.event === "scaffold_remove_started" && e.position) minedPositions.push({ ...e.position });
+        return;
+      }
       if (event !== "collect.event") return;
       const e = raw as { event: string; operation: string; args: { position: Position; block: string } };
       if (e.event !== "operation_started" || !["dig", "reserve_dig", "path_dig", "scaffold_place"].includes(e.operation)) return;
@@ -124,30 +154,86 @@ async function main() {
         console.info("Terrain collection passed", { suppliedDirt: supplied, result: result.result });
       }
     }
-    console.info("Collect smoke passed: 1+4 logs, missing pickaxe without mining, 2 cobblestone from stone, 2 dirt. Independent server inventory; no LLM.");
+    if (edgeCases) {
+      for (const scene of collectionScenes(origin)) {
+        await command(`tp ${username} ${origin.x + 0.5} ${origin.y} ${origin.z + 0.5}`);
+        await restoreBlocks(); await clearTestDrops();
+        for (const { position: p, name } of scene.blocks) {
+          assert.ok(containsPosition(config.arena, p));
+          const before = controller.bot.blockAt(new Vec3(p.x, p.y, p.z)); assert.ok(before);
+          assert.equal(before.name, p.y >= origin.y ? "air" : "grass_block", "Refusing non-baseline scene");
+          if (!restore.has(blockPositionKey(p))) restore.set(blockPositionKey(p), { position: p, name: before.name });
+          // Opaque fixtures can naturally turn the grass below them into dirt.
+          if (p.y === origin.y) {
+            const ground = { ...p, y: p.y - 1 }, key = blockPositionKey(ground);
+            if (!restore.has(key)) restore.set(key, { position: ground, name: controller.bot.blockAt(new Vec3(ground.x, ground.y, ground.z))!.name });
+          }
+          await command(`setblock ${p.x} ${p.y} ${p.z} ${name}`);
+        }
+        await until(() => runtime.bot.entity.onGround && scene.blocks.every(b => runtime.bot.blockAt(new Vec3(b.position.x, b.position.y, b.position.z))?.name === b.name), 5000, "Scene propagation");
+        const expectedLogs = scene.blocks.filter(b => b.name === "oak_log");
+        assert.equal((await world.findNearestBlocks("oak_log", { count: 64, maxDistance: 32 })).length, expectedLogs.length, "Uncontrolled source in scene");
+        const before = (await inventory()).oak_log ?? 0;
+        let timer: NodeJS.Timeout | undefined, interrupted = false;
+        const stop = subscribeTrace((name, raw) => {
+          const e = raw as { event?: string; operation?: string };
+          if (scene.stopDuringDig && !interrupted && name === "collect.event" && e.event === "operation_started" && e.operation === "dig") {
+            interrupted = true; timer = setTimeout(() => executor!.abortCurrent("Stop regression fixture"), 50);
+          }
+        });
+        try {
+          const result = await collect("oak_log", scene.requested);
+          assert.equal((result.stock.oak_log ?? 0) - before, scene.expectedGain, scene.name);
+          if (scene.stopDuringDig) {
+            assert.ok(interrupted && !result.result.ok && result.result.error.code === "INTERRUPTED", JSON.stringify(result));
+            await executor!.waitForIdle(10_000);
+            assert.ok(expectedLogs.every(b => controller.bot.blockAt(new Vec3(b.position.x, b.position.y, b.position.z))?.name === "oak_log"));
+          } else {
+            assert.equal(result.result.ok, scene.expectedGain >= scene.requested, JSON.stringify(result));
+            assert.ok(expectedLogs.every(b => controller.bot.blockAt(new Vec3(b.position.x, b.position.y, b.position.z))?.name === "air"));
+          }
+          writeTrace("collect.scene_passed", { name: scene.name, before, stock: result.stock });
+          console.info("Collection scene passed", scene.name);
+        } finally { clearTimeout(timer); stop(); }
+      }
+    }
+    console.info("Deterministic collection checks passed. Independent server inventory and fixture cells; no LLM.");
+    if (liveLlm) {
+      await command(`tp ${username} ${origin.x + 0.5} ${origin.y} ${origin.z + 0.5}`);
+      await restoreBlocks(); await clearTestDrops();
+      await command(`clear ${username}`); await command(`give ${username} dirt 24`);
+      const site = origin.offset(9, 0, 9);
+      for (let x = -2; x <= 6; x++) for (let z = -2; z <= 6; z++) for (let y = -1; y <= 5; y++) {
+        const p = site.offset(x, y, z); assert.ok(containsPosition(config.arena, p));
+        const name = y === -1 ? "grass_block" : "air";
+        assert.equal(controller.bot.blockAt(p)?.name, name, "Refusing occupied live workflow site");
+        restore.set(blockPositionKey(p), { position: p, name });
+        if (y >= 0) minedPositions.push(p); // Include access blocks removed manually by the live agent.
+      }
+      const trees = [3, 5, 7, 9, 11].flatMap(x => [0, 1, 2, 3].map(y => origin.offset(x, y, 0)));
+      for (const p of trees) {
+        assert.equal(controller.bot.blockAt(p)?.name, "air");
+        restore.set(blockPositionKey(p), { position: p, name: "air" });
+        const ground = p.offset(0, -1, 0);
+        if (p.y === origin.y && !restore.has(blockPositionKey(ground))) restore.set(blockPositionKey(ground), { position: ground, name: controller.bot.blockAt(ground)!.name });
+        await command(`setblock ${p.x} ${p.y} ${p.z} oak_log`);
+      }
+      assert.equal((await world.findNearestBlocks("oak_log", { count: 64, maxDistance: 32 })).length, 20, "Uncontrolled live sources");
+      const directory = join("logs", `collection_workflow_${SESSION_ID}`); await mkdir(directory, { recursive: true });
+      try { await collectionWorkflow(runtime, controller.bot, site, directory, inventory, () => command(`clear ${username}`)); }
+      finally {
+        // Only this pre-verified empty volume is cleared; never reset the arena.
+        for (const material of ["oak_planks", "dirt"]) await command(`fill ${site.x - 2} ${site.y} ${site.z - 2} ${site.x + 6} ${site.y + 5} ${site.z + 6} air replace ${material}`);
+      }
+    }
   } finally {
     executor?.abortCurrent("Collection smoke cleanup");
     await cleanupSteps([
       { name: "physical settlement", run: () => executor?.waitForIdle(10_000) },
       { name: "test inventory", run: async () => { if (runtime.isConnected && transport) await command(`clear ${username}`); } },
       { name: "bot", run: () => runtime.disconnect("Collection smoke finished") },
-      { name: "remaining test drops", run: async () => {
-        if (!transport) return;
-        for (const e of Object.values(controller.bot.entities)) {
-          if (initialEntities.has(e.id) || e.name !== "item" || !e.uuid ||
-              !minedPositions.some(p => e.position.distanceTo(new Vec3(p.x, p.y, p.z)) < 3)) continue;
-          const item = e.getDroppedItem();
-          if (item && ["oak_log", "cobblestone", "dirt"].includes(item.name)) await command(`kill ${e.uuid}`);
-        }
-      } },
-      { name: "fixtures", run: async () => {
-        for (const { position: p, name } of [...restore.values()].sort((a, b) => a.position.y - b.position.y)) {
-          assert.ok(containsPosition(config.arena, p), "Refusing cleanup outside arena");
-          if (controller.bot.blockAt(new Vec3(p.x, p.y, p.z))?.name === name) continue;
-          await command(`setblock ${p.x} ${p.y} ${p.z} ${name}`);
-        }
-        await until(() => [...restore.values()].every(v => controller.bot.blockAt(new Vec3(v.position.x, v.position.y, v.position.z))?.name === v.name), 5000, "Fixture restoration");
-      } },
+      { name: "remaining test drops", run: clearTestDrops },
+      { name: "fixtures", run: restoreBlocks },
       { name: "trace observer", run: () => unsubscribe() },
       { name: "transport", run: () => transport?.close() },
       { name: "controller", run: () => controller.disconnect() },

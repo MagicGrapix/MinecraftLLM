@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : **lots 1 à 5 implémentés ; lot 6 en cours**.
+Statut : **lots 1 à 6 implémentés et vérifiés ; essai LLM complet réussi, sans campagne de répétitions**.
 Cocher les tâches après implémentation et vérification, puis renseigner le journal final.
 Ce plan complète [le plan Blueprint / Builder](blueprint-builder.md) sans reprendre ses lots reportés.
 
@@ -150,7 +150,7 @@ Le scaffolding du Builder suppose un chantier plat ; ne pas l'appliquer tel quel
 
 Vérification :
 
-- [ ] Fixtures fixes : petite butte, creux, obstacle, bûche surélevée avec dirt en stock, puis même cible sans dirt initial.
+- [x] Fixtures fixes : petite butte, creux, obstacle, bûche surélevée avec dirt en stock, puis même cible sans dirt initial.
 - [x] Tester réserve introuvable, accès trop haut, budget de poses épuisé, retrait devenu impossible et bloc temporaire modifié par un tiers.
 - [x] Tester que le collecteur ne tourne pas en rond et explique brièvement le blocage quand le relief sort des limites.
 
@@ -179,18 +179,18 @@ Vérification :
 
 ## Lot 6 — Intégration, prompts ciblés et validation finale
 
-- [ ] Ajouter la description concise de `collect_resource` : action, preuve de succès, limites et exemple d'arguments.
-- [ ] Vérifier que le catalogue de l'actionneur et la documentation générée du planner incluent le tool ; le coordinator ne l'exécute pas.
-- [ ] Adapter uniquement les passages utiles des skills de collecte et des prompts à l'usage de cette capability ; conserver les edits personnels de Quentin.
-- [ ] Dans les prompts Architect actifs et expérimentaux, clarifier `open entrance` sur deux blocs d'air superposés.
+- [x] Ajouter la description concise de `collect_resource` : action, preuve de succès, limites et exemple d'arguments.
+- [x] Vérifier que le catalogue de l'actionneur et la documentation générée du planner incluent le tool ; le coordinator ne l'exécute pas.
+- [x] Adapter uniquement les passages utiles des skills de collecte et des prompts à l'usage de cette capability ; conserver les edits personnels de Quentin.
+- [x] Dans les prompts Architect actifs et expérimentaux, clarifier `open entrance` sur deux blocs d'air superposés.
   Éviter de promettre une porte réelle dans délégations/résumés. Ne pas supprimer dans ce lot le support historique des portes du Builder.
-- [ ] Actualiser `docs/architecture.md`, `docs/contracts.md`, `docs/tools.md`, les docs de scénarios et de debug touchées.
-- [ ] Exécuter `npm.cmd test` après chaque lot de code cohérent.
-- [ ] Ajouter des scénarios déterministes sans LLM : collecte simple, terrain bosselé, accès avec acquisition de dirt,
+- [x] Actualiser `docs/architecture.md`, `docs/contracts.md`, `docs/tools.md`, les docs de scénarios et de debug touchées.
+- [x] Exécuter `npm.cmd test` après chaque lot de code cohérent.
+- [x] Ajouter des scénarios déterministes sans LLM : collecte simple, terrain bosselé, accès avec acquisition de dirt,
   collecte partielle, arrêt en cours d'opération et gain supplémentaire avec stock initial.
-- [ ] Contrôler depuis le controller les inventaires et cellules pertinentes, indépendamment du rapport du collecteur.
-- [ ] Après ces vérifications, lancer un essai avec LLM : collecter du bois, puis approvisionner/crafter/construire un abri à entrée ouverte.
-- [ ] Comparer temps, nombre d'appels LLM et erreurs avec la session de référence, à modèle/prompt/scène documentés.
+- [x] Contrôler depuis le controller les inventaires et cellules pertinentes, indépendamment du rapport du collecteur.
+- [x] Après ces vérifications, lancer un essai avec LLM : collecter du bois, puis approvisionner/crafter/construire un abri à entrée ouverte.
+- [x] Comparer temps, nombre d'appels LLM et erreurs avec la session de référence, à modèle/prompt/scène documentés.
   Un essai réussi valide le parcours, pas encore sa fiabilité statistique ; laisser les répétitions comme campagne explicite ultérieure.
 
 ## Ordre et critères de livraison
@@ -254,3 +254,37 @@ Le travail sur la forme des réponses LLM et les lots de construction reportés 
   Les statistiques distinguent les opérations internes des tools LLM et ne doublent pas leurs compteurs.
   Stockage UI borné (64 collectes, 2 000 opérations par collecte), traces complètes conservées sur disque.
   `npm.cmd test` : 596 tests réussis, compilation et typage inclus. Aucun appel LLM.
+- 2026-10-14 : lot 6 : description, catalogue, skill gather et passages ciblés des prompts alignés sur
+  la collecte automatique ; Architect/planner/coordinator/actionneur parlent d'une entrée ouverte, sans porte.
+  Ajout des fixtures déterministes butte, creux, obstacle, collecte partielle et stop dans un dig.
+  `smoke:collect -- --edge-cases` : tous les cas passent, contrôlés par inventaire NBT et cellules du controller.
+  Trace : `trace_1791965982588_55236.jsonl`. La cible surélevée avec/sans dirt est validée dans la trace du lot 4.
+  Le nettoyage enlève les blocs opaques avant de rétablir l'herbe pour éviter sa reconversion en dirt.
+  `npm.cmd test` : **600 tests réussis**, compilation et vérifications TypeScript incluses.
+  Un smoke réel opt-in `smoke:collect -- --llm` réutilise les prompts et le runtime de production,
+  un inventaire/chantier de test et des assertions indépendantes ; aucun reset global du monde.
+  Premier essai réel (`trace_1791966345442_34400.jsonl`) : 4 puis 16 bûches collectées, 80 planches craftées,
+  mais Builder bloqué après 55 poses : le timeout local du pathfinder était traité comme fatal avant son
+  repli vers les autres positions/supports. Essai interrompu, chantier de test retiré et inventaire vidé.
+  Correctif : traiter uniquement `TIMEOUT` avec cause pathfinder `Timeout` comme un accès à réessayer
+  parmi les positions bornées. Les deadlines inconnues et AbortSignal restent fatales ; deux régressions ajoutées.
+- 2026-10-14 : essai réel final **réussi**, trace `trace_1791966961981_65276.jsonl`, qwen-27b via llama-swap,
+  température 0,2, reasoning medium, sortie 4 096 tokens. Scène : cinq troncs fixes de quatre bûches,
+  stock initial 24 dirt, demande initiale de 4 bûches puis abri 5×5×4 à (-26,-60,-26), entrée ouverte.
+  Première demande : 44,2 s ; collecte physique de 4 bûches : 17,3 s.
+  Abri : **456,3 s (7 min 36), 35 appels LLM**, dont actionneur 24, coordinator 9, planner 1, Architect 1.
+  Collecte supplémentaire de 16 bûches : 68,4 s ; 80 planches produites en trois appels craft, puis 80 blocs posés.
+  Les 100 cellules du blueprint (blocs et air), l'intérieur, le plancher/toit, l'entrée et la checklist sont contrôlés.
+  Deux échecs `build` liés au nettoyage et un dig hors portée ont été récupérés : un support était devenu grass_block.
+  L'actionneur l'a retiré explicitement, puis `build` a retiré les deux autres et confirmé la construction terminée.
+  Onze timeouts internes de recherche ont été traversés sans nouvel appel LLM pendant le premier `build`.
+  Total des deux demandes : 44 appels LLM, environ 8 min 21 hors préparation/nettoyage des fixtures.
+  Le harness s'est terminé avec code 0 ; chantier restauré, bot de test déconnecté, inventaire vidé.
+  Deux drops de terre résiduels ont été retirés lors du contrôle final ; le harness couvre désormais aussi
+  les retraits manuels dans son volume de chantier. Le bot principal n'a pas été lancé ni redémarré.
+  Comparaison descriptive : la demande d'abri de `trace_1791880269931_62504.jsonl` (13 octobre, génération 2)
+  prenait 47 min 6,6 s, 233 appels LLM et 28 échecs de capabilities. Même modèle qwen-27b, mais demande avec
+  fenêtre/porte, scène, stock et prompts différents : **ce n'est pas un benchmark contrôlé ni un facteur de gain garanti**.
+  Limites observées : décisions encore redondantes, confusion ponctuelle de l'origine et des coordonnées d'entrée
+  dans le rapport textuel (l'oracle indépendant valide la vraie entrée), nettoyage prudent si la terre devient herbe.
+  Les appels de collecte peuvent laisser des supports annoncés ; la fiabilité statistique reste à mesurer par répétitions.

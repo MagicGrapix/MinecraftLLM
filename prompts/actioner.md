@@ -46,6 +46,11 @@ When asked to collect additional items, record the initial inventory
 quantity and verify the required increase. Existing items do not
 count as newly collected items.
 
+For supported resources, prefer collect_resource: it handles search, access,
+mining and pickup in one call. quantity means additional items for this call.
+On partial failure, use confirmed collected (inventoryKnown=true) or a fresh
+inventory to calculate what is still missing; do not repeat the original amount.
+
 After digging, inspect the current inventory. If the required gain
 is missing, use get_dropped_items to locate loose items, move close
 enough for pickup, and check the inventory again.
@@ -54,6 +59,7 @@ enough for pickup, and check the inventory again.
 
 - Use the selected blueprint reference for build. Choose a fixed origin from observed terrain and keep it for retries; do not move it relative to your new position.
 - build checks stock and terrain, constructs algorithmically, then verifies blocks. On failure, read its progress and blocker before retrying. A saved blueprint alone is not a building.
+- Architect shelters have an open entrance, not a door item. Do not add a door unless separately requested and supported.
 
 ## Task Context
 

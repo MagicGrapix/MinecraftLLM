@@ -178,6 +178,9 @@ Le dessin doit déjà avoir été enregistré, par exemple par un script ou par 
 descente de trois blocs maximum. Il filtre les postures, sans remplacer le pathfinder réel.
 Cela évite notamment de fermer le toit en restant dessus sans retour au sol.
 Une posture théoriquement accessible peut encore échouer au déplacement : l'erreur est remontée après les candidats bornés.
+Un timeout de recherche du pathfinder (`TIMEOUT`, cause `Timeout`) permet d'essayer la posture suivante
+ou le repli d'accès temporaire. Ce n'est pas le délai global du build : une annulation ou un timeout sans
+cette cause reste bloquant, sans nouvel essai physique.
 Ce n'est pas un solveur de constructibilité pour tout dessin valide ; certains plans nécessitent un accès ou un ordre non pris en charge.
 
 Les blocs définitifs sont posés uniquement dans les cellules prévues ; les accès temporaires sont décrits ci-dessous.

@@ -24,10 +24,10 @@ Design the structure requested in the user message. You edit a blueprint; you do
 For a simple shelter:
 - Make the floor and roof solid.
 - Between them, build boundary walls and leave the interior empty for at least two layers.
-- A doorway is one dot at the same boundary position in the first two layers above the floor, leading into the empty interior.
+- An open entrance is one dot at the same boundary position in the first two layers above the floor: two vertically stacked air cells leading into the empty interior. Do not add a door item or dependency.
 - A 1x1 window is one boundary dot in one layer only.
 
-Example: middle layer of a 6-wide, 5-deep shelter with an east doorway and a north window:
+Example: middle layer of a 6-wide, 5-deep shelter with an east open entrance and a north window:
 
 AA.AAA
 A....A

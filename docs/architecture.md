@@ -73,13 +73,17 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `CollectionTerrain` borne le creusement local, l'acquisition de dirt et les poses temporaires confirmées.
   L'intercepteur interne de `Goto` suit les opérations du pathfinder sous la même barrière physique.
   `KnownBuildSites` protège les chantiers enregistrés par `build` dans ce runtime (pas les bâtiments inconnus).
-  Voir [le contrat de collecte](tools.md#collecte-automatique-lot-3).
+  Le skill `gather` privilégie cet appel pour les ressources supportées ; le planner reçoit sa documentation
+  depuis le même catalogue que l'actionneur. Le coordinateur ne reçoit pas la capability.
+  Voir [le contrat de collecte](tools.md#collecte-automatique).
 - `src/world/` traduit les observations Mineflayer. `WorldQueries.getNearbyEntities` est conservée
   comme API interne, notamment pour `get_dropped_items`, sans tool générique exposé au LLM.
   `findNearestBlocks` retourne une Promise : `BlockSearch.ts` parcourt les cellules chargées par lots
   coopératifs. `WorldQueryRegistry` applique les délais, annulations et limites de réponse aux deux agents.
 - `src/llm/` traduit nos messages en Chat Completions. La couche agents ne dépend pas du SDK OpenAI.
 - `src/debug/` contient le serveur local, les snapshots et leur projection UI.
+  `CollectionOperationsStore` conserve une projection bornée des traces internes, chargée par pages
+  sous l'appel parent. Ni les rounds ni le contexte LLM ne recopient cette liste.
 - `src/devworld/` est un processus séparé : WorldBuilder -> WorldPlan -> CommandExecutor -> bot OP.
   Il ne passe jamais par les tools de l'agent.
 - `src/building/` fournit le format Blueprint, sa validation/compilation, son store JSON immuable et le Builder déterministe de cubes et portes en chêne.
@@ -168,5 +172,5 @@ Actualiser la page concernée lorsque ces frontières changent ; les détails lo
 
 Le [plan Blueprint / Architect / Builder](plans/blueprint-builder.md) suit cette évolution par lots.
 Le [plan confirmations et collecte](plans/reliable-actions-resource-collection.md) suit la fiabilisation
-des opérations puis la future capability de collecte ; seuls ses lots cochés sont disponibles.
+des opérations et la capability de collecte ; seuls ses lots cochés sont disponibles.
 Seuls les lots cochés sont livrés ; les sections ci-dessus et [les contrats Blueprint](blueprints.md) décrivent le comportement actuel.

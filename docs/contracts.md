@@ -28,6 +28,8 @@
   pas dépensés pour l'accès. Le nettoyage ne retire que la terre suivie, confirmée et restée identique,
   depuis un appui sûr ; `scaffoldsLeft` peut être non nul malgré une collecte réussie.
   Stop interdit de nouvelles opérations de nettoyage. Les confirmations d'inventaire ciblent Java 1.21.11.
+  Le bilan ne prouve pas que l'environnement est inchangé : du terrain peut avoir été creusé et des supports
+  laissés. Les opérations internes sont liées à un seul appel parent, sans nouvelles décisions LLM.
 - `place` confirme le nom du bloc à la destination grâce à un paquet serveur reçu depuis le début
   de la tentative, concordant avec la cellule actuellement chargée. Une prédiction locale seule ne suffit pas.
   La même confirmation sert au Builder, sans deuxième attente. Après résolution ou rejet de `bot.placeBlock`,

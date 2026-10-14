@@ -17,12 +17,12 @@ Draw the structure requested in the user message. You design a blueprint; you do
 For a simple shelter:
 - Make the floor and roof solid.
 - Between them, build only the boundary walls; fill the interior with dots. Keep at least two layers of interior air.
-- A doorway is one dot in the same boundary row and column in the first two layers above the floor. It must lead into the empty interior.
+- An open entrance is one dot at the same boundary row and column in the first two layers above the floor: two vertically stacked air cells leading into the empty interior. Do not add a door item or dependency.
 
-For example, here is a 6x5x4 wood shelter with one window and one door opening.
+For example, here is a 6x5x4 wood shelter with one window and an open entrance.
 - 6 characters per row (X), 5 rows per layer (Z), 4 layers (Y)
 - Window is 1x1 located north
-- Door is 1 block wide and 2 blocks high, located east
+- Open entrance is 1 block wide and 2 blocks high, located east
 
 AAAAAA
 AAAAAA
@@ -56,7 +56,7 @@ AAAAAA
 
 ## Submit and correct
 
-- Check dimensions, empty interior and doorway access before submitting.
+- Check dimensions, empty interior and open entrance access before submitting.
 - Call submit_blueprint with the entire drawing in its drawing string. Use exactly one tool call per response.
 - If the tool reports an error, correct the drawing while preserving the original request. Resubmit all layers, not just the correction.
 - A valid submission ends your work automatically. Validation checks the drawing format, not whether you fulfilled the request.

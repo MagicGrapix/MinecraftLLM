@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import type { AgentInspector } from "./AgentInspector";
+import { subscribeTrace } from "../TraceLog";
 
 export interface AgentInspectorServerOptions {
   readonly inspector: AgentInspector;
@@ -66,13 +67,12 @@ export async function startAgentInspectorServer(
     address && typeof address === "object" ? address.port : options.port;
   const url = `http://${options.host}:${port}`;
   let closed = false;
+  const unsubscribe = subscribeTrace((event, data) => options.inspector.collections.record(event, data));
 
   return {
     url,
     port,
-    close: () => closeServer(server, () => closed, (value) => {
-      closed = value;
-    }),
+    close: () => { unsubscribe(); return closeServer(server, () => closed, (value) => { closed = value; }); },
   };
 }
 
@@ -126,6 +126,15 @@ async function handleRequest(
   }
 
   const roundMatch = /^\/api\/rounds\/([^/]+)$/.exec(path);
+  const collectionMatch = /^\/api\/collections\/(\d+)$/.exec(path);
+  if (collectionMatch) {
+    try {
+      const page = options.inspector.collections.page(Number(collectionMatch[1]),
+        Number(url.searchParams.get("after") ?? 0), Number(url.searchParams.get("limit") ?? 50));
+      sendJson(response, page ? 200 : 404, page ?? { error: "Collection detail unavailable or evicted; see the session JSONL trace." });
+    } catch (error) { sendJson(response, 400, { error: String(error) }); }
+    return;
+  }
   if (roundMatch) {
     const id = decodeURIComponent(roundMatch[1]!);
     const round = options.inspector.getRound(id);

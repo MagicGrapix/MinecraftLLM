@@ -3,7 +3,7 @@ const data = JSON.parse(document.getElementById('data').textContent);
 const el = id => document.getElementById(id);
 const seconds = ms => (ms / 1000).toFixed(2) + ' s';
 const statuses = { completed: 'Terminé', failed: 'Erreur', incomplete: 'Incomplet' };
-const agents = { actioner: 'Actionneur', coordinator: 'Coordinateur', planner: 'Planner', architect: 'Architecte', builder: 'Builder sans LLM' };
+const agents = { actioner: 'Actionneur', coordinator: 'Coordinateur', planner: 'Planner', architect: 'Architecte', builder: 'Builder sans LLM', collector: 'Collecteur sans LLM' };
 let activities = [], selected = -1, pane = 'prompt', listButtons = [], timelineRows = [];
 
 function node(tag, text, parent, className) {
@@ -86,6 +86,7 @@ function renderDetail() {
   }
   detail.setAttribute('aria-labelledby', 'tab-' + pane);
   if (d.error) node('pre', d.error.message ?? pretty(d.error), detail, 'error failed');
+  if (a.kind === 'internal') node('p', 'Sous-opération algorithmique du collecteur, pas un appel LLM. Les durées imbriquées ne s’additionnent pas.', detail, 'muted');
   if (pane === 'raw') { node('pre', pretty(a.details), detail); return; }
   if (pane === 'arguments') { block(detail, 'Arguments envoyés', d.context?.arguments ?? d.arguments ?? {}); return; }
   if (pane === 'result') {
@@ -184,6 +185,8 @@ function showTrial() {
   metric(el('metrics'), 'Objectif observé à', r.goalReachedAtMs === null ? '—' : seconds(r.goalReachedAtMs));
   metric(el('metrics'), 'Appels LLM', String(s.llmCalls));
   metric(el('metrics'), 'Tools / échecs', s.toolCalls + ' / ' + s.failedTools);
+  metric(el('metrics'), 'Opérations internes / échecs', (s.internalOperations ?? 0) + ' / ' + (s.failedInternalOperations ?? 0));
+  metric(el('metrics'), 'Dont opérations physiques', s.physicalOperations ?? 0);
   metric(el('metrics'), 'Étapes finales cochées', r.final ? r.final.completedSteps + '/' + r.final.planSteps : '—');
   el('criterion').textContent = r.criterion ? r.criterion.expected + ' · ' + r.criterion.actual : '';
   el('verification').hidden = r.finalAfterSettlement === undefined && !r.criterion?.details;

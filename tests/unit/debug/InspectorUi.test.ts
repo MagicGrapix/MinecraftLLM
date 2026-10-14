@@ -61,6 +61,17 @@ test("tool details display the shared action number separately from the native c
   assert.match(h.elements.get("detailBody")!.innerHTML, /call_native/);
 });
 
+test("collection details are lazy and are not fetched while reading the parent result", async () => {
+  const h = await harness(); h.state.tab = "debug";
+  const selected = h.selectRound("collect", true);
+  h.reply("/api/rounds/collect", { id: "collect", phase: "actioner", generationId: 1, status: "completed",
+    toolExecutions: [{ actionNumber: 42, toolCallId: "native", name: "collect_resource", arguments: "{}", result: '{"ok":true}', ok: true }] });
+  await selected;
+  assert.match(h.elements.get("detailBody")!.innerHTML, /data-collection-action="42"/);
+  assert.match(h.elements.get("detailBody")!.innerHTML, /no LLM calls/);
+  assert.equal(h.pending.length, 0); assert.equal(h.state.live, false);
+});
+
 test("pause invalidates pending automatic selection and polling is single-flight", async () => {
   const h = await harness();
   const old = h.selectRound("old", false);

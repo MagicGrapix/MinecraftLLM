@@ -1,7 +1,7 @@
 import type { TraceEvent } from "./types";
 
 export interface Activity {
-  kind: "llm" | "tool";
+  kind: "llm" | "tool" | "internal";
   agent: string;
   label: string;
   startMs: number;
@@ -13,6 +13,9 @@ export interface Statistics {
   llmCalls: number;
   toolCalls: number;
   failedTools: number;
+  internalOperations: number;
+  physicalOperations: number;
+  failedInternalOperations: number;
   tools: Record<string, { count: number; failed: number; durationMs: number }>;
   promptTokens: number;
   completionTokens: number;
@@ -25,12 +28,33 @@ export function summarizeTrace(events: readonly TraceEvent[]): Statistics {
   const origin = Date.parse(sorted.find((e) => e.event === "workflow.accepted")?.timestamp ?? sorted[0]?.timestamp ?? new Date(0).toISOString());
   const tools = new Map<number, Activity>();
   const llm = new Map<string, Activity>();
-  const stats: Statistics = { llmCalls: 0, toolCalls: 0, failedTools: 0, tools: {}, promptTokens: 0, completionTokens: 0, activities: [] };
+  const stats: Statistics = { llmCalls: 0, toolCalls: 0, failedTools: 0, internalOperations: 0, physicalOperations: 0, failedInternalOperations: 0, tools: {}, promptTokens: 0, completionTokens: 0, activities: [] };
+  const parents = new Map<string, number>();
+  const internal = new Map<string, Activity>();
+  const physical = new Set(["access_direct", "access_modified", "return_to_ground", "equip", "reserve_equip", "path_equip", "dig", "reserve_dig", "path_dig", "scaffold_place", "scaffold_remove"]);
   const key = (d: any) => JSON.stringify([d.generationId, d.phase, d.reflection, d.round, d.attempt]);
   for (const event of sorted) {
     const d = event.data;
     if (!d || typeof d !== "object") continue;
     const at = Date.parse(event.timestamp) - origin;
+    if (event.event === "action.task_started") parents.set(d.taskId, d.actionNumber);
+    if (event.event === "collect.event" && Number.isSafeInteger(d.index)) {
+      const id = `${d.taskId}:${d.index}`;
+      if (d.event === "operation_started" && !internal.has(id)) {
+        const parent = parents.get(d.taskId);
+        const activity: Activity = { kind: "internal", agent: "collector", label: `${parent === undefined ? d.taskId : `#${parent}`}.${d.index} ${d.operation}`, startMs: at, durationMs: null, status: "incomplete", details: { ...d, actionNumber: parent } };
+        internal.set(id, activity); stats.activities.push(activity); stats.internalOperations++;
+        if (physical.has(d.operation)) stats.physicalOperations++;
+      } else if (d.event === "operation_finished" || d.event === "operation_failed") {
+        const activity = internal.get(id);
+        if (activity && activity.status === "incomplete") {
+          activity.durationMs = d.durationMs ?? Math.max(0, at - activity.startMs);
+          activity.status = d.event === "operation_failed" || d.result?.ok === false ? "failed" : "completed";
+          activity.details = { ...activity.details as object, ...d, arguments: (activity.details as any).args };
+          if (activity.status === "failed") stats.failedInternalOperations++;
+        }
+      }
+    }
     if (event.event === "tool.started" && !tools.has(d.actionNumber)) {
       const activity: Activity = { kind: "tool", agent: d.context?.agent ?? "unknown", label: `#${d.actionNumber} ${d.tool}`, startMs: at, durationMs: null, status: "incomplete", details: d };
       tools.set(d.actionNumber, activity);

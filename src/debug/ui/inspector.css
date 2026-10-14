@@ -304,6 +304,13 @@ details.fold > summary {
   color: var(--danger);
 }
 
+.collection-operation { border-left: 3px solid var(--border); padding: 8px 12px; }
+.collection-operation.status-error { border-left-color: var(--danger); }
+.collection-operation.status-error > summary { color: var(--danger); }
+.collection > summary, .collection-operation > summary { min-height: 28px; padding: 8px 0; }
+.collection button { min-height: 44px; }
+.collection summary:focus-visible, .collection button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

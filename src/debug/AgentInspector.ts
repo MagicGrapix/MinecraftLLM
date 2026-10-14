@@ -1,6 +1,7 @@
 import type { LLMRequestTrace, LLMResponse } from "../llm/LLMClient";
 import { SESSION_ID, writeTrace } from "../TraceLog";
 import { describeInspectorRound } from "./InspectorPresentation";
+import { CollectionOperationsStore } from "./CollectionOperationsStore";
 import type {
   InspectorRound,
   InspectorRoundStatus,
@@ -27,6 +28,7 @@ export interface InspectorRoundAnnotation {
 }
 
 export class AgentInspector {
+  readonly collections = new CollectionOperationsStore();
   private readonly drafts = new Map<string, MutableRound>();
   private readonly finalized: InspectorRound[] = [];
   private nextSequence = 0;
@@ -259,6 +261,7 @@ export class AgentInspector {
     }
     const cleared = this.finalized.length;
     this.finalized.length = 0;
+    this.collections.clear();
     this.pruneCallCounts();
     return cleared;
   }

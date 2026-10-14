@@ -23,7 +23,7 @@ export class ResourceCollector {
     let inventoryError: TaskError | undefined;
     const publish = () => { progress.scaffoldsLeft = this.ops.scaffoldsLeft?.() ?? 0; progress.durationMs = Math.round(performance.now() - started); options.progress?.({ ...progress }); };
     const fail = (code: TaskErrorCode, message: string, reason: string): TaskResult<CollectionProgress> => {
-      publish(); return failure(code, message, { facts: { reason, progress: { ...progress } } });
+      publish(); return failure(code, message.replace(/\s+/g, " ").slice(0, 240), { facts: { reason, progress: { ...progress } } });
     };
     const guard = () => {
       signal.throwIfAborted();

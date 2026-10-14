@@ -41,6 +41,16 @@ Les événements `workflow.accepted` et `workflow.finished` rendent visible le c
 Elle peut devenir volumineuse et contient les messages du joueur ainsi que les observations du monde :
 ne pas la publier sans la relire. La clé API du client n'est pas ajoutée aux requêtes enregistrées.
 La rétention UI (30 calls par défaut) ne supprime pas ces fichiers.
+Pour `collect_resource`, ouvrir **Debug → Tool executions → Internal operations** : les opérations
+`#42.1`, `#42.2` partagent le numéro parent 42 et n'ajoutent ni décision LLM ni diff d'inventaire.
+L'ouverture suspend le suivi live. Les détails sont chargés par pages de 50, sans déplacer la sélection.
+Les erreurs retournées comme `TaskResult` et les interruptions sont toutes deux signalées en rouge/texte.
+L'endpoint `/api/collections/42?after=0&limit=50` ne lit que la projection en mémoire : 64 collectes,
+2 000 opérations par collecte, pages de 100 maximum. Les évictions sont annoncées ; JSONL garde le détail complet.
+`action.task_started` relie taskId, toolCallId et actionNumber ; `collect.event` ajoute l'index local,
+les arguments, durées, résultats et poses confirmées. Le contexte LLM ne contient que le bilan final compact.
+Dans les rapports de scénarios, les compteurs d'opérations internes/physiques sont distincts des tools LLM ;
+leurs durées sont imbriquées et ne doivent pas être additionnées à celle du parent.
 L'UI ne recharge pas encore les anciennes sessions JSONL et il n'y a pas de rotation automatique des fichiers.
 
 ## Lire une erreur

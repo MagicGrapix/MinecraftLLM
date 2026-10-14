@@ -5,6 +5,7 @@ import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { startAgentInspectorServer } from "../../../src/debug/AgentInspectorServer";
 import { resolveInspectorUiRoot } from "../../../src/debug/resolveInspectorUiRoot";
 import type { LLMRequestTrace } from "../../../src/llm/LLMClient";
+import { writeTrace } from "../../../src/TraceLog";
 
 test("inspector HTTP routes serve compact list, detail, UI, and status", async () => {
   const inspector = new AgentInspector(10, "http-session");
@@ -65,6 +66,15 @@ test("inspector HTTP routes serve compact list, detail, UI, and status", async (
     const css = await fetch(`${server.url}/inspector.css`);
     assert.equal(css.status, 200);
 
+    writeTrace("action.task_started", { taskId: "collect", capability: "collect_resource", actionNumber: 42, toolCallId: "native" });
+    writeTrace("collect.event", { taskId: "collect", event: "operation_started", index: 1, operation: "dig", args: { position: { x: 1, y: 2, z: 3 } } });
+    writeTrace("collect.event", { taskId: "collect", event: "operation_failed", index: 1, error: "stop", durationMs: 20 });
+    const operations = await fetchJson(`${server.url}/api/collections/42?after=0&limit=1`);
+    assert.equal(operations.operations[0].status, "failed"); assert.equal(operations.toolCallId, "native");
+    assert.equal((await fetch(`${server.url}/api/collections/42?limit=99999`)).status, 400);
+    assert.equal((await fetch(`${server.url}/api/collections/404`)).status, 404);
+    assert.equal("collections" in detail, false, "Details are never duplicated in every round");
+
     const post = await fetch(`${server.url}/api/rounds`, { method: "POST" });
     assert.equal(post.status, 405);
 
@@ -83,6 +93,7 @@ test("inspector HTTP routes serve compact list, detail, UI, and status", async (
     assert.deepEqual(await cleared.json(), { cleared: 1, sessionId: "http-session" });
     assert.equal((await fetchJson(`${server.url}/api/rounds`)).rounds.length, 0);
     assert.equal((await fetch(`${server.url}/api/rounds/${snapshot.id}`)).status, 404);
+    assert.equal((await fetch(`${server.url}/api/collections/42`)).status, 404);
   } finally {
     await server.close();
   }

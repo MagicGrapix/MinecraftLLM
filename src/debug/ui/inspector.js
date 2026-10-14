@@ -48,6 +48,13 @@
   els.copyBtn.addEventListener("click", () => {
     void copyCurrent();
   });
+  els.detailBody.addEventListener("toggle", event => {
+    const fold = event.target;
+    if (!fold.open || !fold.dataset.collectionAction || fold.dataset.loaded) return;
+    fold.dataset.loaded = "true";
+    setLive(false);
+    void loadCollectionPage(fold, 0);
+  }, true);
   els.tabs.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-tab]");
     if (!button) return;
@@ -456,10 +463,37 @@
           (execution.result === undefined
             ? ""
             : `<pre>result:\n${escapeHtml(execution.result)}</pre>`) +
+          (execution.name === "collect_resource" && execution.actionNumber !== undefined
+            ? `<details class="fold collection" data-collection-action="${escapeHtml(execution.actionNumber)}"><summary>Internal operations · no LLM calls</summary><div class="collection-rows"></div><p class="collection-status" role="status" aria-live="polite"></p><button type="button" class="collection-more" hidden>Load more</button></details>` : "") +
           `</article>`
         );
       })
       .join("");
+  }
+
+  async function loadCollectionPage(fold, after) {
+    const roundId = state.selectedId, session = state.sessionId;
+    const status = fold.querySelector(".collection-status"), more = fold.querySelector(".collection-more");
+    status.textContent = "Loading internal operations…"; more.disabled = true; fold.setAttribute("aria-busy", "true");
+    try {
+      const page = await fetchJson(`/api/collections/${fold.dataset.collectionAction}?after=${after}&limit=50`);
+      if (!fold.isConnected || state.selectedId !== roundId || state.sessionId !== session) return;
+      const rows = fold.querySelector(".collection-rows");
+      for (const operation of page.operations) {
+        const row = document.createElement("details");
+        row.className = `fold collection-operation ${operation.status === "failed" ? "status-error" : ""}`;
+        row.innerHTML = `<summary>#${escapeHtml(page.actionNumber)}.${escapeHtml(operation.index)} · ${escapeHtml(operation.operation)} · ${escapeHtml(operation.status)}${operation.durationMs === undefined ? "" : ` · ${escapeHtml(operation.durationMs)} ms`}</summary><pre>${escapeHtml(formatValue(operation))}</pre>`;
+        rows.appendChild(row);
+      }
+      status.textContent = `${page.retained} retained operations${page.dropped ? ` · ${page.dropped} older operations in JSONL only` : ""}. Details are not sent to the LLM.`;
+      more.hidden = page.nextAfter === null;
+      more.textContent = "Load more";
+      more.onclick = () => void loadCollectionPage(fold, page.nextAfter);
+    } catch (error) {
+      if (!fold.isConnected || state.selectedId !== roundId || state.sessionId !== session) return;
+      status.textContent = `Could not load details: ${error.message}`;
+      more.hidden = false; more.textContent = "Retry"; more.onclick = () => void loadCollectionPage(fold, after);
+    } finally { more.disabled = false; fold.setAttribute("aria-busy", "false"); }
   }
 
   function renderDebug(round) {

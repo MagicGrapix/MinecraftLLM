@@ -7,6 +7,19 @@ import type { TraceEvent } from "../../e2e/types";
 
 const event = (time: number, name: string, data: unknown): TraceEvent => ({ timestamp: new Date(time).toISOString(), event: name, data });
 
+test("collection operations do not become LLM calls or extra global tools", () => {
+  const result = summarizeTrace([
+    event(1, "tool.started", { actionNumber: 42, tool: "collect_resource", context: { agent: "actioner" } }),
+    event(2, "action.task_started", { actionNumber: 42, taskId: "task" }),
+    event(3, "collect.event", { taskId: "task", event: "operation_started", index: 1, operation: "dig" }),
+    event(9, "collect.event", { taskId: "task", event: "operation_finished", index: 1, operation: "dig", result: { ok: false } }),
+    event(10, "tool.completed", { actionNumber: 42, tool: "collect_resource", ok: false }),
+  ]);
+  assert.equal(result.llmCalls, 0); assert.equal(result.toolCalls, 1);
+  assert.equal(result.internalOperations, 1); assert.equal(result.physicalOperations, 1);
+  assert.equal(result.failedInternalOperations, 1); assert.equal(result.activities[1]!.label, "#42.1 dig");
+});
+
 test("nested tools retain start order, failures and per-tool counts without duplicate finalization", () => {
   const trace = [
     event(100, "workflow.accepted", {}),

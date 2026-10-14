@@ -48,7 +48,8 @@ export class CollectResourceCapability implements Capability<CollectInput, Colle
         });
     } catch (error) {
       context.signal.throwIfAborted();
-      return failure(deadline.signal.aborted ? "TIMEOUT" : "WORLD_CHANGED", errorMessage(error), { facts: { ...(progress ? { progress } : {}) } });
+      writeTrace("collect.error", { taskId: context.taskId, error: errorMessage(error) });
+      return failure(deadline.signal.aborted ? "TIMEOUT" : "WORLD_CHANGED", errorMessage(error).replace(/\s+/g, " ").slice(0, 240), { facts: { ...(progress ? { progress } : {}) } });
     } finally {
       clearTimeout(timer); observation?.dispose();
       bot.removeListener("physicsTick", checkBounds);

@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : **lots 1 à 4 implémentés ; lots 5 et 6 en cours**.
+Statut : **lots 1 à 5 implémentés ; lot 6 en cours**.
 Cocher les tâches après implémentation et vérification, puis renseigner le journal final.
 Ce plan complète [le plan Blueprint / Builder](blueprint-builder.md) sans reprendre ses lots reportés.
 
@@ -156,26 +156,26 @@ Vérification :
 
 ## Lot 5 — Bilan compact et détail sous l'appel
 
-- [ ] Retourner un `TaskResult` avec bilan compact : item, demandé, gain confirmé, sources repérées, sources cassées,
+- [x] Retourner un `TaskResult` avec bilan compact : item, demandé, gain confirmé, sources repérées, sources cassées,
   cibles dont l'accès a échoué, nombre de scaffolds laissés et durée. Ajouter une cause courte en échec.
-- [ ] Compter les positions sources distinctes, pas les résultats répétés de recherche. Une tentative d'accès ratée n'est pas une preuve d'inaccessibilité définitive.
-- [ ] Séparer compteurs de blocs et quantités d'items ; préciser les cibles abandonnées après essais dans le contrat du compteur.
-- [ ] Viser moins de 1 000 caractères pour le bilan envoyé au LLM, sans liste de coordonnées ni inventaires complets.
+- [x] Compter les positions sources distinctes, pas les résultats répétés de recherche. Une tentative d'accès ratée n'est pas une preuve d'inaccessibilité définitive.
+- [x] Séparer compteurs de blocs et quantités d'items ; préciser les cibles abandonnées après essais dans le contrat du compteur.
+- [x] Viser moins de 1 000 caractères pour le bilan envoyé au LLM, sans liste de coordonnées ni inventaires complets.
   Le détail reste dans les traces ; ne pas tronquer du JSON pour respecter cette taille.
-- [ ] Conserver un seul numéro global pour l'appel LLM `collect_resource` et un seul diff d'inventaire parent.
-- [ ] Relier les événements internes au `taskId`, au tool call et au numéro parent ; attribuer un index local aux opérations, affichable comme `42.1`, `42.2`.
-- [ ] Tracer début/fin, opération, stratégie, cible/position, arguments, durée, résultat/erreur et changements confirmés.
+- [x] Conserver un seul numéro global pour l'appel LLM `collect_resource` et un seul diff d'inventaire parent.
+- [x] Relier les événements internes au `taskId`, au tool call et au numéro parent ; attribuer un index local aux opérations, affichable comme `42.1`, `42.2`.
+- [x] Tracer début/fin, opération, stratégie, cible/position, arguments, durée, résultat/erreur et changements confirmés.
   Capturer aussi les opérations de dig/pose internes au pathfinder nécessaires pour expliquer le trajet.
-- [ ] Ne pas créer de faux appels LLM dans `ToolCallJournal`, ni compter ces opérations comme des décisions de l'actionneur.
-- [ ] Ajouter dans la UI existante une liste dépliable des sous-opérations sous l'appel parent, avec erreurs visibles et sélection stable.
-- [ ] Charger les détails à la demande/par pages ; ne pas recopier toute la trace dans chaque round ni dans le contexte LLM.
-- [ ] Dans le rapport de scénarios, distinguer appels LLM et opérations physiques internes pour garder des statistiques justes.
+- [x] Ne pas créer de faux appels LLM dans `ToolCallJournal`, ni compter ces opérations comme des décisions de l'actionneur.
+- [x] Ajouter dans la UI existante une liste dépliable des sous-opérations sous l'appel parent, avec erreurs visibles et sélection stable.
+- [x] Charger les détails à la demande/par pages ; ne pas recopier toute la trace dans chaque round ni dans le contexte LLM.
+- [x] Dans le rapport de scénarios, distinguer appels LLM et opérations physiques internes pour garder des statistiques justes.
 
 Vérification :
 
-- [ ] Un collect exécutant plusieurs goto/dig reste un seul tool call du modèle ; toutes les opérations internes sont consultables et reliées.
-- [ ] Tester bilan sous la limite, erreurs/arrêt visibles, grand nombre d'événements, consultation après fin et absence de rechargement qui déplace la sélection.
-- [ ] Vérifier que les traces ne prétendent pas connaître une confirmation ou une cause qu'elles n'ont pas observée.
+- [x] Un collect exécutant plusieurs goto/dig reste un seul tool call du modèle ; toutes les opérations internes sont consultables et reliées.
+- [x] Tester bilan sous la limite, erreurs/arrêt visibles, grand nombre d'événements, consultation après fin et absence de rechargement qui déplace la sélection.
+- [x] Vérifier que les traces ne prétendent pas connaître une confirmation ou une cause qu'elles n'ont pas observée.
 
 ## Lot 6 — Intégration, prompts ciblés et validation finale
 
@@ -248,3 +248,9 @@ Le travail sur la forme des réponses LLM et les lots de construction reportés 
   Sans réserve initiale : gain confirmé de 1, 3 supports laissés et signalés ; avec réserve : gain de 1,
   aucun support laissé. Inventaires contrôlés indépendamment par NBT. Trace `trace_1791964910580_70188.jsonl`.
   Suite courante : 595 tests réussis (inclut les tests de projection du lot 5, commité séparément).
+- 2026-10-14 : lot 5 livré : bilan compact (cause limitée, détail intégral dans JSONL), sous-opérations
+  liées au numéro parent, consultation à la demande par pages de 50 dans Debug (local).
+  Inspection réelle avec 125 opérations : pagination 50/100, erreur dépliable en rouge, sélection en pause.
+  Les statistiques distinguent les opérations internes des tools LLM et ne doublent pas leurs compteurs.
+  Stockage UI borné (64 collectes, 2 000 opérations par collecte), traces complètes conservées sur disque.
+  `npm.cmd test` : 596 tests réussis, compilation et typage inclus. Aucun appel LLM.

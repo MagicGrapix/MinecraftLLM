@@ -130,6 +130,16 @@ test("query timeouts remain errors rather than empty successful searches", async
   assert.ok(!result.ok && result.error.code === "TIMEOUT");
 });
 
+test("long upstream errors keep the model report compact and the trace intact", async () => {
+  const ops = new TestCollectionOperations(), message = '"network error"\n'.repeat(200);
+  ops.search = async () => { throw new Error(message); };
+  const trace: Record<string, unknown>[] = [];
+  const result = await new ResourceCollector(ops).collect(oakResource, 4, { signal: new AbortController().signal, trace: e => trace.push(e) });
+  assert.ok(!result.ok);
+  assert.ok(JSON.stringify(result).length < 1000);
+  assert.ok(trace.some(e => e.error === message));
+});
+
 test("dimension changes and out-of-bounds navigation stop collection", async () => {
   for (const dimensionChange of [true, false]) {
     const ops = new TestCollectionOperations(); ops.accessible = false;

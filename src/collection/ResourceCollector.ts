@@ -5,8 +5,9 @@ import { QueryExecutionError } from "../world/queries/QueryLimits";
 import { COLLECTION_LIMITS } from "./CollectionConfig";
 import type { CollectionOperations, CollectionOptions, CollectionProgress, CollectionStock } from "./CollectionTypes";
 import type { Resource } from "./ResourceCatalog";
+import { CollectionTrace } from "./CollectionTrace";
 
-/** Base collection: existing paths only. Terrain changes/scaffolding belong to the next lot. */
+/** Sequential collection under one physical lock, including bounded access and optional cleanup. */
 export class ResourceCollector {
   constructor(private readonly ops: CollectionOperations) {}
 
@@ -14,12 +15,13 @@ export class ResourceCollector {
     const { signal } = options;
     const origin = { ...this.ops.position() }, dimension = this.ops.dimension(), started = performance.now();
     const progress: CollectionProgress = { item: resource.item, requested: quantity, collected: 0, inventoryKnown: false,
-      sourcesFound: 0, sourcesBroken: 0, accessFailed: 0, durationMs: 0 };
+      sourcesFound: 0, sourcesBroken: 0, accessFailed: 0, durationMs: 0, scaffoldsLeft: 0 };
     const found = new Set<string>(), excluded = new Set<string>(), inaccessible = new Set<string>();
     const sourcesTried = new Map<string, number>(), dropsTried = new Map<number, number>();
-    let baseline: number | undefined, stock: CollectionStock = { count: 0, capacity: 0 }, stalled = 0, sequence = 0;
+    let baseline: number | undefined, stock: CollectionStock = { count: 0, capacity: 0 }, stalled = 0;
+    const trace = new CollectionTrace(options.trace);
     let inventoryError: TaskError | undefined;
-    const publish = () => { progress.durationMs = Math.round(performance.now() - started); options.progress?.({ ...progress }); };
+    const publish = () => { progress.scaffoldsLeft = this.ops.scaffoldsLeft?.() ?? 0; progress.durationMs = Math.round(performance.now() - started); options.progress?.({ ...progress }); };
     const fail = (code: TaskErrorCode, message: string, reason: string): TaskResult<CollectionProgress> => {
       publish(); return failure(code, message, { facts: { reason, progress: { ...progress } } });
     };
@@ -30,17 +32,12 @@ export class ResourceCollector {
       if (Math.hypot(p.x - origin.x, p.y - origin.y, p.z - origin.z) > COLLECTION_LIMITS.maxRadius) throw new Error("Bot left the collection area.");
     };
     const operation = async <T>(name: string, args: unknown, run: () => Promise<T>): Promise<T> => {
-      guard(); const index = ++sequence, start = performance.now();
+      guard();
       if (["goto_drop", "goto_source", "dig", "equip"].includes(name)) { progress.inventoryKnown = false; publish(); }
-      options.trace?.({ event: "operation_started", index, operation: name, args });
-      try {
+      return trace.run(name, args, async () => {
         const result = await run(); guard();
-        options.trace?.({ event: "operation_finished", index, operation: name, durationMs: Math.round(performance.now() - start), result });
         return result;
-      } catch (error) {
-        options.trace?.({ event: "operation_failed", index, operation: name, durationMs: Math.round(performance.now() - start), error: errorMessage(error) });
-        throw error;
-      }
+      });
     };
     const observe = async (): Promise<boolean> => {
       progress.inventoryKnown = false; publish();
@@ -57,6 +54,8 @@ export class ResourceCollector {
       if (attempts >= COLLECTION_LIMITS.maxSourceAttempts) excluded.add(key);
     };
     options.trace?.({ event: "started", item: resource.item, quantity, origin, dimension });
+    this.ops.start?.(resource, quantity, origin, trace, publish);
+    const run = async (): Promise<TaskResult<CollectionProgress>> => {
     try {
       if (!await observe()) return inventoryFailure();
       options.trace?.({ event: "baseline", count: baseline });
@@ -117,8 +116,21 @@ export class ResourceCollector {
       progress.inventoryKnown = false; publish();
       if (signal.aborted) throw error;
       return fail(error instanceof QueryExecutionError ? "TIMEOUT" : "WORLD_CHANGED", errorMessage(error), "OBSERVATION_FAILED");
+    }
+    };
+    try {
+      let result = await run();
+      if (this.ops.cleanup && (this.ops.scaffoldsLeft?.() ?? 0) > 0 && !signal.aborted && this.ops.dimension() === dimension) {
+        progress.inventoryKnown = false; publish();
+        try { await operation("cleanup", {}, () => this.ops.cleanup!(signal)); }
+        catch (error) { signal.throwIfAborted(); trace.emit({ event: "cleanup_failed", error: errorMessage(error) }); }
+        if (!await observe()) result = inventoryFailure();
+        else if (result.ok && progress.collected < quantity) result = fail("BLOCKED", "The requested additional stock is no longer available.", "GAIN_LOST");
+      }
+      publish();
+      return result.ok ? success({ ...progress }) : { ok: false, error: { ...result.error, facts: { ...result.error.facts, progress: { ...progress } } } };
     } finally {
-      publish(); options.trace?.({ event: "finished", progress: { ...progress } });
+      publish(); this.ops.dispose?.(); options.trace?.({ event: "finished", progress: { ...progress } });
     }
   }
 }

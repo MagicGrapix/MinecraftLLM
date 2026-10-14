@@ -3,8 +3,10 @@ import type { Bot } from "mineflayer";
 import type {} from "mineflayer-pathfinder";
 
 const methods = ["equip", "dig", "placeBlock", "activateBlock"] as const;
-type Method = typeof methods[number];
+export type NavigationMethod = typeof methods[number];
+type Method = NavigationMethod;
 type Operation = (...args: unknown[]) => Promise<unknown>;
+export type NavigationInterceptor = (method: Method, args: unknown[], run: () => Promise<unknown>) => Promise<unknown>;
 
 /**
  * Scoped adapter for pathfinder 2.4.x's detached equip -> dig/place continuations.
@@ -18,7 +20,7 @@ export class NavigationOperations {
   private readonly cleanupErrors: unknown[] = [];
 
   constructor(private readonly bot: Bot, private readonly signal: AbortSignal,
-    register: (operation: Promise<unknown>) => void) {
+    register: (operation: Promise<unknown>) => void, intercept?: NavigationInterceptor) {
     const target = bot as unknown as Record<Method, Operation>;
     for (const name of methods) {
       const original = target[name];
@@ -26,7 +28,8 @@ export class NavigationOperations {
       const guarded: Operation = (...args) => {
         const operation = Promise.resolve().then(async () => {
           this.assertOpen();
-          const result = await original.apply(bot, args);
+          const run = () => original.apply(bot, args);
+          const result = await (intercept ? intercept(name, args, run) : run());
           this.assertOpen();
           return result;
         });

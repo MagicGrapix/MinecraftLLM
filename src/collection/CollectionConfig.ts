@@ -9,4 +9,10 @@ export const COLLECTION_LIMITS = {
   maxDropAttempts: 2,
   maxStalledAttempts: 8,
   maxIterations: 1_024,
+  dirtReserve: 8,
+  reserveRadius: 8,
+  reserveAttempts: 24,
+  maxScaffoldPlacements: 24,
+  maxAccessHeight: 3,
+  maxObstacleBreaks: 24,
 };

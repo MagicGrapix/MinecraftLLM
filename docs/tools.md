@@ -62,10 +62,16 @@ deux essais d'accès par cellule/drop et huit tentatives sans gain avant arrêt.
 par lots de 32 résultats dans les chunks chargés. Un dig non confirmé n'est pas rejoué à la même cellule.
 Le bot ne creuse pas son appui ni un trou sans support connu dessous ; les bûches hautes restent récoltables
 si accessibles. Les drops en chute visent une surface chargée proche, sans confondre leur hauteur et celle des pieds.
-Pas de destruction d'obstacles, de scaffolding, de protection des bâtiments connus ou de collecte d'outils dans ce lot.
+L'accès essaie un chemin libre, puis le creusement local (24 obstacles maximum), puis une réserve de
+8 dirt si des poses sont nécessaires. Réserve : rayon 8, 24 tentatives, sources directement accessibles,
+sans collecte récursive. Maximum 24 poses, relief de 3 blocs par déplacement, sol chargé à faible profondeur ;
+pas de franchissement de liquide ni de vide. Les stations et chantiers `build` connus sont protégés.
+Les bâtiments du joueur non enregistrés ne sont pas reconnus. Aucun outil n'est fabriqué automatiquement.
+Le nettoyage retire uniquement les supports confirmés encore identiques et accessibles depuis le sol ;
+il peut laisser des blocs. Une annulation arrête aussi le nettoyage. Il ne récupère pas obligatoirement les drops du nettoyage.
 
 Le succès contient `item`, `requested`, `collected`, `inventoryKnown`, `sourcesFound`, `sourcesBroken`,
-`accessFailed`, `durationMs`. En échec, ce bilan est dans `error.facts.progress` ; sur stop/timeout de l'Executor,
+`accessFailed`, `durationMs`, `scaffoldsLeft`. En échec, ce bilan est dans `error.facts.progress` ; sur stop/timeout de l'Executor,
 dans `error.facts.progress.collect`. `sourcesFound` compte les positions distinctes observées,
 `sourcesBroken` les dig confirmés, `accessFailed` les cellules ayant subi au moins un refus/précontrôle raté.
 Ce dernier compteur ne prouve pas une inaccessibilité définitive. `collected` est un gain net d'items,

@@ -11,6 +11,7 @@ import { MaterialCatalog } from "../world/MaterialCatalog";
 import { writeTrace } from "../TraceLog";
 import type { Capability, ExecutionContext } from "./Capability";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
+import { rememberBuildSite } from "../runtime/KnownBuildSites";
 
 export class BuildCapability implements Capability<BuildInput, BuildProgress> {
   private readonly scaffolds = new WeakMap<MinecraftRuntime, Map<string, ScaffoldState>>();
@@ -30,6 +31,8 @@ export class BuildCapability implements Capability<BuildInput, BuildProgress> {
     if (!saved.ok) return saved;
     const compiled = validator.validate(saved.value.blueprint);
     if (!compiled.ok) return compiled;
+    rememberBuildSite(context.runtime, context.runtime.bot.game.dimension, input.origin,
+      compiled.value.blueprint.width, compiled.value.height, compiled.value.blueprint.depth);
     let jobs = this.scaffolds.get(context.runtime);
     if (!jobs) { jobs = new Map(); this.scaffolds.set(context.runtime, jobs); }
     const key = JSON.stringify([context.runtime.bot.game.dimension, input.blueprintId, input.origin.x, input.origin.y, input.origin.z]);

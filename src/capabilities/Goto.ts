@@ -1,4 +1,4 @@
-import { goals } from "mineflayer-pathfinder";
+import { goals, type Movements } from "mineflayer-pathfinder";
 import { z } from "zod";
 import {
   failure,
@@ -14,7 +14,7 @@ import { GotoPathDiagnostics } from "./GotoPathDiagnostics";
 import { navigateToGoal, waitForNavigationLanding } from "./GotoNavigation";
 import { createGotoMovements, gotoMovementFacts } from "./GotoMovements";
 import { GotoTerrainTracker, type ObservedBlockChange } from "./GotoTerrainTracker";
-import { NavigationOperations } from "../runtime/NavigationOperations";
+import { NavigationOperations, type NavigationInterceptor } from "../runtime/NavigationOperations";
 
 export interface GotoInput {
   position: Position;
@@ -33,6 +33,7 @@ export interface GotoOutput {
 }
 
 export class GotoCapability implements Capability<GotoInput, GotoOutput> {
+  constructor(private readonly policy?: { configure(movements: Movements): void; intercept?: NavigationInterceptor }) {}
   readonly name = "goto";
   readonly inputSchema: z.ZodType<GotoInput> = z
     .object({
@@ -72,6 +73,7 @@ export class GotoCapability implements Capability<GotoInput, GotoOutput> {
     context.signal.throwIfAborted();
     const previousMovements = bot.pathfinder.movements;
     const movements = createGotoMovements(bot, input.position, input);
+    this.policy?.configure(movements);
     bot.pathfinder.setMovements(movements);
     const terrain = new GotoTerrainTracker(bot);
     const diagnostics = new GotoPathDiagnostics(
@@ -86,7 +88,7 @@ export class GotoCapability implements Capability<GotoInput, GotoOutput> {
       observedBlockChanges: terrain.snapshot(),
     });
 
-    const operations = new NavigationOperations(bot, context.signal, context.deferCancellationUntil);
+    const operations = new NavigationOperations(bot, context.signal, context.deferCancellationUntil, this.policy?.intercept);
     try {
       let arrived = false;
       for (let attempt = 0; attempt < 3; attempt += 1) {

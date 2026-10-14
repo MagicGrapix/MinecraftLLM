@@ -1,6 +1,7 @@
 import type { TaskResult } from "../execution/TaskResult";
 import type { Position } from "../shared/types";
 import type { Resource } from "./ResourceCatalog";
+import type { CollectionTrace } from "./CollectionTrace";
 
 export interface CollectInput { item: string; quantity: number }
 export interface CollectionSource { name: string; stateId: number; position: Position }
@@ -15,10 +16,15 @@ export interface CollectionProgress {
   sourcesBroken: number;
   accessFailed: number;
   durationMs: number;
+  scaffoldsLeft: number;
 }
 
 /** Physical methods are awaited under the caller's Executor, never a nested queue. */
 export interface CollectionOperations {
+  start?(resource: Resource, quantity: number, origin: Position, trace: CollectionTrace, changed: () => void): void;
+  scaffoldsLeft?(): number;
+  cleanup?(signal: AbortSignal): Promise<TaskResult>;
+  dispose?(): void;
   position(): Position;
   dimension(): string;
   inventory(resource: Resource, signal: AbortSignal): Promise<TaskResult<CollectionStock>>;

@@ -70,7 +70,9 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   `MineflayerCollectionOperations` réutilise goto/dig sous le contexte et le verrou de l'Executor parent,
   avec confirmations d'inventaire serveur. Aucun second Executor ni numéro d'action par sous-opération.
   La recherche conserve une origine fixe ; les cellules déjà tentées sont exclues avant la limite de résultats.
-  Cette première version utilise seulement les chemins existants : aucun scaffolding ni creusement de passage.
+  `CollectionTerrain` borne le creusement local, l'acquisition de dirt et les poses temporaires confirmées.
+  L'intercepteur interne de `Goto` suit les opérations du pathfinder sous la même barrière physique.
+  `KnownBuildSites` protège les chantiers enregistrés par `build` dans ce runtime (pas les bâtiments inconnus).
   Voir [le contrat de collecte](tools.md#collecte-automatique-lot-3).
 - `src/world/` traduit les observations Mineflayer. `WorldQueries.getNearbyEntities` est conservée
   comme API interne, notamment pour `get_dropped_items`, sans tool générique exposé au LLM.

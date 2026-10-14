@@ -15,6 +15,10 @@ import { ServerInventoryConfirmation } from "../../../src/runtime/ServerInventor
 import { createCapabilityRegistry } from "../../../src/bootstrap/createCapabilities";
 import { fakeCraftBot } from "../../support/CraftBot";
 import { oakResource } from "../../support/collection";
+import { terrainFixture } from "../../support/collectionTerrain";
+import { CollectionTrace } from "../../../src/collection/CollectionTrace";
+import { GotoCapability } from "../../../src/capabilities/Goto";
+import { failure } from "../../../src/execution/TaskResult";
 
 const data = mcData("1.21.11"), Block = blockLoader("1.21.11"), Item = itemLoader("1.21.11");
 const position = new Vec3(3, 0, 0);
@@ -22,6 +26,27 @@ const block = (name: string, p = position) => {
   const b = Block.fromStateId(data.blocksByName[name]!.minStateId, 0); b.position = p; return b;
 };
 const item = (name: string, slot = 36) => { const i = new Item(data.itemsByName[name]!.id, 1); i.slot = slot; return i; };
+
+for (const requested of ["oak_log", "dirt"]) {
+  test(`missing dirt reserve stops bounded access without spending requested ${requested}`, async t => {
+    const f = terrainFixture();
+    f.bot.blockAt = p => block(p.y < 0 ? "stone" : "air", p);
+    Object.assign(f.bot, { world: { getColumn: () => ({}) } });
+    Object.assign(f.bot.game, { minY: -64, height: 384 });
+    const dirt = requested === "dirt" ? 3 : 0;
+    const observation = { synchronize: async () => true, snapshot: { items: { dirt }, crafting: [], cursor: null }, capacity: () => 64 } as unknown as ServerInventoryConfirmation;
+    const ops = new MineflayerCollectionOperations(f.context, observation);
+    const resource = requested === "dirt" ? { item: "dirt", sources: ["grass_block", "dirt"] } : oakResource;
+    ops.start(resource, 2, { x: 0, y: 0, z: 0 }, new CollectionTrace(), () => {});
+    await ops.inventory(resource, f.controller.signal);
+    const navigation = t.mock.method(GotoCapability.prototype, "execute", async () => failure("NO_PATH", "Fixture obstacle"));
+    const result = await ops.move({ x: 3, y: 5, z: 0 }, "source", f.controller.signal);
+    assert.ok(!result.ok && result.error.code === "MISSING_ITEM");
+    assert.equal(navigation.mock.callCount(), 2, "No recursive collector or placement attempt without reserve");
+    assert.equal(observation.snapshot!.items.dirt, dirt);
+    assert.equal(f.digs(), 0); ops.dispose(); f.terrain.dispose();
+  });
+}
 
 test("collector schema is strict and the physical registry exposes its long-running contract", () => {
   const cap = new CollectResourceCapability();

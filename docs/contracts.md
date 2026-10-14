@@ -22,9 +22,12 @@
   L'inventaire est resynchronisé avant/après les opérations ; `inventoryKnown: false` signifie que `collected`
   est seulement le dernier gain confirmé, pas une preuve du stock actuel (notamment après interruption).
   Un échec conserve un bilan partiel : ne pas redemander aveuglément toute la quantité.
-  Aucun obstacle n'est cassé ni scaffold posé dans cette version ; elle ne reconnaît pas encore les
-  constructions du joueur et peut prélever une bûche ou une pierre placée dans la zone de recherche.
-  Réserver son usage actuel à une zone de test. Les confirmations d'inventaire ciblent Java 1.21.11.
+  L'accès essaie le chemin libre, puis le creusement local, puis la terre de scaffolding si nécessaire.
+  Les stations et les chantiers `build` connus du runtime sont protégés, pas les constructions arbitraires
+  du joueur. Réserver son usage à une zone de test. Le stock de dirt demandé et le cobblestone ne sont
+  pas dépensés pour l'accès. Le nettoyage ne retire que la terre suivie, confirmée et restée identique,
+  depuis un appui sûr ; `scaffoldsLeft` peut être non nul malgré une collecte réussie.
+  Stop interdit de nouvelles opérations de nettoyage. Les confirmations d'inventaire ciblent Java 1.21.11.
 - `place` confirme le nom du bloc à la destination grâce à un paquet serveur reçu depuis le début
   de la tentative, concordant avec la cellule actuellement chargée. Une prédiction locale seule ne suffit pas.
   La même confirmation sert au Builder, sans deuxième attente. Après résolution ou rejet de `bot.placeBlock`,

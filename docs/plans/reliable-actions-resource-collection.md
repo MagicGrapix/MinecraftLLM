@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : **lots 1 à 3 implémentés et vérifiés dans Minecraft sans LLM ; lots 4 à 6 à faire**.
+Statut : **lots 1 à 4 implémentés ; lots 5 et 6 en cours**.
 Cocher les tâches après implémentation et vérification, puis renseigner le journal final.
 Ce plan complète [le plan Blueprint / Builder](blueprint-builder.md) sans reprendre ses lots reportés.
 
@@ -124,35 +124,35 @@ Vérification :
 - [x] Tester stop/timeout pendant navigation, dig et ramassage, avec bilan partiel et conservation du verrou si une opération termine encore.
 
 Les traces `collect.event` et le bilan compact sont présents dès ce lot ; l'UI du lot 5 reste inchangée.
-La collecte n'utilise pas encore les modifications de terrain : `canDig: false`, `canPlace: false` pour ses goto.
-Les chantiers/bâtiments ne sont pas encore protégés : utiliser une zone de test, pas un bâtiment à conserver.
+Ces limitations initiales de navigation ont été levées au lot 4, sous limites conservatrices.
+Les constructions du joueur non enregistrées restent inconnues : utiliser une zone de test.
 
 ## Lot 4 — Accès sur relief modéré et réserve de terre
 
 `goto` accepte déjà `canDig` et `canPlace`, avec terre/cobblestone en stock.
 Le scaffolding du Builder suppose un chantier plat ; ne pas l'appliquer tel quel à un terrain bosselé.
 
-- [ ] Utiliser d'abord un accès direct ; autoriser ensuite des modifications locales bornées nécessaires au passage.
-- [ ] Réutiliser le pathfinder et les contrôles de portée/visibilité ; ne pas assimiler distance proche et accès effectif au bloc.
-- [ ] Préserver les blocs cibles jusqu'au dig explicite, les stations/coffres/lits et les chantiers connus ; éviter de prélever du bois dans un bâtiment connu.
+- [x] Utiliser d'abord un accès direct ; autoriser ensuite des modifications locales bornées nécessaires au passage.
+- [x] Réutiliser le pathfinder et les contrôles de portée/visibilité ; ne pas assimiler distance proche et accès effectif au bloc.
+- [x] Préserver les blocs cibles jusqu'au dig explicite, les stations/coffres/lits et les chantiers connus ; éviter de prélever du bois dans un bâtiment connu.
   Ne pas promettre une reconnaissance parfaite de toutes les constructions du joueur.
-- [ ] Traiter le relief local : appui stable, place pour le corps, petite montée/descente et possibilité de revenir au sol.
-- [ ] Encadrer la consommation et les poses de scaffolding ; si nécessaire, adapter l'observation des opérations internes du pathfinder.
+- [x] Traiter le relief local : appui stable, place pour le corps, petite montée/descente et possibilité de revenir au sol.
+- [x] Encadrer la consommation et les poses de scaffolding ; si nécessaire, adapter l'observation des opérations internes du pathfinder.
   Son bilan actuel des changements locaux n'est pas une preuve serveur ni une preuve de propriété des blocs.
-- [ ] Ajouter une acquisition bornée de dirt lorsque l'accès nécessite une petite réserve manquante.
+- [x] Ajouter une acquisition bornée de dirt lorsque l'accès nécessite une petite réserve manquante.
   Chercher un gisement directement accessible, sans invoquer récursivement `collect_resource` ni dépendre de nouveau scaffolding.
-- [ ] Ne pas creuser l'appui du bot, la bedrock, une sortie indispensable, ni descendre vers le vide ; ne pas engager de franchissement de liquide/falaise non pris en charge.
-- [ ] Séparer matériaux collectés pour l'objectif et matériaux temporaires. Ne pas dépenser le gain demandé en dirt/cobblestone comme scaffolding.
-- [ ] Suivre chaque pose temporaire, sa position et sa confirmation. Une observation de terre à cet endroit ne suffit pas à autoriser son retrait.
-- [ ] Appliquer la politique de nettoyage choisie par Quentin ; si retrait, seulement les blocs suivis encore identiques et accessibles sans danger.
-- [ ] Rapporter les blocs laissés après réussite partielle, timeout ou stop ; ne pas poursuivre un nettoyage physique après annulation.
-- [ ] Distinguer collecte réussie et nettoyage incomplet ; un bloc temporaire laissé ne doit pas masquer la quantité réellement ramassée.
+- [x] Ne pas creuser l'appui du bot, la bedrock, une sortie indispensable, ni descendre vers le vide ; ne pas engager de franchissement de liquide/falaise non pris en charge.
+- [x] Séparer matériaux collectés pour l'objectif et matériaux temporaires. Ne pas dépenser le gain demandé en dirt/cobblestone comme scaffolding.
+- [x] Suivre chaque pose temporaire, sa position et sa confirmation. Une observation de terre à cet endroit ne suffit pas à autoriser son retrait.
+- [x] Appliquer la politique de nettoyage choisie par Quentin ; si retrait, seulement les blocs suivis encore identiques et accessibles sans danger.
+- [x] Rapporter les blocs laissés après réussite partielle, timeout ou stop ; ne pas poursuivre un nettoyage physique après annulation.
+- [x] Distinguer collecte réussie et nettoyage incomplet ; un bloc temporaire laissé ne doit pas masquer la quantité réellement ramassée.
 
 Vérification :
 
 - [ ] Fixtures fixes : petite butte, creux, obstacle, bûche surélevée avec dirt en stock, puis même cible sans dirt initial.
-- [ ] Tester réserve introuvable, accès trop haut, budget de poses épuisé, retrait devenu impossible et bloc temporaire modifié par un tiers.
-- [ ] Tester que le collecteur ne tourne pas en rond et explique brièvement le blocage quand le relief sort des limites.
+- [x] Tester réserve introuvable, accès trop haut, budget de poses épuisé, retrait devenu impossible et bloc temporaire modifié par un tiers.
+- [x] Tester que le collecteur ne tourne pas en rond et explique brièvement le blocage quand le relief sort des limites.
 
 ## Lot 5 — Bilan compact et détail sous l'appel
 
@@ -237,5 +237,14 @@ Le travail sur la forme des réponses LLM et les lots de construction reportés 
   La fixture refuse les drops préexistants et nettoie ses drops résiduels pour isoler les relances.
   Trace finale : `logs/trace_1791961569206_62372.jsonl` ; blocs restaurés et inventaire de test vidé.
   Le serveur local a été démarré pour la vérification ; aucun agent LLM lancé et aucun prompt modifié.
-  Le lot 2 est sauvegardé/poussé sur `refactor-redo` au commit `89d17d0` ; le lot 3 reste non commité.
-- Prochaine étape : lot 4 (accès et réserve de terre), sur demande ; aucun changement de prompts dans le lot 3.
+  Le lot 2 est sauvegardé/poussé sur `refactor-redo` au commit `89d17d0` ; le lot 3 a été poussé au commit `489405c`.
+- 2026-10-14 : lot 4 : accès direct, obstacles bornés, réserve de 8 dirt et marches confirmées une à une.
+  Les tours sous les pieds sont désactivées dans le collecteur ; les marches sont recalculées après confirmation.
+  Le filtre de hauteur porte sur les pieds, pas sur les cellules de dégagement de tête du pathfinder.
+  Chantiers connus protégés en mémoire du runtime ; 24 poses maximum, pas de nettoyage après stop,
+  abandon du retrait d'un bloc changé par un tiers, `scaffoldsLeft` explicite. Observateurs serveur mutualisés.
+  Les fixtures réelles de relief additionnelles et l'essai LLM sont suivis dans le lot 6.
+  Smoke `smoke:collect -- --terrain` : collecte de base et bûche à Y+7 réussies avec puis sans dirt initial.
+  Sans réserve initiale : gain confirmé de 1, 3 supports laissés et signalés ; avec réserve : gain de 1,
+  aucun support laissé. Inventaires contrôlés indépendamment par NBT. Trace `trace_1791964910580_70188.jsonl`.
+  Suite courante : 595 tests réussis (inclut les tests de projection du lot 5, commité séparément).

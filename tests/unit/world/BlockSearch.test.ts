@@ -36,4 +36,6 @@ test("internal collection search stays anchored and excludes attempted cells bef
   } as unknown as Bot;
   const found = await findBlocksCooperatively(bot, new Set([1]), { origin: { x: 0, y: 0, z: 0 }, maxDistance: 4, count: 1, exclude: new Set(["1,0,0"]) });
   assert.deepEqual(found.map(b => b.position.x), [2]);
+  const allowed = await findBlocksCooperatively(bot, new Set([1]), { origin: { x: 0, y: 0, z: 0 }, maxDistance: 4, count: 1, allow: b => b.position.x !== 1 });
+  assert.deepEqual(allowed.map(b => b.position.x), [2], "Protected matches do not consume the search batch");
 });

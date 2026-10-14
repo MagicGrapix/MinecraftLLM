@@ -26,6 +26,7 @@ import type { Position } from "../../src/shared/types";
 /** Explicit no-LLM survival test. Never resets the arena or the main player's inventory. */
 async function main() {
   const username = "collect_test_bot";
+  const terrain = process.argv.includes("--terrain");
   const config = loadWorldBuilderConfig({ ...process.env, WORLD_CONTROLLER_USERNAME: "test_controller", WORLD_AGENT_USERNAME: username });
   const origin = new Vec3(-35, -60, -35);
   const wood = [0, 1, 2, 3].map(y => origin.offset(3, y, 0));
@@ -84,10 +85,13 @@ async function main() {
     unsubscribe = subscribeTrace((event, raw) => {
       if (event !== "collect.event") return;
       const e = raw as { event: string; operation: string; args: { position: Position; block: string } };
-      if (e.event !== "operation_started" || e.operation !== "dig") return;
+      if (e.event !== "operation_started" || !["dig", "reserve_dig", "path_dig", "scaffold_place"].includes(e.operation)) return;
       const p = e.args.position;
-      minedPositions.push({ ...p });
-      if (!restore.has(blockPositionKey(p))) restore.set(blockPositionKey(p), { position: p, name: e.args.block });
+      if (e.operation !== "scaffold_place") minedPositions.push({ ...p });
+      if (!restore.has(blockPositionKey(p))) {
+        const block = controller.bot.blockAt(new Vec3(p.x, p.y, p.z)); assert.ok(block);
+        restore.set(blockPositionKey(p), { position: p, name: block.name });
+      }
     });
     const collect = async (item: string, quantity: number) => {
       const result = await executor!.execute(tasks.create({ capability: "collect_resource", input: { item, quantity }, timeoutMs: 120_000 }));
@@ -101,7 +105,25 @@ async function main() {
     await command(`give ${username} wooden_pickaxe 1`);
     await until(() => snapshotInventory(runtime.bot).wooden_pickaxe === 1, 3000, "Pickaxe arrival");
     const mined = await collect("cobblestone", 2); assert.ok(mined.result.ok, JSON.stringify(mined.result)); assert.equal(mined.stock.cobblestone, 2);
-    const dirt = await collect("dirt", 2); assert.ok(dirt.result.ok, JSON.stringify(dirt.result)); assert.equal(dirt.stock.dirt, 2);
+    const initialDirt = (await inventory()).dirt ?? 0;
+    const dirt = await collect("dirt", 2); assert.ok(dirt.result.ok, JSON.stringify(dirt.result)); assert.equal(dirt.stock.dirt, initialDirt + 2);
+    if (terrain) {
+      const high = origin.offset(3, 7, 0);
+      assert.equal(controller.bot.blockAt(high)?.name, "air");
+      restore.set(blockPositionKey(high), { position: high, name: "air" });
+      for (const supplied of [true, false]) {
+        await command(`tp ${username} ${origin.x + 0.5} ${origin.y} ${origin.z + 0.5}`);
+        await command(`clear ${username} dirt`);
+        if (supplied) await command(`give ${username} dirt 8`);
+        await command(`setblock ${high.x} ${high.y} ${high.z} oak_log`);
+        await until(() => runtime.bot.blockAt(high)?.name === "oak_log" && runtime.bot.entity.onGround, 3000, "High log fixture");
+        const before = (await inventory()).oak_log ?? 0;
+        const result = await collect("oak_log", 1);
+        assert.ok(result.result.ok, JSON.stringify(result)); assert.equal(result.stock.oak_log, before + 1);
+        assert.equal(controller.bot.blockAt(high)?.name, "air");
+        console.info("Terrain collection passed", { suppliedDirt: supplied, result: result.result });
+      }
+    }
     console.info("Collect smoke passed: 1+4 logs, missing pickaxe without mining, 2 cobblestone from stone, 2 dirt. Independent server inventory; no LLM.");
   } finally {
     executor?.abortCurrent("Collection smoke cleanup");
@@ -129,7 +151,7 @@ async function main() {
       { name: "trace observer", run: () => unsubscribe() },
       { name: "transport", run: () => transport?.close() },
       { name: "controller", run: () => controller.disconnect() },
-    ]);
+    ], 60_000);
     console.info("Trace:", getFullTraceFilePath());
   }
 }

@@ -11,6 +11,7 @@ export interface BlockSearchOptions extends FindBlocksOptions {
   /** Internal consumers can keep a fixed search area and skip already attempted cells. */
   origin?: Position;
   exclude?: ReadonlySet<string>;
+  allow?: (block: Block) => boolean;
 }
 export const blockPositionKey = (p: Position): string => `${p.x},${p.y},${p.z}`;
 
@@ -61,7 +62,7 @@ export async function findBlocksCooperatively(bot: Bot, ids: ReadonlySet<number>
           const position = new Vec3(x, y, z), distance = position.distanceSquared(origin);
           if (distance > cutoff() || options.exclude?.has(blockPositionKey(position))) continue;
           const block = bot.blockAt(position, false);
-          if (!block || !ids.has(block.type)) continue;
+          if (!block || !ids.has(block.type) || options.allow && !options.allow(block)) continue;
           found.push({ block, distance });
           found.sort((a, b) => a.distance - b.distance || a.block.position.x - b.block.position.x || a.block.position.y - b.block.position.y || a.block.position.z - b.block.position.z);
           if (found.length > count) found.pop();

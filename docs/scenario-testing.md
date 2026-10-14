@@ -279,6 +279,15 @@ avec ouverture, entrée, sortie, fermeture et nouvelle vérification indépendan
 Il utilise `build_test_bot` et une petite zone vide autour de (-24,-60,-24), nettoyée ensuite.
 Voir [les prérequis et limites](blueprints.md#smoke-minecraft-explicite). Ce n'est pas encore un scénario conversationnel avec Architect.
 
+`npm.cmd run smoke:collect` vérifie la collecte physique sans LLM et sans reset global.
+Il utilise `collect_test_bot` non OP et `test_controller` OP, près de (-35,-60,-35).
+Il exige des cellules vides, prépare quatre bûches superposées et deux pierres puis teste :
+stock initial 1 + demande 4 bûches, refus sans pioche, collecte de 2 cobblestones avec pioche et 2 dirt.
+Les totaux finaux sont relus par NBT depuis le controller, indépendamment du bilan du collecteur.
+Le test restaure ses cellules et les sources de terre prélevées, puis vide uniquement l'inventaire du bot de test.
+Ne pas intervenir dans cette zone pendant l'essai. Les traces utilisent `collect.event` et `collect.smoke` ;
+ce smoke n'est pas une campagne HTML ni un test de relief/scaffolding ou du raisonnement du modèle.
+
 `npm.cmd run smoke:architect` teste séparément le rôle de conception avec le LLM configuré et les noms
 du registre Minecraft configuré. Aucun serveur Minecraft/controller n'est contacté. Le blueprint accepté
 est sauvegardé puis relu, sans construction ; les soumissions rejetées ne deviennent pas des fichiers acceptés.

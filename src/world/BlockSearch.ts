@@ -3,16 +3,25 @@ import type { Bot } from "mineflayer";
 import type { Block } from "prismarine-block";
 import { Vec3 } from "vec3";
 import type { FindBlocksOptions } from "./types";
+import type { Position } from "../shared/types";
 import { checkQueryBudget, QUERY_LIMITS } from "./queries/QueryLimits";
 
 /** Search loaded cells in nearest sections first; never calls synchronous findBlocks. */
-export async function findBlocksCooperatively(bot: Bot, ids: ReadonlySet<number>, options: FindBlocksOptions): Promise<Block[]> {
+export interface BlockSearchOptions extends FindBlocksOptions {
+  /** Internal consumers can keep a fixed search area and skip already attempted cells. */
+  origin?: Position;
+  exclude?: ReadonlySet<string>;
+}
+export const blockPositionKey = (p: Position): string => `${p.x},${p.y},${p.z}`;
+
+export async function findBlocksCooperatively(bot: Bot, ids: ReadonlySet<number>, options: BlockSearchOptions): Promise<Block[]> {
   const radius = options.maxDistance ?? 32, count = options.count ?? 1;
   if (!Number.isFinite(radius) || radius <= 0 || radius > QUERY_LIMITS.maxBlockRadius ||
       !Number.isInteger(count) || count < 1 || count > 128) throw new Error("Invalid block search radius/count.");
   const context = { signal: options.signal, deadline: options.deadline ?? performance.now() + QUERY_LIMITS.timeoutMs };
   checkQueryBudget(context);
-  const origin = bot.entity.position.clone();
+  const origin = options.origin ? new Vec3(options.origin.x, options.origin.y, options.origin.z) : bot.entity.position.clone();
+  if (![origin.x, origin.y, origin.z].every(Number.isFinite)) throw new Error("Invalid block search origin.");
   const dimension = bot.game.dimension;
   const min = new Vec3(Math.ceil(origin.x - radius), Math.ceil(origin.y - radius), Math.ceil(origin.z - radius));
   const max = origin.offset(radius, radius, radius).floor();
@@ -50,7 +59,7 @@ export async function findBlocksCooperatively(bot: Bot, ids: ReadonlySet<number>
             if (bot.game.dimension !== dimension) throw new Error("World dimension changed during block search.");
           }
           const position = new Vec3(x, y, z), distance = position.distanceSquared(origin);
-          if (distance > cutoff()) continue;
+          if (distance > cutoff() || options.exclude?.has(blockPositionKey(position))) continue;
           const block = bot.blockAt(position, false);
           if (!block || !ids.has(block.type)) continue;
           found.push({ block, distance });

@@ -15,6 +15,16 @@
   Il ne prouve pas que la ressource est entrée dans l'inventaire.
 - `get_dropped_items` décrit les stacks observées au sol. `get_inventory` décrit l'inventaire actuel
   du bot. Un item présent ne prouve pas un gain : comparer avec l'observation initiale.
+- `collect_resource` exige un gain net d'inventaire serveur depuis le début de l'appel : posséder 1 bûche
+  puis en demander 4 exige au moins 5 bûches à la fin. Un ramassage de stack peut dépasser la demande.
+  Il n'attribue pas la cause du gain : un item donné/ramassé pendant l'appel compte aussi.
+  Il considère les drops avant de miner ; casser une source, arriver ou voir un drop disparaître ne suffit pas.
+  L'inventaire est resynchronisé avant/après les opérations ; `inventoryKnown: false` signifie que `collected`
+  est seulement le dernier gain confirmé, pas une preuve du stock actuel (notamment après interruption).
+  Un échec conserve un bilan partiel : ne pas redemander aveuglément toute la quantité.
+  Aucun obstacle n'est cassé ni scaffold posé dans cette version ; elle ne reconnaît pas encore les
+  constructions du joueur et peut prélever une bûche ou une pierre placée dans la zone de recherche.
+  Réserver son usage actuel à une zone de test. Les confirmations d'inventaire ciblent Java 1.21.11.
 - `place` confirme le nom du bloc à la destination grâce à un paquet serveur reçu depuis le début
   de la tentative, concordant avec la cellule actuellement chargée. Une prédiction locale seule ne suffit pas.
   La même confirmation sert au Builder, sans deuxième attente. Après résolution ou rejet de `bot.placeBlock`,

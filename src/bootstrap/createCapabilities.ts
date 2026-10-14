@@ -4,6 +4,7 @@ import type { Capability } from "../capabilities/Capability";
 import { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import { CloseContainerCapability } from "../capabilities/CloseContainer";
 import { ConsumeCapability } from "../capabilities/Consume";
+import { CollectResourceCapability } from "../capabilities/CollectResource";
 import { CraftFromInventoryCapability, CraftFromTableCapability } from "../capabilities/Craft";
 import { DigCapability } from "../capabilities/Dig";
 import { DropCapability } from "../capabilities/Drop";
@@ -22,6 +23,8 @@ export function createCapabilityRegistry(
   blueprintsDirectory?: string,
 ): CapabilityRegistry {
   const registry = new CapabilityRegistry();
+  register(registry, new CollectResourceCapability(),
+    "Does: Collect additional logs, dirt or cobblestone automatically; check loose drops before mining.\nSuccess: Server inventory confirmed a net gain of at least quantity since this call began.\nLimits: Loaded sources within 32 blocks of the starting position; needs inventory space and a suitable existing tool. Uses existing paths only: no crafting, obstacle digging or scaffolding yet. Stops after repeated failures or 300 seconds.\nNotes: quantity is additional items, not final stock. Read collected on partial failure before requesting more. Source removal and drop disappearance alone are not pickup proof.");
   register(registry, new BuildCapability(blueprintsDirectory),
     "Does: Build or resume a saved blueprint at a fixed origin; add and remove short exterior dirt stairs when needed.\nSuccess: Required blocks, air and door states were observed correct; the bot left the footprint and its tracked scaffolding was removed. Does not prove habitability or dirt-drop pickup.\nLimits: Requires flat full-block ground including a two-block margin, a loaded site within 50 blocks, all remaining materials and up to 24 extra dirt for access. No gathering, crafting or terrain clearing. Doors must match their expected states; conflicting blocks are not replaced.\nNotes: Up to 300 seconds. Failure or stop may leave a partial structure and tracked dirt. Reuse blueprintId and origin in the same bot session to resume construction/cleanup. Scaffolding is reported separately and never spends dirt reserved for the blueprint.");
   register(

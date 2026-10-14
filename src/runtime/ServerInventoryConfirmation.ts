@@ -42,6 +42,13 @@ export class ServerInventoryConfirmation {
     };
   }
 
+  /** Capacity for ordinary stackable resources; special NBT/component variants may stack differently. */
+  capacity(item: string, stackSize: number): number | null {
+    if (!this.slots || this.unavailable.signal.aborted) return null;
+    return this.slots.slice(this.bot.inventory.inventoryStart, this.bot.inventory.inventoryEnd)
+      .reduce((sum, slot) => sum + (slot === null ? stackSize : slot.name === item ? Math.max(0, stackSize - slot.count) : 0), 0);
+  }
+
   async synchronize(signal: AbortSignal, accepts: (state: ConfirmedInventory) => boolean = () => true): Promise<boolean> {
     const connectedSignal = AbortSignal.any([signal, this.unavailable.signal]);
     connectedSignal.throwIfAborted();

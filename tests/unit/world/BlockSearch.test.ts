@@ -27,3 +27,13 @@ test("large searches yield to stop events instead of blocking until all cells ar
   await assert.rejects(findBlocksCooperatively(bot, new Set([1]), { maxDistance: 50, signal: abort.signal }), /stop search/);
   assert.ok(reads > 0 && reads < 5000);
 });
+
+test("internal collection search stays anchored and excludes attempted cells before limiting results", async () => {
+  const bot = {
+    entity: { position: new Vec3(40, 0, 0) }, game: { dimension: "overworld", minY: 0, height: 16 },
+    world: { getColumn: () => ({}) },
+    blockAt: (p: Vec3) => [1, 2, 41].includes(p.x) && p.y === 0 && p.z === 0 ? { position: p, type: 1 } : null,
+  } as unknown as Bot;
+  const found = await findBlocksCooperatively(bot, new Set([1]), { origin: { x: 0, y: 0, z: 0 }, maxDistance: 4, count: 1, exclude: new Set(["1,0,0"]) });
+  assert.deepEqual(found.map(b => b.position.x), [2]);
+});

@@ -13,6 +13,7 @@
     "dev:world": "ts-node scripts/dev/world-builder.ts",
     "smoke:ollama": "ts-node scripts/smoke/ollama.ts",
     "smoke:craft": "ts-node scripts/smoke/craft.ts",
+    "smoke:collect": "ts-node scripts/smoke/collect.ts",
     "smoke:architect": "ts-node scripts/smoke/architect.ts",
     "smoke:build": "ts-node scripts/smoke/build.ts",
     "smoke:scaffolding": "ts-node scripts/smoke/build.ts --scaffolding",

@@ -44,6 +44,39 @@ Les états inconnus restent distincts d'un bloc incorrect. L'orientation n'est p
 Les traces `place.confirmation` donnent `attempt`, `settled`, les changements `observed`, puis
 `confirmed`, `expired` ou `interrupted`, avec cible, bloc attendu, états reçus et cause Mineflayer éventuelle.
 
+## Collecte automatique (lot 3)
+
+`collect_resource({"item":"oak_log","quantity":4})` cherche, approche, équipe un outil disponible,
+casse et ramasse jusqu'à obtenir **quatre items supplémentaires**, sans appel LLM interne.
+Le schéma strict accepte seulement `item` et `quantity` (entier 1–256). Le préfixe `minecraft:` est accepté.
+
+Ressources supportées : `oak_log`, `spruce_log`, `birch_log`, `jungle_log`, `acacia_log`, `dark_oak_log`,
+`mangrove_log`, `cherry_log`, `pale_oak_log`, `dirt` depuis dirt/grass_block, `cobblestone` depuis stone/cobblestone.
+Les noms doivent exister dans le registre chargé. Les autres ressources sont refusées avant déplacement.
+Le collecteur n'invente pas de recette : une pioche doit déjà être disponible pour la pierre.
+Silk Touch est exclu quand il empêcherait le drop demandé ; aucun outil n'est fabriqué automatiquement.
+
+Les constantes sont dans `src/collection/CollectionConfig.ts` : recherche de 32 blocs depuis l'origine fixe,
+arrêt si le bot s'éloigne de plus de 50 blocs, 300 secondes maximum, déplacements bornés à 20 secondes,
+deux essais d'accès par cellule/drop et huit tentatives sans gain avant arrêt. Les recherches sont coopératives,
+par lots de 32 résultats dans les chunks chargés. Un dig non confirmé n'est pas rejoué à la même cellule.
+Le bot ne creuse pas son appui ni un trou sans support connu dessous ; les bûches hautes restent récoltables
+si accessibles. Les drops en chute visent une surface chargée proche, sans confondre leur hauteur et celle des pieds.
+Pas de destruction d'obstacles, de scaffolding, de protection des bâtiments connus ou de collecte d'outils dans ce lot.
+
+Le succès contient `item`, `requested`, `collected`, `inventoryKnown`, `sourcesFound`, `sourcesBroken`,
+`accessFailed`, `durationMs`. En échec, ce bilan est dans `error.facts.progress` ; sur stop/timeout de l'Executor,
+dans `error.facts.progress.collect`. `sourcesFound` compte les positions distinctes observées,
+`sourcesBroken` les dig confirmés, `accessFailed` les cellules ayant subi au moins un refus/précontrôle raté.
+Ce dernier compteur ne prouve pas une inaccessibilité définitive. `collected` est un gain net d'items,
+pas le nombre de sources cassées ; lire aussi `inventoryKnown` avant toute reprise.
+
+Un seul appel et un seul diff d'inventaire parent sont enregistrés. Les traces JSONL `collect.event` détaillent
+recherche, accès, équipement, dig, déplacement et confirmation avec `taskId` et index local ; elles ne créent
+pas de faux appels LLM. Leur affichage imbriqué dans la UI reste pour le lot 5.
+
+`npm.cmd run smoke:collect` vérifie cette boucle sans LLM : voir [les tests physiques](scenario-testing.md).
+
 ## Construction (lots 2–3 et 7)
 
 `build({ blueprintId, origin: { x, y, z } })` construit un blueprint déjà enregistré par `BlueprintStore`.

@@ -2,7 +2,6 @@ import "../../src/Logger";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { simplify, type NBT } from "prismarine-nbt";
-import type { Bot } from "mineflayer";
 import { Vec3 } from "vec3";
 import { MINECRAFT_VERSION } from "../../src/config";
 import { getFullTraceFilePath } from "../../src/Logger";
@@ -20,6 +19,7 @@ import { MineflayerCommandTransport } from "../../src/devworld/controller/Minefl
 import { loadWorldBuilderConfig } from "../../src/devworld/WorldBuilderConfig";
 import { containsPosition } from "../../src/devworld/ArenaBounds";
 import { bounded, until } from "../../tests/e2e/async";
+import { entityNbt } from "../../tests/support/entityNbt";
 
 /** Explicit survival smoke, no LLM; only this test player's inventory and one empty fixture cell are changed. */
 async function main() {
@@ -115,20 +115,6 @@ async function main() {
     ]);
     console.info("Trace:", getFullTraceFilePath());
   }
-}
-
-function entityNbt(bot: Bot, entityId: number, transactionId: number): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => { clearTimeout(timer); bot._client.removeListener("nbt_query_response", receive); bot.removeListener("end", ended); };
-    const receive = (packet: { transactionId: number; nbt: unknown }) => {
-      if (packet.transactionId === transactionId) { cleanup(); resolve(packet.nbt); }
-    };
-    const ended = () => { cleanup(); reject(new Error("Controller disconnected during inventory read")); };
-    const timer = setTimeout(() => { cleanup(); reject(new Error("Controller entity NBT query timed out")); }, 3000);
-    bot._client.on("nbt_query_response", receive); bot.on("end", ended);
-    try { bot._client.write("query_entity_nbt", { transactionId, entityId }); }
-    catch (error) { cleanup(); reject(error); }
-  });
 }
 
 void main().catch(error => { console.error(error); process.exitCode = 1; });

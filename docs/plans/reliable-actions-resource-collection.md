@@ -2,7 +2,7 @@
 
 Date : 13 octobre 2026.
 
-Statut : **lots 1 et 2 implémentés et vérifiés dans Minecraft sans LLM ; lots 3 à 6 à faire**.
+Statut : **lots 1 à 3 implémentés et vérifiés dans Minecraft sans LLM ; lots 4 à 6 à faire**.
 Cocher les tâches après implémentation et vérification, puis renseigner le journal final.
 Ce plan complète [le plan Blueprint / Builder](blueprint-builder.md) sans reprendre ses lots reportés.
 
@@ -92,36 +92,40 @@ Entrée minimale : `collect_resource({ item: "oak_log", quantity: 20 })`.
 Des stacks ramassées d'un coup peuvent dépasser la quantité demandée ; rapporter le gain réel.
 Un nom d'item valide dans Minecraft n'est pas nécessairement une ressource supportée par ce collecteur.
 
-- [ ] Ajouter `CollectResourceCapability`, enregistrée dans `src/bootstrap/createCapabilities.ts`, avec schéma strict et délai propre.
-- [ ] Introduire un petit catalogue de ressources : item demandé, blocs sources, conditions de récolte/outils nécessaires.
+- [x] Ajouter `CollectResourceCapability`, enregistrée dans `src/bootstrap/createCapabilities.ts`, avec schéma strict et délai propre.
+- [x] Introduire un petit catalogue de ressources : item demandé, blocs sources, conditions de récolte/outils nécessaires.
   Par exemple, `cobblestone` peut provenir de `stone` avec un outil adapté ; ne pas supposer un drop identique au bloc.
-- [ ] Rejeter un item inconnu ou une ressource non prise en charge avant toute action. Documenter les ressources effectivement supportées.
-- [ ] Capturer l'origine, la dimension et l'inventaire initial ; garder la recherche bornée à cette origine même si le bot se déplace.
-- [ ] Vérifier place disponible dans l'inventaire et outil capable de produire le drop ; équiper un outil disponible sans le crafter automatiquement.
-- [ ] Chercher par lots bornés dans les chunks chargés ; réutiliser la recherche coopérative existante et son annulation.
-- [ ] Considérer le loot correspondant déjà au sol avant de casser davantage de blocs, quand sa récupération est raisonnable.
-- [ ] Choisir une cible, vérifier son état et son accès, naviguer, équiper, dig, rejoindre les drops et confirmer le gain d'inventaire.
-- [ ] Relire les positions des drops mobiles ; disparition d'une entité ou succès de `goto` ne prouvent pas son ramassage.
-- [ ] Réévaluer le gain après les déplacements et avant une nouvelle extraction ; les obstacles cassés en route peuvent avoir fourni des ressources utiles.
-- [ ] Dédupliquer les cibles observées et limiter les tentatives par cible ; passer à une autre après épuisement des essais.
-- [ ] Arrêter sur objectif atteint, absence de progression, délai, annulation ou prérequis bloquant, avec bilan partiel.
-- [ ] Garder toutes les opérations sous l'Executor parent, avec le même `ExecutionContext` ; aucune réentrée de l'Executor ni second verrou.
+- [x] Rejeter un item inconnu ou une ressource non prise en charge avant toute action. Documenter les ressources effectivement supportées.
+- [x] Capturer l'origine, la dimension et l'inventaire initial ; garder la recherche bornée à cette origine même si le bot se déplace.
+- [x] Vérifier place disponible dans l'inventaire et outil capable de produire le drop ; équiper un outil disponible sans le crafter automatiquement.
+- [x] Chercher par lots bornés dans les chunks chargés ; réutiliser la recherche coopérative existante et son annulation.
+- [x] Considérer le loot correspondant déjà au sol avant de casser davantage de blocs, quand sa récupération est raisonnable.
+- [x] Choisir une cible, vérifier son état et son accès, naviguer, équiper, dig, rejoindre les drops et confirmer le gain d'inventaire.
+- [x] Relire les positions des drops mobiles ; disparition d'une entité ou succès de `goto` ne prouvent pas son ramassage.
+- [x] Réévaluer le gain après les déplacements et avant une nouvelle extraction ; les ramassages en route peuvent avoir fourni des ressources utiles.
+- [x] Dédupliquer les cibles observées et limiter les tentatives par cible ; passer à une autre après épuisement des essais.
+- [x] Arrêter sur objectif atteint, absence de progression, délai, annulation ou prérequis bloquant, avec bilan partiel.
+- [x] Garder toutes les opérations sous l'Executor parent, avec le même `ExecutionContext` ; aucune réentrée de l'Executor ni second verrou.
 
-Découpage proposé, ajustable sans framework de plugins :
+Découpage réalisé, sans framework de plugins :
 
 - `src/collection/ResourceCollector.ts` : boucle et bilan.
 - `ResourceCatalog.ts` : ressources et prérequis.
-- `ResourceAccess.ts` : choix d'accès et essais bornés.
-- `ResourcePickup.ts` : récupération et confirmation du gain.
+- `ResourceAccess.ts` : préconditions de récolte et choix de l'outil ; essais bornés dans la boucle.
+- `ResourcePickup.ts` : choix d'une case praticable près de la surface où le drop tombe.
 - `MineflayerCollectionOperations.ts` : réemploi des capabilities et queries avec le contexte parent.
 - `CollectionConfig.ts` / `CollectionTypes.ts` : constantes et contrats nécessaires.
 
 Vérification :
 
-- [ ] Tester « possède déjà 1, demande 4 supplémentaires » => objectif atteint seulement avec gain confirmé d'au moins 4.
-- [ ] Tester drops retardés, stacks multiples, inventaire plein, outil manquant/cassé, cible disparue, terrain non chargé et cible inaccessible.
-- [ ] Tester qu'un gain temporaire puis consommé/perdu ne satisfait pas le stock supplémentaire encore disponible à la fin.
-- [ ] Tester stop/timeout pendant navigation, dig et ramassage, avec bilan partiel et conservation du verrou si une opération termine encore.
+- [x] Tester « possède déjà 1, demande 4 supplémentaires » => objectif atteint seulement avec gain confirmé d'au moins 4.
+- [x] Tester drops retardés, stacks multiples, inventaire plein, outil manquant/cassé, cible disparue, terrain non chargé et cible inaccessible.
+- [x] Tester qu'un gain temporaire puis consommé/perdu ne satisfait pas le stock supplémentaire encore disponible à la fin.
+- [x] Tester stop/timeout pendant navigation, dig et ramassage, avec bilan partiel et conservation du verrou si une opération termine encore.
+
+Les traces `collect.event` et le bilan compact sont présents dès ce lot ; l'UI du lot 5 reste inchangée.
+La collecte n'utilise pas encore les modifications de terrain : `canDig: false`, `canPlace: false` pour ses goto.
+Les chantiers/bâtiments ne sont pas encore protégés : utiliser une zone de test, pas un bâtiment à conserver.
 
 ## Lot 4 — Accès sur relief modéré et réserve de terre
 
@@ -222,4 +226,16 @@ Le travail sur la forme des réponses LLM et les lots de construction reportés 
   **82 poses confirmées**, aucune erreur de pose dans ce smoke ; il ne reproduit pas le défaut historique.
   Trace : `logs/trace_1791894030582_60460.jsonl` (`place.confirmation`, relié au taskId parent).
   La structure temporaire a été retirée et l'herbe restaurée ; le serveur et le bot principal n'ont pas été redémarrés.
-- Prochaine étape : lot 3 (collecteur de base) lorsque demandé ; aucune collecte automatique ajoutée dans les lots 1–2.
+- 2026-10-14 : lot 3 livré. `collect_resource` collecte des bûches, dirt et cobblestone sous le verrou parent,
+  avec quantité supplémentaire, inventaire serveur, catalogue strict, limites de recherche/essais et bilan partiel.
+  Les opérations internes sont indexées dans `collect.event`, sans appels LLM ni nouveaux numéros globaux.
+  `npm.cmd test` : **580 tests réussis**, compilation et vérifications TypeScript incluses.
+  Smoke `npm.cmd run smoke:collect` réussi sans LLM : 1 bûche initiale + 4 collectées = 5,
+  pierre refusée sans pioche, puis 2 cobblestones avec pioche et 2 dirt ; inventaires vérifiés par NBT controller.
+  Les essais ont révélé un ciblage de drops encore en chute, puis une arrivée trop éloignée du ramassage.
+  Le collecteur vise désormais une case praticable proche de la surface d'arrivée ; tests de régression ajoutés.
+  La fixture refuse les drops préexistants et nettoie ses drops résiduels pour isoler les relances.
+  Trace finale : `logs/trace_1791961569206_62372.jsonl` ; blocs restaurés et inventaire de test vidé.
+  Le serveur local a été démarré pour la vérification ; aucun agent LLM lancé et aucun prompt modifié.
+  Le lot 2 est sauvegardé/poussé sur `refactor-redo` au commit `89d17d0` ; le lot 3 reste non commité.
+- Prochaine étape : lot 4 (accès et réserve de terre), sur demande ; aucun changement de prompts dans le lot 3.

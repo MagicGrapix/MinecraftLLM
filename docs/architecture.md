@@ -64,6 +64,14 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   attend le bloc attendu, même après un rejet Mineflayer ambigu, sans deuxième envoi.
   La promesse physique reste une barrière d'annulation. Les traces `place.confirmation` relient tentative,
   retour Mineflayer, observations et résultat au `taskId` parent ; les portes gardent leur contrôle spécialisé.
+- `capabilities/CollectResource.ts` expose une collecte automatique sans appel LLM interne.
+  `collection/ResourceCollector.ts` gère la boucle, les essais bornés et le bilan ; `ResourceCatalog`
+  définit les sources, `ResourceAccess` vérifie récolte/outils et `ResourcePickup` vise le sol sous les drops.
+  `MineflayerCollectionOperations` réutilise goto/dig sous le contexte et le verrou de l'Executor parent,
+  avec confirmations d'inventaire serveur. Aucun second Executor ni numéro d'action par sous-opération.
+  La recherche conserve une origine fixe ; les cellules déjà tentées sont exclues avant la limite de résultats.
+  Cette première version utilise seulement les chemins existants : aucun scaffolding ni creusement de passage.
+  Voir [le contrat de collecte](tools.md#collecte-automatique-lot-3).
 - `src/world/` traduit les observations Mineflayer. `WorldQueries.getNearbyEntities` est conservée
   comme API interne, notamment pour `get_dropped_items`, sans tool générique exposé au LLM.
   `findNearestBlocks` retourne une Promise : `BlockSearch.ts` parcourt les cellules chargées par lots

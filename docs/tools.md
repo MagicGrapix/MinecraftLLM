@@ -3,7 +3,8 @@
 Les descriptions anglaises sont envoyées au LLM dans son catalogue `tools`, avec le JSON Schema
 des arguments. Le World Context contient les observations, pas ces descriptions.
 Le planner reçoit le catalogue complet de l'actionneur en référence textuelle dans son prompt système,
-avec les mêmes descriptions et schémas, sans pouvoir appeler ces tools. Il n'y a pas de catalogue manuel séparé.
+avec les mêmes descriptions et schémas, sans pouvoir appeler les capabilities. Il n'y a pas de catalogue manuel séparé.
+Son catalogue appelable contient uniquement `search_recipes`, `read_recipe` et `submit_plan`.
 
 Emplacements à modifier :
 
@@ -14,6 +15,8 @@ Emplacements à modifier :
 - `src/agent/CoordinatorTools.ts` : reply, ask_architect, ask_planner, run_step, complete_step, refresh_summary.
 - `src/world/queries/LookupMaterial.ts` : lookup_material (schéma, description et recherche partagés).
 - `src/agent/ArchitectTools.ts` : submit_blueprint, strictement réservé à l'Architect.
+- `src/recipes/RecipeTools.ts` : search_recipes/read_recipe, partagés entre planner et actionneur.
+- `src/agent/PlannerAgent.ts` : submit_plan, strictement réservé au planner.
 
 Les dix descriptions clarifiées utilisent des lignes courtes :
 

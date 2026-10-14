@@ -31,7 +31,7 @@ export function describeInspectorRound(round: PresentationInput): InspectorPrese
     : calls.length
       ? calls.map((call) => describeCall(text(call.name), parseObject(call.arguments))).join(" · ")
       : round.phase === "planner" ? "Create checklist"
-        : round.phase === "context_summary" || round.phase === "actioner_context_summary" || round.phase === "architect_context_summary" ? "Compress conversation"
+        : round.phase.endsWith("context_summary") ? "Compress conversation"
         : round.phase === "architect" ? "Design blueprint"
         : round.phase === "summary" ? "Update summary"
           : round.phase === "coordinator" ? "Choose next sequence"
@@ -99,6 +99,9 @@ function describeExecution(execution: InspectorToolExecution) {
 }
 
 function describeCall(name: string, input: Record<string, unknown>): string {
+  if (name === "search_recipes") return `${name} → ${text(input.query)}`;
+  if (name === "read_recipe") return `${name} → ${text(input.item)} (variant ${input.variant ?? 1})`;
+  if (name === "submit_plan") return `${name} → ${Array.isArray(input.steps) ? input.steps.length : "?"} steps`;
   if (name === "lookup_material") return `${name} → ${text(input.query)}`;
   if (name === "submit_blueprint") return typeof input.drawing === "string"
     ? `${name} → drawing (${input.drawing.length} chars)` : `${name} → ${text(input.name)}`;
@@ -123,6 +126,7 @@ function agentLabel(phase: InspectorRound["phase"]): string {
   if (phase === "context_summary") return "Coordinator context summary";
   if (phase === "actioner_context_summary") return "Actioner context summary";
   if (phase === "architect_context_summary") return "Architect context summary";
+  if (phase === "planner_context_summary") return "Planner context summary";
   return phase.charAt(0).toUpperCase() + phase.slice(1);
 }
 

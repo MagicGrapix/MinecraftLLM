@@ -26,7 +26,7 @@ const fixedDescriptions: Record<keyof typeof fixedToolSchemas, string> = {
 export class ToolCatalogBuilder {
   private readonly tools: readonly LLMTool[];
 
-  constructor(capabilities: CapabilityRegistry, queries: WorldQueryRegistry) {
+  constructor(capabilities: CapabilityRegistry, queries: WorldQueryRegistry, additionalTools: readonly LLMTool[] = []) {
     const queryTools = queries.list().map(({ name, description }) => ({
       name, description, parameters: toJsonSchema(queries.get(name)!.inputSchema),
     }));
@@ -37,7 +37,7 @@ export class ToolCatalogBuilder {
       name, description: fixedDescriptions[name as keyof typeof fixedToolSchemas],
       parameters: toJsonSchema(schema),
     }));
-    this.tools = [...queryTools, ...capabilityTools, ...fixedTools];
+    this.tools = [...queryTools, ...capabilityTools, ...fixedTools, ...additionalTools];
     if (new Set(this.tools.map((tool) => tool.name)).size !== this.tools.length) {
       throw new Error("Action tool names must be unique across queries, capabilities and handoff tools.");
     }

@@ -20,7 +20,7 @@ export interface StructuredRoleOptions {
 export async function callStructuredRole<T>(input: {
   readonly options: StructuredRoleOptions;
   readonly schema: z.ZodType<T>;
-  readonly phase: "planner" | "summary" | "context_summary" | "actioner_context_summary" | "architect_context_summary";
+  readonly phase: "summary" | "context_summary" | "actioner_context_summary" | "architect_context_summary" | "planner_context_summary";
   readonly generationId: number;
   readonly reflection: number;
   readonly round?: number;

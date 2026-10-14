@@ -12,14 +12,22 @@ coordinateur ne lui impose pas une recette ou une séquence de tools. Pour `run_
 et le critère de l'étape courante, en laissant les arguments d'exécution à l'actionneur.
 
 Le planner reçoit la conversation joueur/assistant restante, son résumé compacté, le monde actuel,
-la checklist et l'instruction du coordinateur. Il produit un seul JSON :
-`{"steps":[{"title":"...","successCriteria":"..."}]}`.
+la checklist et l'instruction du coordinateur. `PlannerAgent` crée une conversation privée par délégation :
+un tool natif par réponse, résultat réel en message tool, puis nouvel appel si nécessaire.
+Il termine avec `submit_plan({steps:[{title,successCriteria}]})` ; le format réutilise `PlannerResultSchema`
+(1–10 étapes, titre 160 caractères maximum et critère 400). Un texte seul ne soumet pas de plan.
 Son system contient aussi le catalogue complet de l'actionneur (noms, descriptions et schémas d'arguments),
 injecté par `{{action_tools}}` depuis le même `ToolCatalogBuilder` que les tools réellement disponibles.
 Il s'en sert pour proposer des sous-objectifs réalisables et tenir compte des opérations déjà gérées
-par chaque tool. Les cibles et arguments d'exécution restent à l'actionneur. Le planner ne reçoit aucun
-tool appelable dans la requête API et ne possède pas de boucle d'exécution.
-Le code numérote les étapes à partir de 1. Un nouveau plan remplace l'ancien et invalide tous ses rapports.
+par chaque tool. Les cibles et arguments d'exécution restent à l'actionneur. Les seuls tools appelables
+du planner sont `search_recipes`, `read_recipe` et `submit_plan` ; aucune capability ou lecture du monde.
+Les fiches sont rendues en texte avec grilles, tandis que le journal conserve le résultat structuré.
+Une entrée absente ou invalide reste une incertitude explicite, pas une preuve d'impossibilité.
+Le code numérote les étapes à partir de 1. Seul un `submit_plan` valide remplace l'ancien plan et invalide
+ses rapports. Une erreur ou une interruption laisse l'ancien plan intact. Une soumission invalide retourne
+un feedback dans la conversation privée pour correction. La délégation suivante repart à neuf.
+Le coordinateur reçoit le plan et `recipeCoverage` : recettes/variantes lues et entrées indisponibles,
+sans la conversation privée ni les grilles. Il peut transmettre les contraintes utiles dans les étapes.
 
 Le prompt regroupe une action et sa vérification dans une seule étape. Une inspection distincte reste
 possible si elle vérifie une autre propriété, par exemple pouvoir entrer dans une construction.
@@ -27,8 +35,8 @@ Les critères quantifiés nomment l'item et la comparaison : stock total minimal
 de l'étape ou quantité exacte explicitement demandée. Les rendements de craft sont des lots entiers :
 le besoin d'un `stick` peut produire quatre sticks, et les ingrédients restants ne doivent pas être
 déclarés absents sans nécessité. Ces règles guident le LLM ; `successCriteria` reste du texte, pas une
-expression déterministe. Le planner n'a pas d'outil de consultation des recettes ; l'actionneur peut
-résoudre une incertitude à partir des résultats réels des tools de craft.
+expression déterministe. Planner et actionneur partagent les outils de consultation des recettes.
+Le succès de lecture ne valide ni le stock, ni l'accès à une station, ni l'exécution du craft.
 
 L'actionneur reçoit une étape avec son critère, l'objectif utilisateur, la checklist complète, le résumé
 de tâche et les derniers rapports des étapes déjà tentées. Il travaille uniquement sur l'étape déléguée.
@@ -169,9 +177,11 @@ Si le system, la demande ou le dernier résultat sont eux-mêmes trop gros, le t
 aucun JSON rejoué n'est découpé et aucun résultat n'est éliminé silencieusement.
 Le monde est relu après la compression pour le prochain call.
 
-Le planner n'a pas d'historique persistant indépendant : il reçoit les messages de discussion conservés par
-le coordinateur et son résumé, sans rejouer ses appels d'outils. Sa copie est compactée si nécessaire en tenant
-compte de son propre system, notamment du catalogue documentaire des tools. Les appels de compression portent leur propre label debug ;
+Le planner n'a pas de mémoire entre délégations : il reçoit les messages joueur/assistant conservés par
+le coordinateur et son résumé, sans rejouer les tools du coordinateur. Pendant la délégation, ses propres
+appels/résultats restent natifs ; sa copie est compactée si nécessaire en tenant compte du system,
+du catalogue documentaire et des trois schémas appelables. La phase de compression est `planner_context_summary`.
+Les appels de compression portent leur propre label debug ;
 ce ne sont pas de nouvelles phases de l'actionneur.
 
 Le plafond s'applique aussi aux appels de résumé et aux retries. `llm/InputBudget.ts` vérifie la requête finale
@@ -208,12 +218,15 @@ L'inspecteur montre toujours la requête exacte envoyée et les exécutions orig
 
 ## Numéros d'appels et diff d'inventaire
 
-Chaque appel validé qui commence reçoit un `actionNumber` partagé par coordinateur et actionneur,
+Chaque appel qui commence reçoit un `actionNumber` partagé par coordinateur, planner, Architect et actionneur,
 y compris les lectures, réponses et handoffs. Ce numéro suit l'ordre de démarrage pendant toute
 la session du bot. Il est distinct du numéro de checklist et de l'index du call LLM dans l'inspecteur.
-Une proposition rejetée avant exécution n'en reçoit pas. Le planner ne possède pas d'appels de tools.
+Une réponse sans appel natif valide n'en reçoit pas. Les outils du planner reçoivent aussi un numéro
+lorsqu'ils retournent une erreur d'arguments ou de validation, comme les soumissions Architect.
 
 Le résultat natif garde son contrat (`ok`, `value` ou `error`) et ajoute `actionNumber` au premier niveau.
+Exception de présentation : les fiches recettes sont du texte en message tool, préfixé `Action #N`.
+Le JSON structuré reste dans le journal et l'inspecteur, sans duplication dans le contexte LLM.
 Les échanges compactés conservent ce champ ; une réponse `reply` envoyée reste toutefois du texte
 de conversation, comme avant. Les traces et la UI conservent son numéro.
 Les outcomes des capabilities dans le rapport de l'actionneur conservent aussi leur `actionNumber`.
@@ -244,6 +257,10 @@ Une sortie mal formée, vide ou tronquée provoque jusqu'à huit retries LLM, sa
 Une action physique échouée n'est pas rejouée automatiquement. Voir [les annulations](contracts.md).
 Le coordinateur dispose de 64 tours par boucle, l'actionneur de 256 calls par délégation,
 dont le dernier est réservé à un rapport. Ces limites ne remplacent pas le budget de contexte.
+Le planner dispose de `PLANNER_MAX_TOOL_CALLS = 16` appels LLM hors compression, corrections comprises.
+Les erreurs de protocole/arguments consécutives respectent aussi `responseMaxRetries` (8 par défaut).
+Les recettes absentes ne déclenchent pas de retry automatique. Sa sortie utilise `llmMaxTokens` comme
+les autres appels de workflow. Ces limites ne sont pas injectées dans son prompt.
 
 ## Prompts
 

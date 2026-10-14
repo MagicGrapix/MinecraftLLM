@@ -12,6 +12,8 @@ import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
 import type { QueryError } from "../world/queries/QueryResult";
 import type { TaskError } from "../execution/TaskResult";
 import type { ArchitectAgent } from "./ArchitectAgent";
+import { PlannerAgent } from "./PlannerAgent";
+import type { RecipeTools } from "../recipes/RecipeTools";
 import { formatConstructionContext } from "./ConstructionContext";
 import { callCoordinator } from "./CoordinatorCall";
 import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
@@ -20,10 +22,9 @@ import { ContextCompactor, type ContextBudget } from "./ContextCompactor";
 import { formatWorldContext, type WorldContextSnapshot } from "./WorldContextFormatter";
 import { formatTaskContext } from "./TaskContextFormatter";
 import { formatToolReference } from "./ToolCatalogBuilder";
-import { callStructuredRole, type StructuredRoleOptions } from "./StructuredRoleCall";
+import type { StructuredRoleOptions } from "./StructuredRoleCall";
 import { summarizeBounded } from "./BoundedSummary";
 import {
-  PlannerResultSchema,
   WorkflowState,
   WorkflowSummaryFile,
 } from "./WorkflowState";
@@ -31,6 +32,7 @@ import {
 export type WorkflowMode = "idle" | "thinking" | "designing" | "planning" | "executing" | "stopped";
 
 export interface WorkflowAgentOptions {
+  readonly recipes: RecipeTools;
   readonly llm: LLMClient;
   readonly actionAgent: ActionRunner;
   readonly architectAgent: Pick<ArchitectAgent, "run">;
@@ -233,31 +235,15 @@ export class WorkflowAgent {
   }
 
   private async askPlanner(instruction: string, signal: AbortSignal) {
-    const history = new MessageHistory();
-    history.summary = this.transcript.summary;
-    for (const message of this.transcript.conversation().messages) history.append(message);
-    const reflection = ++this.reflection;
-    let context: Record<string, unknown> = {};
-    const messages = await new ContextCompactor(this.roleOptions(), this.options.prompts.contextSummary, this.options.contextBudget).prepare({
-      history, generationId: this.generationId, reflection, signal, requestTitle: this.task.objective,
-      render: (recent, summary) => {
-        const rendered = this.roleInput(this.options.prompts.planner,
-          { ...this.commonContext(), instruction, actionTools: this.options.actionTools }, { messages: recent }, summary);
-        context = rendered.context;
-        return rendered.messages;
-      },
+    return new PlannerAgent({
+      ...this.roleOptions(), recipes: this.options.recipes, journal: this.options.journal,
+      contextSummaryPrompt: this.options.prompts.contextSummary, contextBudget: this.options.contextBudget,
+    }).run({
+      conversation: this.transcript.conversation().messages, conversationSummary: this.transcript.summary,
+      objective: this.task.objective, generationId: this.generationId, reflection: ++this.reflection, signal,
+      render: (messages, summary) => this.roleInput(this.options.prompts.planner,
+        { ...this.commonContext(), instruction, actionTools: this.options.actionTools }, { messages }, summary),
     });
-    const result = await callStructuredRole({
-      options: this.roleOptions(),
-      schema: PlannerResultSchema,
-      phase: "planner",
-      generationId: this.generationId,
-      reflection,
-      messages,
-      context,
-      signal,
-    });
-    return result;
   }
 
   private commonContext() {
@@ -335,7 +321,8 @@ export class WorkflowAgent {
         const plan = await this.askPlanner(call.input.instruction, signal);
         signal.throwIfAborted();
         this.task.applyPlan(plan.steps);
-        return { value: { planVersion: this.task.planVersion, steps: this.task.steps, replacesPreviousPlan: true } };
+        return { value: { planVersion: this.task.planVersion, steps: this.task.steps, replacesPreviousPlan: true,
+          recipeCoverage: plan.recipeCoverage } };
       }
       case "ask_architect": {
         this.mode = "designing";

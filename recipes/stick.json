@@ -1,0 +1,32 @@
+{
+  "item": "stick",
+  "minecraftVersion": "1.21.11",
+  "variants": [
+    {
+      "type": "shaped",
+      "label": "Oak planks",
+      "outputCount": 4,
+      "station": "inventory",
+      "palette": {
+        "A": "oak_planks"
+      },
+      "rows": [
+        "A",
+        "A"
+      ]
+    },
+    {
+      "type": "shaped",
+      "label": "Birch planks",
+      "outputCount": 4,
+      "station": "inventory",
+      "palette": {
+        "A": "birch_planks"
+      },
+      "rows": [
+        "A",
+        "A"
+      ]
+    }
+  ]
+}

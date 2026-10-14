@@ -32,6 +32,8 @@ Les réglages de comportement restent des constantes dans `src/config.ts` :
 - `CONTEXT_BUDGET` : compression à 20 000 tokens d'entrée estimés, cible 10 000, estimation de 3 caractères/token.
 - `TOOL_REPLAY_MODE` : présentation native ou compacte des anciens échanges d'outils.
 - `ACTION_MAX_TOOL_CALLS` : 256 appels d'outils maximum par délégation.
+- `PLANNER_MAX_TOOL_CALLS` : 16 tours maximum pour consulter les recettes et soumettre le plan.
+- `RECIPE_LIMITS` : limites des fiches et résultats de la bibliothèque `recipes/`.
 
 La limite de sortie reste de 4 096 tokens par défaut. La fenêtre réelle du serveur LLM est un réglage distinct :
 changer le seuil de compression n'agrandit pas la fenêtre du modèle.
@@ -59,6 +61,12 @@ Pour tester uniquement la conception de blueprints avec le backend sélectionné
 ```powershell
 npm.cmd run smoke:architect
 ```
+
+Pour tester le planner seul sur « hache puis abri », avec inventaire et facture de test :
+`npm.cmd run smoke:planner`. Cela appelle le vrai LLM mais ne rejoint pas Minecraft.
+Le rapport et les échanges sont sauvegardés dans `logs/planner/` et les traces de session.
+Les fiches sont éditables dans `recipes/`, une par objet ; redémarrer pour les recharger.
+Voir [les recettes, leur validation et leurs tools](docs/recipes.md).
 
 Pour l'atelier web interactif : `npm.cmd run dev:architect`, puis ouvrir
 http://127.0.0.1:3004/. Chaque essai utilise le vrai Architect, les prompts du projet et le vrai

@@ -134,6 +134,7 @@ export class ActionAgent implements ActionRunner {
         let report: DelegatedActionReport | undefined;
         try {
           let content: string;
+          let feedback: string | undefined;
           let ok: boolean;
           if (signal.aborted) {
             content = JSON.stringify({ ok: false, error: { code: "INTERRUPTED", message: "Delegation stopped; tool was not executed." } });
@@ -141,6 +142,7 @@ export class ActionAgent implements ActionRunner {
           } else if (validated.kind === "read") {
             const read = await this.options.toolBridge.executeRead(call, signal);
             content = read.content;
+            feedback = read.feedback;
             ok = read.ok;
           } else if (validated.kind === "action") {
             signal.throwIfAborted();
@@ -170,7 +172,8 @@ export class ActionAgent implements ActionRunner {
           this.options.journal.complete(actionNumber, ok, content);
           content = numberedToolResult(actionNumber, content);
           this.options.inspector?.recordToolCompleted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments, result: content, ok });
-          session.history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id, content }]);
+          session.history.appendExchange(response.message, [{ role: "tool", toolCallId: call.id,
+            content: feedback === undefined ? content : `Action #${actionNumber}\n${feedback}` }]);
           this.options.inspector?.finalizeRound(trace, signal.aborted ? "aborted" : "completed");
         } catch (error: unknown) {
           this.options.journal.complete(actionNumber, false, JSON.stringify({ ok: false, error: { message: errorMessage(error) } }));

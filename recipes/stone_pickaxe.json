@@ -1,0 +1,21 @@
+{
+  "item": "stone_pickaxe",
+  "minecraftVersion": "1.21.11",
+  "variants": [
+    {
+      "type": "shaped",
+      "label": "Cobblestone",
+      "outputCount": 1,
+      "station": "crafting_table",
+      "palette": {
+        "A": "cobblestone",
+        "B": "stick"
+      },
+      "rows": [
+        "AAA",
+        ".B.",
+        ".B."
+      ]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { loadRecipeTools } from "../../support/recipes";
 import { resolve } from "node:path";
 import test from "node:test";
 import { z } from "zod";
@@ -412,7 +413,7 @@ test("real workflow delegates direct actions and still verifies the report befor
   const h = await harness();
   const workflow = workflowHarness(h);
   call(h.llm, "ask_planner", { instruction: "Plan the observed block removal." });
-  h.llm.enqueue({ message: { role: "assistant", content: JSON.stringify({ steps: [{ title: "Remove one log", successCriteria: "Observed log becomes air." }] }) }, finishReason: "stop" });
+  call(h.llm, "submit_plan", { steps: [{ title: "Remove one log", successCriteria: "Observed log becomes air." }] });
   call(h.llm, "run_step", { step: 1, instruction: "Remove the observed log at (1, -60, 0)." });
   action(h.llm, "dig", 1, "Remove the observed target.");
   h.executor.enqueue(success({ position: { x: 1, y: -60, z: 0 }, block: "oak_log" }));
@@ -439,7 +440,7 @@ test("real workflow stop during a capability returns the interrupted report with
   const h = await harness();
   const workflow = workflowHarness(h);
   call(h.llm, "ask_planner", { instruction: "Plan one dig." });
-  h.llm.enqueue({ message: { role: "assistant", content: JSON.stringify({ steps: [{ title: "Dig", successCriteria: "Log becomes air." }] }) }, finishReason: "stop" });
+  call(h.llm, "submit_plan", { steps: [{ title: "Dig", successCriteria: "Log becomes air." }] });
   call(h.llm, "run_step", { step: 1, instruction: "Dig the observed log." });
   action(h.llm, "dig", 1);
   const physical = h.executor.enqueueDeferred();
@@ -480,43 +481,43 @@ test("coordinator and actioner share numbering and can inspect individual and wh
     h.world.getInventory = () => ({ items: [{ name: "oak_log", displayName: "Oak Log", count: inventoryCount, slot: 36, type: 1, metadata: 0 }], selectedItem: null });
     const workflow = workflowHarness(h);
     call(h.llm, "ask_planner", { instruction: "Collect a new log." }); // #1
-    h.llm.enqueue({ message: { role: "assistant", content: JSON.stringify({ steps: [{ title: "Collect log", successCriteria: "One new log." }] }) }, finishReason: "stop" });
-    call(h.llm, "run_step", { step: 1, instruction: "Collect the observed log." }); // #2, finishes after children
-    call(h.llm, "get_inventory", {}); // #3
-    action(h.llm, "dig", 1); // #4
-    call(h.llm, "get_inventory_diff_after", { actionNumber: 4 }); // #5
+    call(h.llm, "submit_plan", { steps: [{ title: "Collect log", successCriteria: "One new log." }] }); // #2
+    call(h.llm, "run_step", { step: 1, instruction: "Collect the observed log." }); // #3, finishes after children
+    call(h.llm, "get_inventory", {}); // #4
+    action(h.llm, "dig", 1); // #5
+    call(h.llm, "get_inventory_diff_after", { actionNumber: 5 }); // #6
     h.llm.enqueue((request) => {
       const result = JSON.parse(request.messages.at(-1)!.content!);
-      assert.equal(result.actionNumber, 5);
-      assert.equal(result.value.actionNumber, 4);
+      assert.equal(result.actionNumber, 6);
+      assert.equal(result.value.actionNumber, 5);
       assert.match(result.value.diff, /- oak_log: 1\n\+ oak_log: 2/);
-      return response("finish_step", { status: "success", message: "One new log confirmed by action #4." }); // #6
+      return response("finish_step", { status: "success", message: "One new log confirmed by action #5." }); // #7
     });
     h.llm.enqueue((request) => {
       const result = JSON.parse(request.messages.at(-1)!.content!);
-      assert.equal(result.actionNumber, 2);
-      assert.equal(result.value.report.outcomes[0].actionNumber, 4);
-      return response("get_inventory_diff_after", { actionNumber: 2 }); // #7
+      assert.equal(result.actionNumber, 3);
+      assert.equal(result.value.report.outcomes[0].actionNumber, 5);
+      return response("get_inventory_diff_after", { actionNumber: 3 }); // #8
     });
     h.llm.enqueue((request) => {
       const result = JSON.parse(request.messages.at(-1)!.content!);
-      assert.equal(result.actionNumber, 7);
-      assert.equal(result.value.actionNumber, 2);
+      assert.equal(result.actionNumber, 8);
+      assert.equal(result.value.actionNumber, 3);
       assert.match(result.value.diff, /- oak_log: 1\n\+ oak_log: 2/);
-      return response("reply", { outcome: "answer", message: "Observed the gain." }); // #8
+      return response("reply", { outcome: "answer", message: "Observed the gain." }); // #9
     });
     workflow.agent.submitUserMessage("owner", "Collect one additional log.");
     await until(() => (workflow.agent.state() as { mode: string }).mode === "idle");
     assert.deepEqual(workflow.replies, ["Observed the gain."]);
     const executions = h.inspector.listRounds().flatMap((r) => h.inspector.getRound(r.id)!.toolExecutions);
-    assert.deepEqual(executions.map((e) => e.actionNumber), [1, 2, 3, 4, 5, 6, 7, 8]);
-    assert.equal(h.journal.get(4)!.completed, true);
-    assert.match(h.inspector.listRounds().find((r) => r.activity.includes("dig"))!.activity, /Action #4/);
+    assert.deepEqual(executions.map((e) => e.actionNumber), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert.equal(h.journal.get(5)!.completed, true);
+    assert.match(h.inspector.listRounds().find((r) => r.activity.includes("dig"))!.activity, /Action #5/);
     call(h.llm, "reply", { outcome: "answer", message: "New request." });
     workflow.agent.submitUserMessage("owner", "Hello again.");
     await until(() => (workflow.agent.state() as { mode: string }).mode === "idle");
-    assert.equal(h.journal.get(4), undefined);
-    assert.equal(h.journal.get(9)!.tool, "reply");
+    assert.equal(h.journal.get(5), undefined);
+    assert.equal(h.journal.get(10)!.tool, "reply");
     await workflow.agent.shutdown();
   }
 });
@@ -546,6 +547,24 @@ test("actioner receives concrete rejected arguments and corrects them without ex
 function delegation(userObjective = "Collect one more log"): ActionDelegation {
   return { step: { step: 1, title: "Collect a log", successCriteria: "Bot inventory increases by one log." }, instruction: "Collect a new log, then verify the inventory.", userObjective, checklist: "- [ ] 1. Collect a log", projectSummary: "", reports: [] };
 }
+
+test("actioner reads the same recipe tools as planner with readable replay, structured logs and no physical action", async () => {
+  for (const toolReplayMode of ["native", "compact"] as const) {
+    const h = await harness({ toolReplayMode });
+    call(h.llm, "read_recipe", { item: "wooden_axe" });
+    call(h.llm, "read_recipe", { item: "stick" });
+    call(h.llm, "finish_step", { status: "needs_user", message: "Recipe checked, no craft executed." });
+    const report = await h.agent.runDelegatedStep(delegation());
+    assert.equal(report.outcomes.length, 0);
+    assert.equal(h.executor.started.length, 0);
+    assert.match(h.llm.requests[1]!.messages.at(-1)!.content!, /Action #1\nwooden_axe x1 per craft/);
+    assert.match(h.llm.requests[2]!.messages.map(m => m.content).join("\n"), /\[A\] \[A\] \[ \]/);
+    protocolValid(h.llm.requests[2]!.messages);
+    const first = h.inspector.getRound(h.inspector.listRounds()[0]!.id)!.toolExecutions[0]!;
+    assert.equal(JSON.parse(first.result!).value.ingredients.oak_planks, 3);
+    assert.equal(h.journal.get(1)!.tracksInventory, false);
+  }
+});
 
 test("actioner retries malformed transport responses before invoking any action", async () => {
   const h = await harness({ maxResponseRetries: 1 });
@@ -606,7 +625,8 @@ async function harness(options: {
   const landmarks = { pinned: () => [], list: () => [] } as unknown as LandmarkMemory;
   const journal = new ToolCallJournal(() => physicalExecutor.currentTask ? null : inventoryTotals(world.getInventory().items));
   const skills = { list: () => [] } as unknown as SkillRegistry;
-  const toolBridge = new AgentToolBridge({ capabilities, queries: createDefaultWorldQueryRegistry(world, journal), skills, skillLoader: {} as SkillLoader, landmarks });
+  const recipes = await loadRecipeTools();
+  const toolBridge = new AgentToolBridge({ recipes, capabilities, queries: createDefaultWorldQueryRegistry(world, journal), skills, skillLoader: {} as SkillLoader, landmarks });
   const prompts = await loadWorkflowPrompts(resolve(process.cwd(), "prompts"));
   const agent = new ActionAgent({
     llm, journal, executor: physicalExecutor, inspector, toolBridge, contextSummaryPrompt: prompts.contextSummary, contextBudget: options.contextBudget,
@@ -615,7 +635,7 @@ async function harness(options: {
     toolReplayMode: options.toolReplayMode, onTaskFinished: options.onTaskFinished,
     temperature: 0, maxTokens: 4096, onRetry: async (message) => { retries.push(message); },
   });
-  return { agent, llm, executor, physicalExecutor, inspector, retries, world, toolBridge, prompts, landmarks, journal };
+  return { agent, llm, executor, physicalExecutor, inspector, retries, world, toolBridge, prompts, landmarks, journal, recipes };
 }
 
 test("actioner compresses its private history and keeps its delegation and latest outcome", async () => {
@@ -643,6 +663,7 @@ test("actioner compresses its private history and keeps its delegation and lates
 function workflowHarness(h: Awaited<ReturnType<typeof harness>>) {
   const replies: string[] = [];
   const agent = new WorkflowAgent({
+    recipes: h.recipes,
     llm: h.llm, actionAgent: h.agent, world: h.world, landmarks: h.landmarks, journal: h.journal,
     architectAgent: { run: async () => { throw new Error("Unexpected Architect delegation in this test."); } },
     actionTools: h.toolBridge.catalog.build(),

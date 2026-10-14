@@ -15,6 +15,13 @@ export const GOTO_DEFAULTS = {
 export const TOOL_REPLAY_MODE: "native" | "compact" = "compact";
 // Total validated tool invocations per delegation; parsing retries do not count.
 export const ACTION_MAX_TOOL_CALLS = 256;
+export const PLANNER_MAX_TOOL_CALLS = 16;
+export const RECIPE_LIMITS = {
+  maxVariants: 8,
+  maxFileBytes: 32_768,
+  searchResults: 5,
+  maxResultChars: 6_000,
+};
 // Approximate INPUT budget, including system prompt and tool schemas (not a tokenizer).
 export const CONTEXT_BUDGET = {
   charsPerToken: 3,

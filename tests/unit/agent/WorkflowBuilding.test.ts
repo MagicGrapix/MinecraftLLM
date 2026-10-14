@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { loadRecipeTools } from "../../support/recipes";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -32,7 +33,7 @@ const catalog = new MaterialCatalog(minecraftData("1.21.11"));
 const tool = (name: string, args: unknown): LLMResponse => ({
   message: { role: "assistant", content: null, toolCalls: [{ id: name, name, arguments: JSON.stringify(args) }] }, finishReason: "tool_calls",
 });
-const plan: LLMResponse = { message: { role: "assistant", content: JSON.stringify({ steps: [{ title: "Build house", successCriteria: "All blueprint cells verified" }] }) }, finishReason: "stop" };
+const plan = tool("submit_plan", { steps: [{ title: "Build house", successCriteria: "All blueprint cells verified" }] });
 const reply = tool("reply", { message: "Done", outcome: "answer" });
 
 async function setup(t: TestContext) {
@@ -60,9 +61,11 @@ async function setup(t: TestContext) {
   };
   const summaryFile = new WorkflowSummaryFile("building-test", root);
   const replies: string[] = [];
+  const recipes = await loadRecipeTools();
   const agent = new WorkflowAgent({
+    recipes,
     llm, architectAgent, actionAgent, world, landmarks, queries, journal, prompts, inspector,
-    actionTools: new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries).build(),
+    actionTools: new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries, recipes.definitions).build(),
     temperature: 0, maxTokens: 4096, maxRetries: 0, summaryFile,
     respond: async message => { replies.push(message); },
   });
@@ -120,7 +123,7 @@ test("construction handoff pins the same blueprint, quantities and constraints a
   assert.equal(h.agent.task.steps[0]!.status, "done");
   const construction = h.agent.task.construction!;
   for (const request of h.llm.requests.filter(r => r.trace?.phase === "planner")) {
-    assert.equal(request.tools, undefined);
+    assert.deepEqual(request.tools!.map(t => t.name), ["search_recipes", "read_recipe", "submit_plan"]);
     assert.match(request.messages[0]!.content!, new RegExp(construction.blueprint.blueprintId));
     assert.match(request.messages[0]!.content!, /oak_planks x80/);
     assert.match(request.messages[0]!.content!, /### build|### lookup_material/);

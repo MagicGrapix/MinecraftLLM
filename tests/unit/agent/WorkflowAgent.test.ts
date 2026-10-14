@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { loadRecipeTools } from "../../support/recipes";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,7 +61,7 @@ test("coordinator native tools exclude capabilities and world state is injected 
     assert.equal(request.responseFormat, undefined);
     const names = request.tools!.map((t) => t.name);
     for (const name of ["reply", "ask_planner", "run_step", "complete_step", "refresh_summary", "get_inventory", "get_voxel_view", "get_block_access", "get_dropped_items"]) assert.ok(names.includes(name));
-    for (const name of ["dig", "goto", "set_plan", "add_step", "get_capability_schemas", "get_nearby_entities"]) assert.ok(!names.includes(name));
+    for (const name of ["dig", "goto", "set_plan", "add_step", "get_capability_schemas", "get_nearby_entities", "search_recipes", "read_recipe", "submit_plan"]) assert.ok(!names.includes(name));
     assert.equal(h.agent.task.summary, "");
   } finally { await h.close(); }
 });
@@ -185,8 +186,9 @@ test("planner creates indices, actioner gets context, completion and summary are
     h.actions.push(actionSuccess());
     h.agent.submitUserMessage("owner", "Collect another log.");
     await idle(h.agent);
+    assert.equal(h.agent.task.steps.length, 1, h.llm.requests[2]?.messages.at(-1)?.content ?? "Planner did not return");
     assert.deepEqual(h.llm.requests.map((r) => r.trace?.phase), ["coordinator", "planner", "coordinator", "coordinator", "coordinator", "summary", "coordinator"]);
-    assert.equal(h.llm.requests[1]!.tools, undefined);
+    assert.deepEqual(h.llm.requests[1]!.tools!.map(t => t.name), ["search_recipes", "read_recipe", "submit_plan"]);
     const reference = section(h.llm.requests[1]!.messages, "Action Agent Tools")!;
     for (const definition of h.actionTools) {
       assert.ok(reference.includes(`### ${definition.name}\n`));
@@ -232,7 +234,7 @@ test("direct observations and another step's successful report cannot complete a
     const sword = { name: "wooden_sword", displayName: "Wooden Sword", type: 911, metadata: 0, count: 1, slot: 37 };
     h.world.getInventory = () => ({ items: [sword], selectedItem: sword });
     tool(h.llm, "ask_planner", { instruction: "Equip the sword and verify selection." });
-    json(h.llm, { steps: [
+    tool(h.llm, "submit_plan", { steps: [
       { title: "Equip sword", successCriteria: "wooden_sword is selected." },
       { title: "Verify selection", successCriteria: "selectedItem is wooden_sword." },
     ] });
@@ -264,7 +266,7 @@ test("steps can be checked after later delegations without losing their reports"
     const h = await harness(0, replay);
     try {
       tool(h.llm, "ask_planner", { instruction: "Plan the collection." });
-      json(h.llm, { steps: [
+      tool(h.llm, "submit_plan", { steps: [
         { title: "Find a tree", successCriteria: "A log position is known." },
         { title: "Break the log", successCriteria: "The target block is gone." },
         { title: "Collect the drop", successCriteria: "One new log is in inventory." },
@@ -316,7 +318,7 @@ test("a retry sees previous reports but its failure replaces only that step's ea
   const h = await harness();
   try {
     tool(h.llm, "ask_planner", { instruction: "Plan two steps." });
-    json(h.llm, { steps: [
+    tool(h.llm, "submit_plan", { steps: [
       { title: "Collect wood", successCriteria: "One new log." },
       { title: "Locate stone", successCriteria: "A stone position is known." },
     ] });
@@ -482,7 +484,7 @@ test("any player can ask for a plan and receive the coordinator's full tool cata
   const h = await harness();
   try {
     tool(h.llm, "ask_planner", { instruction: "Do work" });
-    json(h.llm, { steps: [{ title: "Dig", successCriteria: "A block is gone." }] });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Dig", successCriteria: "A block is gone." }] });
     tool(h.llm, "reply", { outcome: "needs_user", message: "Plan ready." });
     h.agent.submitUserMessage("guest", "Dig");
     await idle(h.agent);
@@ -514,8 +516,8 @@ test("only validated plans enter Task Context and a new player request resets it
   const h = await harness(1);
   try {
     tool(h.llm, "ask_planner", { instruction: "Create a wood checklist." });
-    json(h.llm, { steps: [] });
-    json(h.llm, { steps: [{ title: "Collect wood", successCriteria: "One additional log in inventory." }] });
+    tool(h.llm, "submit_plan", { steps: [] });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Collect wood", successCriteria: "One additional log in inventory." }] });
     tool(h.llm, "reply", { outcome: "needs_user", message: "Plan ready." });
     h.agent.submitUserMessage("owner", "Collect some wood.");
     await idle(h.agent);
@@ -568,6 +570,28 @@ test("stop during planning aborts and resume sees the interrupted exchange", asy
 });
 
 let callId = 0;
+test("failed recipe-assisted replanning leaves the previous checklist intact and reports coverage without private history", async () => {
+  const h = await harness();
+  try {
+    tool(h.llm, "ask_planner", { instruction: "Plan an axe." });
+    tool(h.llm, "read_recipe", { item: "wooden_axe" });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Craft axe at table", successCriteria: "One wooden_axe from 3 oak_planks and 2 stick." }] });
+    tool(h.llm, "ask_planner", { instruction: "Revise the plan." });
+    tool(h.llm, "submit_plan", { steps: [] });
+    tool(h.llm, "reply", { outcome: "needs_user", message: "Original plan retained." });
+    h.agent.submitUserMessage("owner", "Craft an axe.");
+    await idle(h.agent);
+    assert.equal(h.agent.task.steps[0]!.title, "Craft axe at table");
+    const first = h.llm.requests[3]!.messages.at(-1)!.content!;
+    assert.deepEqual(JSON.parse(first).value.recipeCoverage.consulted, ["wooden_axe#1"]);
+    assert.doesNotMatch(first, /\[A\]|palette/);
+    const second = JSON.parse(h.llm.requests[5]!.messages.at(-1)!.content!);
+    assert.equal(second.ok, false);
+    assert.equal(h.actionInstructions.length, 0);
+    assert.equal(h.journal.get(2)!.tracksInventory, false);
+  } finally { await h.close(); }
+});
+
 function tool(llm: FakeLLMClient, name: string, args: unknown): string {
   const id = `call-${++callId}`;
   llm.enqueue({ message: { role: "assistant", content: null, toolCalls: [{ id, name, arguments: JSON.stringify(args) }] }, finishReason: "tool_calls" });
@@ -576,7 +600,7 @@ function tool(llm: FakeLLMClient, name: string, args: unknown): string {
 function json(llm: FakeLLMClient, value: unknown): void { llm.enqueue({ message: { role: "assistant", content: JSON.stringify(value) }, finishReason: "stop" }); }
 function plan(llm: FakeLLMClient, title = "Collect a log"): void {
   tool(llm, "ask_planner", { instruction: "Plan a small wood task." });
-  json(llm, { steps: [{ title, successCriteria: "Inventory increases by one log relative to the initial state." }] });
+  tool(llm, "submit_plan", { steps: [{ title, successCriteria: "Inventory increases by one log relative to the initial state." }] });
 }
 function actionSuccess(): DelegatedActionReport {
   return { status: "success", message: "One log collected.", outcomes: [{ task: { id: "dig-1", createdAt: 0, capability: "dig", input: {} }, result: success({ block: "oak_log" }) }] };
@@ -624,8 +648,10 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
   const summary = new WorkflowSummaryFile("test", root);
   const journal = new ToolCallJournal(() => inventoryTotals(world.getInventory().items));
   const queries = createDefaultWorldQueryRegistry(world, journal);
-  const actionTools = new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries).build();
+  const recipes = await loadRecipeTools();
+  const actionTools = new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries, recipes.definitions).build();
   const agent = new WorkflowAgent({
+    recipes,
     llm, actionAgent, actionTools, world, inspector, journal, queries,
     architectAgent: { run: async () => { throw new Error("Unexpected Architect delegation in this test."); } },
     landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
@@ -653,7 +679,7 @@ test("coordinator and planner retry malformed transport responses without repeat
     h.llm.enqueue(() => { throw new LLMError("INVALID_RESPONSE", "Empty response"); });
     tool(h.llm, "ask_planner", { instruction: "Plan one log" });
     h.llm.enqueue(() => { throw new LLMError("INVALID_RESPONSE", "Malformed JSON transport"); });
-    json(h.llm, { steps: [{ title: "Collect one log", successCriteria: "One new log in inventory" }] });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Collect one log", successCriteria: "One new log in inventory" }] });
     tool(h.llm, "reply", { outcome: "answer", message: "Plan ready" });
     h.agent.submitUserMessage("owner", "Plan collecting wood");
     await idle(h.agent);

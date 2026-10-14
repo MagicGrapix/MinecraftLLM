@@ -7,7 +7,7 @@ MinecraftChatAdapter
   -> WorkflowAgent / coordinator
        -> reply : réponse au joueur
        -> ArchitectAgent : dessin privé, validation/sauvegarde, référence et facture
-       -> planner : JSON de checklist, un seul appel logique
+       -> PlannerAgent : conversation privée, recettes, puis submit_plan
        -> ActionRunner / ActionAgent : une étape, conversation privée
             -> WorldQueryRegistry : observations
             -> AgentToolBridge -> TaskFactory -> Executor -> Capability -> Mineflayer
@@ -17,7 +17,7 @@ MinecraftChatAdapter
 
 Les appels sont attendus séquentiellement. L'actionneur ne réfléchit pas pendant une capability.
 Il a un seul prompt et aucun mode planning/review. Une nouvelle délégation commence avec un contexte neuf.
-Le planner ne possède pas de boucle d'outils. Le coordinateur garde sa conversation entre les demandes,
+Le planner possède une boucle de lecture de recettes, sans accès physique au jeu. Le coordinateur garde sa conversation entre les demandes,
 mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 
 ## Responsabilités et fichiers
@@ -39,11 +39,21 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `CoordinatorTools.ts` et `ToolCatalogBuilder.ts` définissent les catalogues propres à chaque rôle.
   Le coordinateur possède les outils de workflow et les lectures du monde, pas les capacités physiques.
   Le bootstrap transmet aussi le catalogue de l'actionneur au planner comme documentation dans son system,
-  sans tools appelables. Les descriptions et schémas restent issus des mêmes registres.
-- `execution/ToolCallJournal.ts` est partagé par le coordinateur, l'Architect et l'actionneur. Il attribue les numéros d'appels
+  comme documentation seulement. Le planner appelle uniquement `search_recipes`, `read_recipe` et `submit_plan`.
+  Les descriptions et schémas restent issus des mêmes registres.
+- `recipes/*.json` contient une fiche éditable par objet. `src/recipes/RecipeLibrary.ts` charge un instantané
+  au démarrage et recoupe forme, ingrédients, rendement et station avec le catalogue `minecraft-data`
+  de la version connectée, sans inventaire ni table physique. Les entrées invalides restent des diagnostics,
+  jamais de fausses recettes. `RecipeTools` est partagé entre planner et actionneur, pas ajouté aux world queries
+  du coordinateur. `RecipeRenderer` produit les fiches à grilles `[A] [ ]`. Voir [édition et limites](recipes.md).
+- `PlannerAgent.ts` conserve sa discussion jusqu'au tool terminal `submit_plan`, avec budget de contexte,
+  annulation et corrections. Seul un plan valide remplace la checklist ; la conversation privée est abandonnée
+  au retour, mais conservée dans les traces. Le rapport inclut les recettes consultées et manquantes, pas leurs grilles.
+- `execution/ToolCallJournal.ts` est partagé par le coordinateur, le planner, l'Architect et l'actionneur. Il attribue les numéros d'appels
   et conserve les inventaires avant/après des capabilities et de `run_step`. La query
   `get_inventory_diff_after` consulte ces données sans dépendre de la conversation LLM.
   Les tools Architect et `ask_architect` sont numérotés mais ne capturent pas l'inventaire (aucune action physique).
+  Même règle pour les lectures et soumissions du planner.
 - `ActionContextBuilder.ts` et `WorldContextFormatter.ts` préparent les données lisibles.
   `TaskContextFormatter.ts` partage la vue objectif/plan/étape/rapports entre coordinateur et actionneur.
   Les rapports y sont compacts ; leurs TaskResults complets restent dans l'état et les traces.

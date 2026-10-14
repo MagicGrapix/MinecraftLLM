@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { RecipeTools } from "../recipes/RecipeTools";
 import type { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import type { TaskSpec } from "../execution/Task";
 import type { LLMToolCall } from "../llm/LLMClient";
@@ -16,6 +17,7 @@ export interface AgentToolResult {
   readonly name: string;
   readonly ok: boolean;
   readonly content: string;
+  readonly feedback?: string;
 }
 
 export type ValidatedActionCall =
@@ -24,6 +26,7 @@ export type ValidatedActionCall =
   | { readonly kind: "finish"; readonly status: ActionFinishStatus; readonly message: string };
 
 interface AgentToolBridgeOptions {
+  readonly recipes?: RecipeTools;
   readonly capabilities: CapabilityRegistry;
   readonly queries: WorldQueryRegistry;
   readonly skills: SkillRegistry;
@@ -42,11 +45,11 @@ export class AgentToolBridge {
 
   constructor(private readonly options: AgentToolBridgeOptions) {
     this.maxResultChars = options.maxResultChars ?? 12_000;
-    this.catalog = new ToolCatalogBuilder(options.capabilities, options.queries);
+    this.catalog = new ToolCatalogBuilder(options.capabilities, options.queries, options.recipes?.definitions);
   }
 
   isReadTool(name: string): boolean {
-    return this.options.queries.has(name) || readToolNames.has(name);
+    return this.options.queries.has(name) || readToolNames.has(name) || !!this.options.recipes?.schema(name);
   }
 
   /** Validate the entire response before starting any observation or physical action. */
@@ -61,7 +64,7 @@ export class AgentToolBridge {
       return { kind: "finish", status: input.status as ActionFinishStatus, message: input.message as string };
     }
     if (this.isReadTool(call.name)) {
-      const schema = this.options.queries.get(call.name)?.inputSchema;
+      const schema = this.options.queries.get(call.name)?.inputSchema ?? this.options.recipes?.schema(call.name);
       if (schema) {
         const parsed = schema.safeParse(raw);
         if (!parsed.success) throw new ModelResponseError(invalidToolArguments(call.name, raw, parsed.error.issues, schema));
@@ -78,6 +81,12 @@ export class AgentToolBridge {
   }
 
   async executeRead(call: LLMToolCall, signal?: AbortSignal): Promise<AgentToolResult> {
+    if (this.options.recipes?.schema(call.name)) {
+      signal?.throwIfAborted();
+      const outcome = this.options.recipes.execute(call.name, parseArguments(call.name, call.arguments));
+      return { toolCallId: call.id, name: call.name, ok: outcome.result.ok,
+        content: JSON.stringify(outcome.result), feedback: outcome.feedback };
+    }
     const startedAt = Date.now();
     let result: unknown;
     try {

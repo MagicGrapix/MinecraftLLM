@@ -1,0 +1,19 @@
+{
+  "item": "crafting_table",
+  "minecraftVersion": "1.21.11",
+  "variants": [
+    {
+      "type": "shaped",
+      "label": "Oak planks",
+      "outputCount": 1,
+      "station": "inventory",
+      "palette": {
+        "A": "oak_planks"
+      },
+      "rows": [
+        "AA",
+        "AA"
+      ]
+    }
+  ]
+}

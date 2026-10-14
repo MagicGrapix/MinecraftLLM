@@ -66,9 +66,10 @@ export class MaterialCatalog {
   }
 }
 
-function relevance(query: string, name: string): number {
+export function relevance(query: string, name: string): number {
   if (query === name) return 1_000;
   if (name.startsWith(query)) return 900;
+  if (name.split("_").includes(query)) return 850;
   if (name.includes(query)) return 800;
   const words = new Set(query.split("_").filter(Boolean));
   const matched = [...words].filter((word) => name.split("_").includes(word)).length;

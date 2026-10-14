@@ -15,6 +15,7 @@
     "smoke:craft": "ts-node scripts/smoke/craft.ts",
     "smoke:collect": "ts-node scripts/smoke/collect.ts",
     "smoke:architect": "ts-node scripts/smoke/architect.ts",
+    "smoke:planner": "ts-node scripts/smoke/planner.ts",
     "smoke:build": "ts-node scripts/smoke/build.ts",
     "smoke:scaffolding": "ts-node scripts/smoke/build.ts --scaffolding",
     "smoke:doors": "ts-node scripts/smoke/build.ts --doors",

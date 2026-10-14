@@ -23,9 +23,10 @@ export function enqueueBuildingWorkflow(llm: FakeLLMClient, drawing: { drawing: 
   });
   if (designOnly) return;
   llm.enqueue(request => {
-    assert.equal(request.trace?.phase, "planner"); assert.equal(request.tools, undefined);
+    assert.equal(request.trace?.phase, "planner");
+    assert.deepEqual(request.tools!.map(t => t.name), ["search_recipes", "read_recipe", "submit_plan"]);
     assert.match(request.messages[0]!.content!, /oak_planks x80/);
-    return { message: { role: "assistant", content: JSON.stringify({ steps: [{ title: "Build house", successCriteria: "Blueprint cells verified correct at the supplied origin." }] }) }, finishReason: "stop" };
+    return tool("submit_plan", { steps: [{ title: "Build house", successCriteria: "Blueprint cells verified correct at the supplied origin." }] });
   });
   llm.enqueue(tool("run_step", { step: 1, instruction: "Build the selected house at the supplied observed origin and verify it." }));
   llm.enqueue(request => {

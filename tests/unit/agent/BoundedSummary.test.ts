@@ -30,8 +30,8 @@ test("large summaries fold all source fragments without exceeding 20k or losing 
   assert.equal(result, "Summary " + pieces.length);
 });
 
-test("planner and every summary phase reject oversized protected input before a model call", async () => {
-  for (const phase of ["planner", "summary", "context_summary", "actioner_context_summary"] as const) {
+test("every summary phase rejects oversized protected input before a model call", async () => {
+  for (const phase of ["planner_context_summary", "summary", "context_summary", "actioner_context_summary", "architect_context_summary"] as const) {
     const llm = new FakeLLMClient();
     await assert.rejects(callStructuredRole({
       options: { llm, maxTokens: 4096, maxRetries: 8, temperature: 0 }, schema: z.object({}),

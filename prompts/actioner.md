@@ -55,6 +55,12 @@ After digging, inspect the current inventory. If the required gain
 is missing, use get_dropped_items to locate loose items, move close
 enough for pickup, and check the inventory again.
 
+## Crafting
+
+For uncertain recipes or a crafting failure, use search_recipes/read_recipe to check
+ingredients, output per craft and station. A missing entry means partial knowledge,
+not an impossible craft. Recipe knowledge does not confirm current stock or table access.
+
 ## Construction
 
 - Use the selected blueprint reference for build. Choose a fixed origin from observed terrain and keep it for retries; do not move it relative to your new position.

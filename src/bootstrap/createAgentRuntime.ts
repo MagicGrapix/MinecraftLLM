@@ -1,4 +1,7 @@
 import { resolve } from "node:path";
+import MinecraftData from "minecraft-data";
+import { RecipeLibrary } from "../recipes/RecipeLibrary";
+import { RecipeTools } from "../recipes/RecipeTools";
 import type { AgentConfig } from "../agent/AgentConfig";
 import { ActionContextBuilder } from "../agent/ActionContextBuilder";
 import { AgentToolBridge } from "../agent/AgentToolBridge";
@@ -62,6 +65,9 @@ export async function createAgentRuntime(
     runtime.isConnected && !executor.currentTask ? snapshotInventory(runtime.bot) : null);
   const queries = createDefaultWorldQueryRegistry(world, journal);
   const materials = new MaterialCatalog(runtime.bot.registry);
+  const recipeLibrary = await RecipeLibrary.load(resolve(process.cwd(), "recipes"), MinecraftData(materials.minecraftVersion));
+  for (const issue of recipeLibrary.diagnostics()) console.warn("Recipe library entry unavailable.", issue);
+  const recipes = new RecipeTools(recipeLibrary);
   const blueprints = new BlueprintStore(new BlueprintValidator(materials), { directory: dependencies.blueprintsDirectory });
   queries.register(createLookupMaterialQuery(materials));
   const skills = await SkillRegistry.discover(
@@ -88,6 +94,7 @@ export async function createAgentRuntime(
     ...(inspector ? { inspector } : {}),
   });
   const bridge = new AgentToolBridge({
+    recipes,
     capabilities,
     queries,
     skills,
@@ -126,6 +133,7 @@ export async function createAgentRuntime(
   });
   const summaryFile = new WorkflowSummaryFile(SESSION_ID, resolve(process.cwd(), process.env.LOG_DIR ?? "logs"));
   const agent = new WorkflowAgent({
+    recipes,
     llm,
     actionAgent,
     architectAgent: new ArchitectAgent({

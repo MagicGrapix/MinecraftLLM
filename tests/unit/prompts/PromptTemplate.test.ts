@@ -47,8 +47,10 @@ test("all runtime agent prompts load from Markdown and render", async () => {
   assert.match(coordinator, /## Task Context\s+No plan yet\.\s+## Construction Context\s+No blueprint selected for this request\./);
   assert.doesNotMatch(coordinator, /## Instruction|## Task Summary|task\.objective|runtime_context/);
   const planner = prompts.planner.render({ ...values, instruction: "Plan one log collection.", action_tools: "### dig\nBreak one block." });
-  assert.match(planner, /Reply with exactly one JSON object/);
-  assert.match(planner, /"steps":\[\{"title":/);
+  assert.match(planner, /Call submit_plan with steps/);
+  assert.match(planner, /search_recipes, read_recipe or submit_plan/);
+  assert.doesNotMatch(planner, /single-shot|Do not run tools|Reply with exactly one JSON object/);
+  assert.match(planner, /observable successCriteria/);
   assert.match(planner, /## Instruction\s+Plan one log collection\./);
   assert.match(planner, /### dig\s+Break one block\./);
   assert.doesNotMatch(planner, /{{\s*\w+\s*}}/);

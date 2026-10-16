@@ -18,8 +18,8 @@ const EnvironmentSchema = z.object({
   MINECRAFT_USERNAME: usernameSchema.default("bot"),
   WORLD_CONTROLLER_USERNAME: usernameSchema.default("world_controller"),
   WORLD_AGENT_USERNAME: usernameSchema.optional(),
-  // Vanilla counts player-issued commands toward its chat-spam budget.
-  WORLD_COMMANDS_PER_SECOND: numericEnvironment(1, 0.1, 1),
+  // 500 ms spacing tested with the local OP controller; use 1 on stricter servers.
+  WORLD_COMMANDS_PER_SECOND: numericEnvironment(2, 0.1, 2),
   WORLD_COMMAND_RESPONSE_WINDOW_MS: integerEnvironment(150, 0, 10_000),
   WORLD_MAX_QUEUE_SIZE: integerEnvironment(1_000, 1),
   WORLD_MAX_PLAN_COMMANDS: integerEnvironment(256, 1),

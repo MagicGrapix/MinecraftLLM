@@ -16,12 +16,12 @@ const affectedBounds = createArenaBounds(
   { x: 0, y: -60, z: 0 },
 );
 
-test("executor preserves plan order and throttles command starts", async () => {
+for (const rate of [2, 8]) test(`executor preserves plan order and throttles command starts at ${rate}/s`, async () => {
   const clock = new FakeClock();
   const transport = new FakeTransport(clock);
   const executor = new CommandExecutor({
     transport,
-    commandsPerSecond: 8,
+    commandsPerSecond: rate,
     maxQueueSize: 10,
     maxPlanCommands: 5,
     clock,
@@ -37,7 +37,7 @@ test("executor preserves plan order and throttles command starts", async () => {
   );
   assert.deepEqual(
     transport.sent.map(({ sentAt }) => sentAt),
-    [0, 125, 250],
+    [0, 1000 / rate, 2000 / rate],
   );
   assert.deepEqual(
     results.map((result) => result.status),

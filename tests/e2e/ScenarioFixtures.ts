@@ -32,3 +32,15 @@ export function fixtureFields(build: (config: WorldBuilderConfig) => ReturnType<
   return { fixture: (config) => build(config).plan, expectedBlocks: (config) => build(config).blocks,
     observeBlocks: (config) => build(config).blocks.map((b) => b.position) };
 }
+
+/** A walkable grass/dirt mound with nine exposed stone blocks, shared by the resource scenarios. */
+export function stoneMound(config: WorldBuilderConfig) {
+  const y = config.surfaceY;
+  return blockFixture(config, "Fixed dirt mound with exposed stone", [
+    // Cover first, then put dirt underneath: exposed dirt must not spread grass during setup.
+    { min: { x: 9, y: y + 2, z: 6 }, max: { x: 11, y: y + 2, z: 8 }, name: "stone" },
+    { min: { x: 8, y: y + 1, z: 5 }, max: { x: 12, y: y + 1, z: 9 }, name: "grass_block" },
+    { min: { x: 9, y: y + 1, z: 6 }, max: { x: 11, y: y + 1, z: 8 }, name: "dirt" },
+    { min: { x: 8, y, z: 5 }, max: { x: 12, y, z: 9 }, name: "dirt" },
+  ]);
+}

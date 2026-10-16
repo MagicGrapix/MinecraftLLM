@@ -46,14 +46,15 @@ test("arena bounds use inclusive volume and safe unions", () => {
   assert.equal(containsBounds(unionBounds(first, second), first), true);
 });
 
-test("vanilla-safe command throttling rejects chat-spam rates", () => {
-  assert.equal(loadWorldBuilderConfig({}).commandsPerSecond, 1);
+test("controller defaults to two commands per second and permits a slower fallback", () => {
+  assert.equal(loadWorldBuilderConfig({}).commandsPerSecond, 2);
+  assert.equal(loadWorldBuilderConfig({ WORLD_COMMANDS_PER_SECOND: "1" }).commandsPerSecond, 1);
   assert.throws(
     () =>
       loadWorldBuilderConfig({
         WORLD_COMMANDS_PER_SECOND: "8",
       }),
-    /less than or equal to 1/,
+    /less than or equal to 2/,
   );
 });
 

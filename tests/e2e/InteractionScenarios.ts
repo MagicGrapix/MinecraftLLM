@@ -41,6 +41,22 @@ function chestScenario(direction: "withdraw" | "deposit"): Scenario {
 
 export const interactionScenarios: readonly Scenario[] = [
   {
+    id: "craft_two_wooden_tools",
+    prompt: "Use the nearby crafting table and the ingredients in your inventory to craft one wooden axe, then one wooden pickaxe. Keep both tools in your inventory.",
+    timeoutMs: 180_000,
+    initialInventory: { oak_planks: 6, stick: 4 },
+    ...station("crafting_table"),
+    verify: (initial, current) => {
+      const axe = (current.inventory.wooden_axe ?? 0) - (initial.inventory.wooden_axe ?? 0);
+      const pickaxe = (current.inventory.wooden_pickaxe ?? 0) - (initial.inventory.wooden_pickaxe ?? 0);
+      const table = initial.blocks.find((b) => b.name === "crafting_table");
+      const intact = !!table && blockAt(current, table.position) === "crafting_table";
+      return { passed: axe >= 1 && pickaxe >= 1 && intact,
+        expected: "Gain 1 wooden_axe and 1 wooden_pickaxe; leave the supplied table intact",
+        actual: `Axe gain ${axe}; pickaxe gain ${pickaxe}; table intact ${intact}` };
+    },
+  },
+  {
     id: "craft_wooden_pickaxe",
     prompt: "Use the nearby crafting table and the ingredients in your inventory to craft one wooden pickaxe. Keep the pickaxe in your inventory.",
     initialInventory: { oak_planks: 3, stick: 2 },

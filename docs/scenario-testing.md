@@ -24,6 +24,9 @@ npm.cmd run test:scenarios -- --scenario collect_two_logs --timeout 300 --repeat
 npm.cmd run test:scenarios -- --scenario collect_four_logs --timeout 300
 npm.cmd run test:scenarios -- --scenario place_block_in_front
 npm.cmd run test:scenarios -- --scenario craft_wooden_pickaxe --repeat 5
+npm.cmd run test:scenarios -- --scenario craft_two_wooden_tools --repeat 1
+npm.cmd run test:scenarios -- --scenario collect_cobblestone_from_mound --repeat 1
+npm.cmd run test:scenarios -- --scenario craft_stone_pickaxe_from_world --repeat 1
 npm.cmd run test:scenarios -- --scenario build_small_shelter --repeat 1
 npm.cmd run test:scenarios -- --repeat 5
 npm.cmd run test:scenarios
@@ -37,6 +40,11 @@ Le profil restauré est bedrock -64, terre -63/-62, herbe -61, air au-dessus.
 Éviter les interventions manuelles et les autres bots actifs dans cette zone pendant une campagne.
 Ne pas démarrer manuellement les pseudos dédiés `test_bot` / `test_controller`.
 Seul le controller doit être OP ; ne pas donner OP à `test_bot`.
+
+Le controller espace maintenant ses commandes de 500 ms minimum (deux par seconde), y compris entre plans.
+Ce débit a tenu 96 lectures consécutives sur le serveur local avec le controller OP ; ce n'est pas une
+garantie pour tous les serveurs. `WORLD_COMMANDS_PER_SECOND=1` permet de revenir à une seconde.
+La fenêtre de réponse reste à 150 ms ; la vérification des blocs attend toujours les mises à jour réelles.
 
 Les constantes se règlent dans `tests/e2e/config.ts` ; les scénarios dans `tests/e2e/scenarios.ts`.
 Les options de connexion Minecraft et Ollama restent celles du projet. Le délai propre à un scénario
@@ -66,6 +74,19 @@ Scénarios disponibles :
   d'un bloc d'inventaire. Tourner ou se déplacer ne déplace pas la cible ; jeter l'objet ne valide pas le test.
 - `craft_wooden_pickaxe` : table posée à (3, surfaceY+1, 0), trois planches et deux bâtons fournis ;
   obtenir une pioche en bois et conserver la table en place. Isole le craft 3×3 de la récolte et de la pose de table.
+- `craft_two_wooden_tools` : même table, six planches et quatre bâtons ; fabriquer une hache puis une
+  pioche en bois, conserver les deux et la table. Délai de trois minutes. L'oracle vérifie les deux gains ;
+  les traces permettent de contrôler l'ordre des crafts, qui n'est pas prouvé par l'inventaire final seul.
+- `collect_cobblestone_from_mound` : une pioche en bois fournie, aucune autre ressource en inventaire ;
+  miner et ramasser quatre cobblestones. Délai de trois minutes. La butte fixe occupe X=8..12/Z=5..9 :
+  socle terre/herbe à surfaceY+1, neuf pierres exposées à surfaceY+2 au centre, avec une marche d'accès.
+  La terre enterrée est posée sous couverture pour éviter une propagation d'herbe pendant la préparation.
+  Réussite = gain d'au moins quatre cobblestones **et** quatre cellules de pierre devenues air.
+- `craft_stone_pickaxe_from_world` : même butte et deux chênes fixes en (5,0) et (-5,4), inventaire vide,
+  aucune table fournie. Demande une pioche en bois puis une pioche en pierre ; délai de cinq minutes.
+  Réussite = inventaire initial vide, nouvelle pioche en pierre conservée et au moins trois pierres minées.
+  Le craft intermédiaire, les recettes choisies et l'ordre des actions restent consultables dans les traces.
+  Ces scénarios lisent les cellules du décor via le controller ; une cellule inconnue ne compte jamais comme minée.
 - `collect_dropped_logs` : quatre bûches au sol à (5.5, surfaceY+1, 0.5), sans arbre ; les ramasser.
   Le loot de test ne disparaît pas avec le temps. Sa disparition seule ne suffit pas : il faut gagner quatre bûches.
 - `chest_withdraw` : coffre avec quatre bûches, inventaire vide ; retirer exactement deux bûches et fermer le coffre.

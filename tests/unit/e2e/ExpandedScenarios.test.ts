@@ -31,6 +31,81 @@ test("craft 3x3 requires a new pickaxe and an intact supplied crafting table", (
   assert.equal(s.verify({ ...before, inventory: { wooden_pickaxe: 1 } }, after).passed, false);
 });
 
+test("two-tool crafting requires both new tools, not just one or existing stock", () => {
+  const s = get("craft_two_wooden_tools"), before = initial(s);
+  assert.deepEqual(before.inventory, { oak_planks: 6, stick: 4 });
+  const after = { ...before, inventory: { wooden_axe: 1, wooden_pickaxe: 1 } };
+  assert.equal(s.verify(before, after).passed, true);
+  assert.equal(s.verify(before, before).passed, false);
+  const singleTools: Record<string, number>[] = [{ wooden_axe: 1 }, { wooden_pickaxe: 1 }];
+  for (const inventory of singleTools) {
+    assert.equal(s.verify(before, { ...after, inventory }).passed, false);
+    assert.equal(s.verify({ ...before, inventory }, after).passed, false);
+  }
+  assert.equal(s.verify(before, { ...after, blocks: [] }).passed, false);
+});
+
+function removeStone(before: Observation, count: number) {
+  let removed = 0;
+  return before.blocks.map((block) => block.name === "stone" && removed++ < count ? { ...block, name: "air" } : block);
+}
+
+test("stone collection requires both mining the mound and collecting four new drops", () => {
+  const s = get("collect_cobblestone_from_mound"), before = initial(s);
+  assert.deepEqual(before.inventory, { wooden_pickaxe: 1 });
+  const after = { ...before, inventory: { wooden_pickaxe: 1, cobblestone: 4 }, blocks: removeStone(before, 4) };
+  assert.equal(s.verify(before, after).passed, true);
+  assert.equal(s.verify(before, { ...after, inventory: before.inventory }).passed, false);
+  assert.equal(s.verify(before, { ...after, inventory: { cobblestone: 3 } }).passed, false);
+  assert.equal(s.verify({ ...before, inventory: { cobblestone: 4 } }, after).passed, false);
+  assert.equal(s.verify(before, { ...after, blocks: removeStone(before, 3) }).passed, false);
+  assert.equal(s.verify(before, { ...after, blocks: [] }).passed, false);
+  assert.equal(s.verify(before, { ...after, blocks: after.blocks.map(b => ({ ...b, name: null })) }).passed, false);
+});
+
+test("stone pickaxe progression starts empty and requires mined stone plus the final tool", () => {
+  const s = get("craft_stone_pickaxe_from_world"), before = initial(s);
+  assert.deepEqual(before.inventory, {});
+  assert.equal(before.blocks.filter(b => b.name === "oak_log").length, 8);
+  assert.equal(before.blocks.some(b => b.name === "crafting_table"), false);
+  const after = { ...before, inventory: { stone_pickaxe: 1 }, blocks: removeStone(before, 3) };
+  assert.equal(s.verify(before, after).passed, true);
+  assert.equal(s.verify(before, { ...after, inventory: { wooden_pickaxe: 1, cobblestone: 3 } }).passed, false);
+  assert.equal(s.verify(before, { ...after, blocks: removeStone(before, 2) }).passed, false);
+  assert.equal(s.verify(before, { ...after, blocks: [] }).passed, false);
+  assert.equal(s.verify({ ...before, inventory: { wooden_pickaxe: 1 } }, after).passed, false);
+});
+
+test("resource scenarios share a fixed walkable mound whose fill commands match every expected cell", () => {
+  const mound = get("collect_cobblestone_from_mound");
+  const blocks = mound.expectedBlocks!(config);
+  const stone = blocks.filter(b => b.name === "stone");
+  assert.equal(stone.length, 9);
+  assert.ok(stone.every(b => b.position.y === config.surfaceY + 2));
+  assert.ok(blocks.every(b => Math.hypot(b.position.x, b.position.z) > 6));
+  for (const block of blocks.filter(b => b.position.y > config.surfaceY)) {
+    assert.notEqual(blockAt({ blocks }, { ...block.position, y: block.position.y - 1 }), null);
+    if (block.name === "grass_block") {
+      assert.equal(blockAt({ blocks }, { ...block.position, y: block.position.y + 1 }), null);
+    }
+  }
+  for (const id of [mound.id, "craft_stone_pickaxe_from_world"]) {
+    const s = get(id), expected = s.expectedBlocks!(config);
+    assert.deepEqual(expected.filter(b => b.name === "stone"), stone);
+    assert.equal(new Set(expected.map(b => JSON.stringify(b.position))).size, expected.length);
+    const written = new Map<string, string>();
+    for (const command of s.fixture!(config).commands) {
+      const [, x1, y1, z1, x2, y2, z2, block] = command.text.split(" ");
+      for (let x = Number(x1); x <= Number(x2); x++) for (let y = Number(y1); y <= Number(y2); y++) {
+        for (let z = Number(z1); z <= Number(z2); z++) written.set(`${x},${y},${z}`, block!.split("[")[0]!.replace("minecraft:", ""));
+      }
+    }
+    assert.deepEqual(written, new Map(expected.map(b => [`${b.position.x},${b.position.y},${b.position.z}`, b.name])));
+    assert.throws(() => s.fixture!({ ...config, arena: { min: { x: -1, y: -64, z: -1 }, max: { x: 1, y: -30, z: 1 } } }), /outside/);
+    assert.deepEqual(s.expectedBlocks!({ ...config, surfaceY: -60 }).map(b => b.position.y), expected.map(b => b.position.y + 1));
+  }
+});
+
 test("loose-item collection requires inventory gain, not disappearance alone", () => {
   const s = get("collect_dropped_logs"), before = initial(s);
   const after = { ...before, inventory: { oak_log: 4 }, drops: [] };

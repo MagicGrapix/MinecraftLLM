@@ -5,6 +5,7 @@ import type { Observation, Scenario } from "./types";
 import { interactionScenarios } from "./InteractionScenarios";
 import { navigationScenarios } from "./NavigationScenarios";
 import { buildingScenarios } from "./BuildingScenarios";
+import { blockAt, fixtureFields, stoneMound } from "./ScenarioFixtures";
 
 type TreePosition = { x: number; z: number };
 const singleTree: readonly TreePosition[] = [{ x: 5, z: 0 }];
@@ -28,19 +29,21 @@ export function oakFixture(config: WorldBuilderConfig, trees: readonly TreePosit
   return [...blocks.values()];
 }
 
+function oakPlan(config: WorldBuilderConfig, trees: readonly TreePosition[]) {
+  const y = config.surfaceY + 1;
+  return new WorldPlanFactory(config).create(`${trees.length} fixed oak tree(s)`, trees.flatMap(({ x, z }) => [
+    { text: `fill ${x - 1} ${y + 2} ${z - 1} ${x + 1} ${y + 4} ${z + 1} minecraft:oak_leaves[persistent=true] replace`, estimatedBlocksChanged: 27,
+      affectedBounds: createArenaBounds({ x: x - 1, y: y + 2, z: z - 1 }, { x: x + 1, y: y + 4, z: z + 1 }) },
+    { text: `fill ${x} ${y} ${z} ${x} ${y + 3} ${z} minecraft:oak_log[axis=y] replace`, estimatedBlocksChanged: 4,
+      affectedBounds: createArenaBounds({ x, y, z }, { x, y: y + 3, z }) },
+  ]));
+}
+
 function collectLogs(id: string, count: number, prompt: string, trees: readonly TreePosition[]): Scenario {
   return {
     id, prompt, initialInventory: {},
     expectedBlocks: (config) => oakFixture(config, trees),
-    fixture: (config) => {
-      const y = config.surfaceY + 1;
-      return new WorldPlanFactory(config).create(`${trees.length} fixed oak tree(s)`, trees.flatMap(({ x, z }) => [
-        { text: `fill ${x - 1} ${y + 2} ${z - 1} ${x + 1} ${y + 4} ${z + 1} minecraft:oak_leaves[persistent=true] replace`, estimatedBlocksChanged: 27,
-          affectedBounds: createArenaBounds({ x: x - 1, y: y + 2, z: z - 1 }, { x: x + 1, y: y + 4, z: z + 1 }) },
-        { text: `fill ${x} ${y} ${z} ${x} ${y + 3} ${z} minecraft:oak_log[axis=y] replace`, estimatedBlocksChanged: 4,
-          affectedBounds: createArenaBounds({ x, y, z }, { x, y: y + 3, z }) },
-      ]));
-    },
+    fixture: (config) => oakPlan(config, trees),
     verify: (initial, current) => {
       const gained = (current.inventory.oak_log ?? 0) - (initial.inventory.oak_log ?? 0);
       return { passed: gained >= count, expected: `Gain at least ${count} oak_log in the bot inventory`, actual: `Gained ${gained} oak_log` };
@@ -56,6 +59,21 @@ function frontBlock(initial: Observation, current: Observation): string | null {
   const z = Math.floor(initial.position.z) + 1;
   return current.blocks.find((block) => block.position.x === x && block.position.y === y && block.position.z === z)?.name ?? null;
 }
+
+function minedStoneCount(initial: Observation, current: Observation): number {
+  return initial.blocks.filter((block) => block.name === "stone" && blockAt(current, block.position) === "air").length;
+}
+
+const stoneProgressionTrees = forest.slice(0, 2);
+const stoneProgressionFixture = fixtureFields((config) => {
+  const mound = stoneMound(config);
+  return {
+    plan: new WorldPlanFactory(config).create("Two fixed oak trees and a stone mound", [
+      ...oakPlan(config, stoneProgressionTrees).commands, ...mound.plan.commands,
+    ]),
+    blocks: [...oakFixture(config, stoneProgressionTrees), ...mound.blocks],
+  };
+});
 
 export const scenarios: readonly Scenario[] = [
   {
@@ -86,6 +104,33 @@ export const scenarios: readonly Scenario[] = [
     },
   },
   ...interactionScenarios,
+  {
+    id: "collect_cobblestone_from_mound",
+    prompt: "Use your wooden pickaxe to mine four cobblestone from the nearby stone mound. Collect the drops and keep the four cobblestone in your inventory.",
+    timeoutMs: 180_000,
+    initialInventory: { wooden_pickaxe: 1 },
+    ...fixtureFields(stoneMound),
+    verify: (initial, current) => {
+      const gained = (current.inventory.cobblestone ?? 0) - (initial.inventory.cobblestone ?? 0);
+      const mined = minedStoneCount(initial, current);
+      return { passed: gained >= 4 && mined >= 4, expected: "Gain 4 cobblestone and remove at least 4 supplied stone blocks",
+        actual: `Cobblestone gain ${gained}; supplied stone blocks removed ${mined}` };
+    },
+  },
+  {
+    id: "craft_stone_pickaxe_from_world",
+    prompt: "Starting with an empty inventory, craft a wooden pickaxe, then a stone pickaxe using the nearby trees and stone mound. Keep the stone pickaxe in your inventory.",
+    timeoutMs: 300_000,
+    initialInventory: {},
+    ...stoneProgressionFixture,
+    verify: (initial, current) => {
+      const gained = (current.inventory.stone_pickaxe ?? 0) - (initial.inventory.stone_pickaxe ?? 0);
+      const mined = minedStoneCount(initial, current);
+      return { passed: Object.keys(initial.inventory).length === 0 && gained >= 1 && mined >= 3,
+        expected: "Start empty, gain 1 stone_pickaxe and remove at least 3 supplied stone blocks",
+        actual: `Stone pickaxe gain ${gained}; supplied stone blocks removed ${mined}` };
+    },
+  },
   ...navigationScenarios,
   ...buildingScenarios,
   {

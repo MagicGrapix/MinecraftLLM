@@ -70,9 +70,9 @@ export class ActionAgent implements ActionRunner {
     if (this.shutdownRequested || this.session || this.options.executor.currentTask) {
       return Promise.reject(new Error("Action agent is unavailable."));
     }
-    if (!delegation.instruction.trim() || !delegation.step.title.trim() || !delegation.step.successCriteria.trim() ||
+    if (!Number.isSafeInteger(delegation.planVersion) || delegation.planVersion < 1 || !delegation.step.title.trim() || !delegation.step.successCriteria.trim() ||
       !Number.isInteger(delegation.step.step) || delegation.step.step < 1) {
-      return Promise.reject(new Error("A numbered step, success criterion and instruction are required."));
+      return Promise.reject(new Error("A numbered step, success criterion and plan version are required."));
     }
     const session: ActionSession = {
       id: ++this.nextId, delegation: structuredClone(delegation), trace,
@@ -82,7 +82,7 @@ export class ActionAgent implements ActionRunner {
     };
     this.session = session;
     this.mode = "thinking";
-    console.info("Action delegation started.", { request: trace?.generationId ?? session.id, step: delegation.step.step, instruction: delegation.instruction });
+    console.info("Action delegation started.", { request: trace?.generationId ?? session.id, step: delegation.step.step, planVersion: delegation.planVersion });
     const tracked = this.process(session).finally(() => {
       session.history.clear();
       if (this.session === session) { this.session = null; this.mode = "idle"; }
@@ -140,7 +140,7 @@ export class ActionAgent implements ActionRunner {
             content = JSON.stringify({ ok: false, error: { code: "INTERRUPTED", message: "Delegation stopped; tool was not executed." } });
             ok = false;
           } else if (validated.kind === "read") {
-            const read = await this.options.toolBridge.executeRead(call, signal);
+            const read = await this.options.toolBridge.executeRead(call, signal, { step: session.delegation.step.step, planVersion: session.delegation.planVersion });
             content = read.content;
             feedback = read.feedback;
             ok = read.ok;

@@ -77,6 +77,9 @@ function describeExecution(execution: InspectorToolExecution) {
   if (failed) outcome = `Failed${text(error.code) ? `: ${error.code}` : ""} — ${
     text(error.message) || text(report.message) || text(input.message) || "execution failed"
   }`;
+  else if (execution.name === "evaluate_step" && execution.result !== undefined) outcome = `Step ${input.step} checks — ${checkVerdict(value)}`;
+  else if (execution.name === "complete_step" && value.completed === false) outcome = `Step ${input.step} NOT completed — checks ${checkVerdict(record(value.evaluation))}`;
+  else if (execution.name === "complete_step" && value.status === "done") outcome = `Step ${input.step} marked complete`;
   else if (claimedStatus) outcome = `${
     claimedStatus === "needs_user" ? "Needs user" : claimedStatus === "interrupted" ? "Interrupted"
       : claimedStatus === "success" ? "Success" : claimedStatus === "answer" ? "Reply sent" : claimedStatus
@@ -87,7 +90,7 @@ function describeExecution(execution: InspectorToolExecution) {
     outcome = `Blueprint validated, not built — ${text(value.name)} (${size.width} × ${size.depth} × ${size.height})`;
   }
   else if (Array.isArray(value.steps)) outcome = `Checklist created — ${value.steps.length} steps`;
-  else if (execution.name === "complete_step") outcome = `Step ${input.step} marked complete`;
+  else if (execution.name === "complete_step") outcome = `Step ${input.step} completion not confirmed`;
   else if (execution.name === "refresh_summary") outcome = "Summary updated";
   else if (execution.name === "get_block_access") outcome = text(value.reason)
     ? `Observed — ${value.reason}${text(value.block) ? ` — ${value.block}` : ""}`
@@ -117,7 +120,7 @@ function describeCall(name: string, input: Record<string, unknown>): string {
       return `${name} → (${coordinates.map((value) => Math.round((value as number) * 100) / 100).join(", ")})`;
     }
   }
-  if (name === "run_step" || name === "complete_step") return `${name} → Step ${input.step ?? "?"}`;
+  if (name === "run_step" || name === "complete_step" || name === "evaluate_step") return `${name} → Step ${input.step ?? "?"}`;
   if (name === "load_skill" && text(input.name)) return `${name} → ${input.name}`;
   return name || "Tool call";
 }
@@ -141,6 +144,11 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function text(value: unknown): string { return typeof value === "string" ? value.trim() : ""; }
+
+function checkVerdict(value: Record<string, unknown>): string {
+  return value.verdict === true ? "satisfied" : value.verdict === false ? "not satisfied"
+    : `unknown${text(value.reason) ? ` (${text(value.reason)})` : ""}`;
+}
 
 function compact(value: string, max: number): string {
   const line = value.replace(/\s+/g, " ").trim();

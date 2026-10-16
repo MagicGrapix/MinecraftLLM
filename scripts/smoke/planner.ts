@@ -68,7 +68,7 @@ async function main(): Promise<void> {
       ] }),
     });
     console.info("Planner report:", result);
-    console.info("Review recipe quantities, batches and stations. Acceptance validates structure, not semantic feasibility or execution.");
+    console.info("Review selected recipe snapshots, batches, stations and textual checks. Acceptance validates references and grammar, not semantic feasibility or execution. No live inventory was evaluated.");
   } catch (error) {
     result = { error: error instanceof Error ? error.message : String(error) };
     throw error;

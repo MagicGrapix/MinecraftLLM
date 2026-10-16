@@ -48,6 +48,15 @@ Scénarios disponibles :
 
 - `craft_table` : quatre planches fournies ; obtenir une table de craft dans l'inventaire.
 - `collect_two_logs` : inventaire vide, un chêne fixe ; gagner au moins deux bûches.
+- `checks_axe_from_empty` : inventaire vide, forêt fixe ; obtenir une nouvelle hache en bois.
+- `checks_existing_stock` : une hache déjà fournie ; la conserver sans production superflue.
+- `checks_new_axe` : une hache déjà fournie et forêt fixe ; gagner une hache supplémentaire.
+- `checks_additional_logs` : trois bûches déjà fournies et arbre fixe ; en gagner au moins deux.
+  Ces oracles utilisent les inventaires observés, jamais les checks inventés par le planner.
+  Vérifier aussi les traces pour la vraie opération de craft, l'absence de craft inutile, les recettes
+  transmises et le phrasé bot/joueur : l'inventaire seul ne prouve pas ces propriétés.
+  Les critères contradictoires/inconnus sont testés hors ligne avec faux LLM ; aucun test impossible
+  n'est ajouté à la campagne. Ces quatre scénarios sont préparés, mais n'ont pas été lancés le 16 octobre.
 - `collect_four_logs` : inventaire vide, trois chênes aux positions X/Z (5, 0), (-5, 4), (3, 9) ;
   gagner au moins quatre bûches. Les arbres contiennent chacun quatre blocs de tronc. Le bot peut
   récolter un seul arbre ou plusieurs ; casser les blocs sans ramasser leur loot ne suffit pas.

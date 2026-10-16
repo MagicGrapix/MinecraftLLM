@@ -13,6 +13,9 @@ import type { ContainerSessionManager } from "../../../src/runtime/ContainerSess
 import { ToolCallJournal } from "../../../src/execution/ToolCallJournal";
 import { inventoryTotals } from "../../../src/runtime/InventoryAdapter";
 import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
+import { WorkflowState } from "../../../src/agent/WorkflowState";
+import { StepEvaluationService } from "../../../src/agent/StepEvaluationService";
+import type { InventoryEvidenceReader } from "../../../src/agent/StepCheckEvaluator";
 import { AgentInspector } from "../../../src/debug/AgentInspector";
 import { success } from "../../../src/execution/TaskResult";
 import { FakeLLMClient } from "../../support/FakeLLMClient";
@@ -178,7 +181,7 @@ test("planner creates indices, actioner gets context, completion and summary are
   const h = await harness();
   try {
     plan(h.llm);
-    tool(h.llm, "run_step", { step: 1, instruction: "Collect one more log." });
+    tool(h.llm, "run_step", { step: 1 });
     tool(h.llm, "complete_step", { step: 1 });
     tool(h.llm, "refresh_summary", {});
     json(h.llm, { summary: "Collected one additional oak log." });
@@ -213,7 +216,7 @@ test("planner creates indices, actioner gets context, completion and summary are
     assert.match(instruction.checklist, /1\. Collect a log/);
     assert.deepEqual(instruction.reports, []);
     assert.equal("world" in instruction, false); // The action agent receives a fresh World Context instead.
-    assert.equal("planVersion" in instruction, false);
+    assert.equal(instruction.planVersion, h.agent.task.planVersion);
     const reportContext = JSON.parse(h.llm.requests[3]!.messages.at(-1)!.content!).value.report;
     assert.equal(reportContext.outcomes[0].capability, "dig");
     assert.equal(reportContext.outcomes[0].task, undefined);
@@ -238,10 +241,10 @@ test("direct observations and another step's successful report cannot complete a
       { title: "Equip sword", successCriteria: "wooden_sword is selected." },
       { title: "Verify selection", successCriteria: "selectedItem is wooden_sword." },
     ] });
-    tool(h.llm, "run_step", { step: 1, instruction: "Equip and confirm selection." });
+    tool(h.llm, "run_step", { step: 1 });
     tool(h.llm, "get_inventory", {});
     tool(h.llm, "complete_step", { step: 2 });
-    tool(h.llm, "run_step", { step: 2, instruction: "Verify selection." });
+    tool(h.llm, "run_step", { step: 2 });
     tool(h.llm, "complete_step", { step: 1 });
     tool(h.llm, "complete_step", { step: 2 });
     tool(h.llm, "reply", { outcome: "success", message: "Equipped." });
@@ -271,7 +274,7 @@ test("steps can be checked after later delegations without losing their reports"
         { title: "Break the log", successCriteria: "The target block is gone." },
         { title: "Collect the drop", successCriteria: "One new log is in inventory." },
       ] });
-      for (const step of [1, 2, 3]) tool(h.llm, "run_step", { step, instruction: `Perform step ${step}.` });
+      for (const step of [1, 2, 3]) tool(h.llm, "run_step", { step });
       for (const step of [1, 2, 3]) tool(h.llm, "complete_step", { step });
       tool(h.llm, "reply", { outcome: "success", message: "Collected." });
       const reports = ["Found a log at (3, -60, 0).", "The log block is gone.", "Inventory increased from 0 to 1 log."]
@@ -322,7 +325,7 @@ test("a retry sees previous reports but its failure replaces only that step's ea
       { title: "Collect wood", successCriteria: "One new log." },
       { title: "Locate stone", successCriteria: "A stone position is known." },
     ] });
-    for (const step of [1, 2, 1]) tool(h.llm, "run_step", { step, instruction: "Inspect and perform the step." });
+    for (const step of [1, 2, 1]) tool(h.llm, "run_step", { step });
     tool(h.llm, "complete_step", { step: 1 });
     tool(h.llm, "complete_step", { step: 2 });
     tool(h.llm, "reply", { outcome: "failure", message: "Wood collection could not be confirmed." });
@@ -347,8 +350,8 @@ test("a delegation that throws invalidates its old successful report", async () 
   const h = await harness();
   try {
     plan(h.llm);
-    tool(h.llm, "run_step", { step: 1, instruction: "Collect the log." });
-    tool(h.llm, "run_step", { step: 1, instruction: "Check after the world changed." });
+    tool(h.llm, "run_step", { step: 1 });
+    tool(h.llm, "run_step", { step: 1 });
     tool(h.llm, "complete_step", { step: 1 });
     tool(h.llm, "reply", { outcome: "failure", message: "Cannot confirm." });
     h.actions.push(actionSuccess()); // The second delegation throws: no scripted report.
@@ -441,7 +444,7 @@ test("failed reports and stale reports after replanning cannot check off a step"
     const h = await harness();
     try {
       plan(h.llm);
-      tool(h.llm, "run_step", { step: 1, instruction: "Do it." });
+      tool(h.llm, "run_step", { step: 1 });
       if (replan) plan(h.llm, "New step");
       tool(h.llm, "complete_step", { step: 1 });
       tool(h.llm, "reply", { outcome: "failure", message: "Cannot confirm." });
@@ -468,7 +471,7 @@ test("failed reports and stale reports after replanning cannot check off a step"
 test("execution needs a planner checklist and success needs verified completed steps", async () => {
   const h = await harness();
   try {
-    tool(h.llm, "run_step", { step: 1, instruction: "Invented step" });
+    tool(h.llm, "run_step", { step: 1 });
     plan(h.llm);
     tool(h.llm, "reply", { outcome: "success", message: "Not actually done" });
     tool(h.llm, "reply", { outcome: "needs_user", message: "Need help." });
@@ -569,13 +572,87 @@ test("stop during planning aborts and resume sees the interrupted exchange", asy
   } finally { await h.close(); }
 });
 
+test("evaluate_step is readable, false is not an error, and complete_step rechecks a formerly true observation", async () => {
+  let reads = 0;
+  const h = await harness(0, "native", undefined, async () => ({ known: true, items: { stick: ++reads === 1 ? 4 : 1 } }));
+  try {
+    tool(h.llm, "ask_planner", { instruction: "Have four sticks." });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Have sticks", successCriteria: "At least four sticks available.", checks: "inventory_count(stick) >= 4" }] });
+    tool(h.llm, "run_step", { step: 1 });
+    h.actions.push({ status: "success", message: "Observed four sticks", outcomes: [] });
+    tool(h.llm, "evaluate_step", { step: 1 });
+    tool(h.llm, "complete_step", { step: 1 });
+    tool(h.llm, "reply", { outcome: "needs_user", message: "Stock changed." });
+    h.agent.submitUserMessage("owner", "Have four sticks.");
+    await idle(h.agent);
+    assert.equal(reads, 2);
+    assert.notEqual(h.agent.task.steps[0]!.status, "done");
+    assert.match(h.llm.requests[4]!.messages.at(-1)!.content!, /stick: 4 >= 4 — true/);
+    assert.match(h.llm.requests[5]!.messages.at(-1)!.content!, /stick: 1 >= 4 — false/);
+    assert.doesNotMatch(h.llm.requests[5]!.messages.at(-1)!.content!, /"verdict"|"checks"/);
+    const records = h.inspector.listRounds().flatMap(r => h.inspector.getRound(r.id)!.toolExecutions);
+    const evaluation = records.find(t => t.name === "evaluate_step")!;
+    assert.equal(JSON.parse(evaluation.result!).value.verdict, true);
+    assert.equal(evaluation.ok, true);
+    assert.equal(h.actionInstructions[0]!.step.checks, "inventory_count(stick) >= 4");
+    assert.equal("instruction" in h.actionInstructions[0]!, false);
+  } finally { await h.close(); }
+});
+
+test("unknown blocks completion; a later fresh true plus a matching report allows it without another action", async () => {
+  let reads = 0;
+  const h = await harness(0, "native", undefined, async () => ++reads === 1
+    ? { known: false, reason: "CONTAINER_OPEN", message: "Close it explicitly." }
+    : { known: true, items: { stick: 4 } });
+  try {
+    tool(h.llm, "ask_planner", { instruction: "Have four sticks." });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Have sticks", successCriteria: "At least four sticks available.", checks: "inventory_count(stick) >= 4" }] });
+    tool(h.llm, "complete_step", { step: 1 }); // No report, no read.
+    tool(h.llm, "run_step", { step: 1 });
+    h.actions.push({ status: "success", message: "Stock already sufficient", outcomes: [] });
+    tool(h.llm, "complete_step", { step: 1 });
+    tool(h.llm, "complete_step", { step: 1 });
+    tool(h.llm, "reply", { outcome: "success", message: "Four sticks in the bot inventory." });
+    h.agent.submitUserMessage("owner", "Have four sticks.");
+    await idle(h.agent);
+    assert.equal(reads, 2);
+    assert.equal(h.agent.task.steps[0]!.status, "done");
+    assert.match(h.llm.requests[3]!.messages.at(-1)!.content!, /matching successful report/);
+    assert.match(h.llm.requests[5]!.messages.at(-1)!.content!, /unknown[\s\S]*CONTAINER_OPEN/);
+    assert.equal(h.actionInstructions.length, 1);
+  } finally { await h.close(); }
+});
+
+test("stopped verification cannot check a step even when the reader resolves with true afterwards", async () => {
+  let release!: () => void;
+  let started = false;
+  const h = await harness(0, "native", undefined, async () => {
+    started = true;
+    await new Promise<void>(resolve => { release = resolve; });
+    return { known: true, items: { stick: 4 } };
+  });
+  try {
+    tool(h.llm, "ask_planner", { instruction: "Have sticks" });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Have sticks", successCriteria: "Four sticks", checks: "inventory_count(stick) >= 4" }] });
+    tool(h.llm, "run_step", { step: 1 });
+    h.actions.push({ status: "success", message: "Observed", outcomes: [] });
+    tool(h.llm, "complete_step", { step: 1 });
+    h.agent.submitUserMessage("owner", "Have sticks");
+    await until(() => started);
+    const stopping = h.agent.requestStop("owner");
+    release();
+    await stopping;
+    assert.notEqual(h.agent.task.steps[0]!.status, "done");
+  } finally { release?.(); await h.close(); }
+});
+
 let callId = 0;
-test("failed recipe-assisted replanning leaves the previous checklist intact and reports coverage without private history", async () => {
+test("failed recipe-assisted replanning retains recipes; coverage and grids are not replayed to coordinator", async () => {
   const h = await harness();
   try {
     tool(h.llm, "ask_planner", { instruction: "Plan an axe." });
     tool(h.llm, "read_recipe", { item: "wooden_axe" });
-    tool(h.llm, "submit_plan", { steps: [{ title: "Craft axe at table", successCriteria: "One wooden_axe from 3 oak_planks and 2 stick." }] });
+    tool(h.llm, "submit_plan", { steps: [{ title: "Craft axe at table", successCriteria: "One wooden_axe from 3 oak_planks and 2 stick.", recipes: [{ item: "wooden_axe", variant: 1 }] }] });
     tool(h.llm, "ask_planner", { instruction: "Revise the plan." });
     tool(h.llm, "submit_plan", { steps: [] });
     tool(h.llm, "reply", { outcome: "needs_user", message: "Original plan retained." });
@@ -583,7 +660,9 @@ test("failed recipe-assisted replanning leaves the previous checklist intact and
     await idle(h.agent);
     assert.equal(h.agent.task.steps[0]!.title, "Craft axe at table");
     const first = h.llm.requests[3]!.messages.at(-1)!.content!;
-    assert.deepEqual(JSON.parse(first).value.recipeCoverage.consulted, ["wooden_axe#1"]);
+    assert.equal(JSON.parse(first).value.recipeCoverage, undefined);
+    assert.equal(h.agent.task.recipes[0]!.item, "wooden_axe");
+    assert.match(h.llm.requests[3]!.messages[0]!.content!, /3 oak_planks \+ 2 stick -> 1 wooden_axe/);
     assert.doesNotMatch(first, /\[A\]|palette/);
     const second = JSON.parse(h.llm.requests[5]!.messages.at(-1)!.content!);
     assert.equal(second.ok, false);
@@ -626,7 +705,7 @@ async function until(check: () => boolean): Promise<void> {
   throw new Error("Workflow did not reach expected state.");
 }
 async function idle(agent: WorkflowAgent): Promise<void> { await until(() => (agent.state() as { mode: string }).mode === "idle"); }
-async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "native", contextBudget?: ContextBudget) {
+async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "native", contextBudget?: ContextBudget, reader?: InventoryEvidenceReader) {
   const root = await mkdtemp(join(tmpdir(), "minecraft-workflow-test-"));
   const llm = new FakeLLMClient();
   const inspector = new AgentInspector(100);
@@ -650,7 +729,9 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
   const queries = createDefaultWorldQueryRegistry(world, journal);
   const recipes = await loadRecipeTools();
   const actionTools = new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries, recipes.definitions).build();
+  const task = new WorkflowState();
   const agent = new WorkflowAgent({
+    task, stepEvaluator: new StepEvaluationService(task, reader),
     recipes,
     llm, actionAgent, actionTools, world, inspector, journal, queries,
     architectAgent: { run: async () => { throw new Error("Unexpected Architect delegation in this test."); } },

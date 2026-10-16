@@ -6,6 +6,7 @@ import { invalidToolArguments } from "../shared/ToolArgumentFeedback";
 import { ItemNameSchema, ingredientCounts } from "./RecipeSchema";
 import { RecipeLibrary, RecipeIssue, MISSING_RECIPE_MESSAGE } from "./RecipeLibrary";
 import { renderRecipe } from "./RecipeRenderer";
+import type { PlanRecipe, RecipeReference } from "./PlanRecipes";
 
 export const recipeSchemas = {
   search_recipes: z.object({ query: z.string().trim().min(1).max(128).describe("Item name or words, e.g. wooden axe.") }).strict(),
@@ -27,6 +28,13 @@ export class RecipeTools {
     name, description: descriptions[name as keyof typeof descriptions], parameters: toJsonSchema(schema),
   }));
   constructor(private readonly library: RecipeLibrary) {}
+  isKnownItem(item: string): boolean { return this.library.isKnownItem(item); }
+  snapshot(ref: RecipeReference): PlanRecipe {
+    const file = this.library.read(ref.item);
+    const recipe = file.variants[ref.variant - 1];
+    if (!recipe) throw new RecipeIssue("INVALID_ARGUMENT", `Unknown variant ${ref.variant} for ${ref.item}.`);
+    return structuredClone({ ...ref, minecraftVersion: file.minecraftVersion, recipe });
+  }
   schema(name: string): z.ZodTypeAny | undefined {
     return Object.hasOwn(recipeSchemas, name) ? recipeSchemas[name as keyof typeof recipeSchemas] : undefined;
   }

@@ -55,13 +55,30 @@ Do not approximate them with a grid; extend schema, catalog validation, renderer
 - `read_recipe({"item":"wooden_axe","variant":1})`: exact name, optional 1-based variant (default 1).
   Returns output **per craft**, station, ingredient counts and a `[A] [A] [ ]` grid.
   Shaped counts are derived from occupied cells, not maintained twice. Other variants get a short index.
-- `submit_plan({"steps":[{"title":"...","successCriteria":"..."}]})`: planner-only terminal handoff.
+- `submit_plan({"steps":[{"title":"...","successCriteria":"...","recipes":[{"item":"stick","variant":1}],"checks":"inventory_count(stick) >= 4"}]})`: planner-only terminal handoff. `recipes` and `checks` are optional.
 
 The first two are shared by planner and actioner; the coordinator does not receive them as tools.
 The planner sees the actioner's catalog as documentation but cannot execute it.
 Whole batches still matter: 7 missing planks require 2 logs and yield 8 planks.
 Recipe result size is limited to 6,000 characters; an oversized result fails rather than cutting a grid.
 Tool traces contain structured data; the conversation contains only the readable feedback, with its action number.
+
+## Selected plan recipes
+
+Each reference must have been successfully read in this planner delegation. Submission resolves and copies
+the selected variants; unselected reads remain diagnostic traces only. Invalid references or checks reject
+the entire plan without changing the previous plan/reports. Limits: 4 references per step, 16 unique
+recipes per plan (`PLAN_LIMITS`). Missing knowledge can be left unreferenced, never fabricated.
+
+`PlanRecipes` renders selected snapshots from validated ingredient counts and yields, for example:
+`stick (variant 1): 2 oak_planks -> 4 stick; inventory 2x2.`
+The coordinator sees all selected summaries once in its system context; the actioner gets the delegated
+step's summaries plus the full checklist. Full grids stay behind `read_recipe`. Replanning replaces the
+selected snapshots; a new user request clears them. No disk migration or additional database is needed.
+
+These are quantities per craft, not the target amount. A reference documents the plan's chosen variant,
+but does not force Mineflayer's crafting tools to use it: they still choose a feasible recipe. This is not
+a guarantee of exact inputs consumed. Recipe coverage is no longer replayed as opaque coordinator data.
 
 ## Verification and smoke
 

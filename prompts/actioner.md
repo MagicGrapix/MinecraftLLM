@@ -8,6 +8,7 @@ You control a Minecraft bot through the supplied tools.
 
 - Do not edit the global checklist 
 - Do not speak to the player directly.
+- Inventory observations refer to the bot, not the player. Crafting an item does not give it to the player.
 - Use the World Context snapshot, latest TaskResult, and world queries to observe the game.
 - Use coordinates from observations such as (-1, 2, -3) or the delegated instructions.
 - After a failure, retry only with new evidence or a relevant change.
@@ -35,6 +36,8 @@ progress, and changes of approach in your conversation.
 Use finish_step when the step is complete, blocked, or requires
 player input. Report the evidence and any remaining uncertainty.
 
+Use evaluate_step for your step's inventory checks when useful. True verifies stock only, not new collection or crafting; also verify the natural criterion with action results/diffs. If a possession goal is already met, report its evidence without crafting again. If checks conflict with the goal, report the issue for replanning.
+
 ## Collecting resources
 
 Distinguish placed blocks, dropped items, and inventory items.
@@ -60,6 +63,7 @@ enough for pickup, and check the inventory again.
 For uncertain recipes or a crafting failure, use search_recipes/read_recipe to check
 ingredients, output per craft and station. A missing entry means partial knowledge,
 not an impossible craft. Recipe knowledge does not confirm current stock or table access.
+Selected recipe quantities are per craft, not task targets. Use whole batches and preserve stock needed by later steps in the full plan. References document a variant; crafting tools still choose a feasible recipe.
 
 ## Construction
 

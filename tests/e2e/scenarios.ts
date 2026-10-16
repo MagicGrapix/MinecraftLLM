@@ -88,4 +88,33 @@ export const scenarios: readonly Scenario[] = [
   ...interactionScenarios,
   ...navigationScenarios,
   ...buildingScenarios,
+  {
+    ...collectLogs("checks_axe_from_empty", 0, "Craft one wooden axe starting from your empty inventory. Nearby oak trees are available. Keep the axe in the bot inventory.", forest),
+    verify: (initial, current) => {
+      const gain = (current.inventory.wooden_axe ?? 0) - (initial.inventory.wooden_axe ?? 0);
+      return { passed: gain >= 1, expected: "Gain at least one wooden_axe from empty inventory", actual: `Axe gain: ${gain}` };
+    },
+  },
+  {
+    id: "checks_existing_stock",
+    prompt: "Make sure your inventory contains at least one wooden axe. If it already does, keep it and do not craft another.",
+    initialInventory: { wooden_axe: 1 },
+    verify: (initial, current) => ({
+      passed: initial.inventory.wooden_axe === 1 && current.inventory.wooden_axe === 1 && Object.keys(current.inventory).length === 1,
+      expected: "Preserve the one existing wooden_axe without accumulating other items",
+      actual: `Inventory: ${JSON.stringify(current.inventory)}`,
+    }),
+  },
+  {
+    ...collectLogs("checks_new_axe", 0, "Craft one additional wooden axe. Keep the existing axe and the new axe in your inventory. Nearby oak trees are available.", forest),
+    initialInventory: { wooden_axe: 1 },
+    verify: (initial, current) => {
+      const gain = (current.inventory.wooden_axe ?? 0) - (initial.inventory.wooden_axe ?? 0);
+      return { passed: gain >= 1, expected: "Gain one additional wooden_axe; existing stock alone does not pass", actual: `Axe gain: ${gain}` };
+    },
+  },
+  {
+    ...collectLogs("checks_additional_logs", 2, "Collect two additional oak logs from the nearby trees. Keep your existing three logs too, so you finish with at least five.", singleTree),
+    initialInventory: { oak_log: 3 },
+  },
 ];

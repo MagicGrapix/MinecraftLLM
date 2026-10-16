@@ -40,6 +40,8 @@ export class RecipeLibrary {
     return [...this.issues].map(([item, error]) => ({ item, code: error.code, message: error.message }));
   }
 
+  isKnownItem(item: string): boolean { return Object.hasOwn(this.data.itemsByName, item); }
+
   read(item: string): RecipeFile {
     if (!ItemNameSchema.safeParse(item).success) throw new RecipeIssue("INVALID_ARGUMENT", "Use an exact item name, never a filename or path.");
     const issue = this.issues.get(item);

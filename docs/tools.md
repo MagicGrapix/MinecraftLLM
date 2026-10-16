@@ -12,7 +12,8 @@ Emplacements à modifier :
 - `src/world/queries/defaultQueries.ts` : lectures du monde.
 - `src/world/queries/GetDroppedItems.ts` : items au sol.
 - `src/agent/ToolCatalogBuilder.ts` : skills, landmarks, finish_step.
-- `src/agent/CoordinatorTools.ts` : reply, ask_architect, ask_planner, run_step, complete_step, refresh_summary.
+- `src/agent/CoordinatorTools.ts` : reply, ask_architect, ask_planner, run_step, evaluate_step, complete_step, refresh_summary.
+- `src/agent/StepEvaluationService.ts` : contrat evaluate_step partagé avec l'actionneur, hors queries du monde.
 - `src/world/queries/LookupMaterial.ts` : lookup_material (schéma, description et recherche partagés).
 - `src/agent/ArchitectTools.ts` : submit_blueprint, strictement réservé à l'Architect.
 - `src/recipes/RecipeTools.ts` : search_recipes/read_recipe, partagés entre planner et actionneur.
@@ -33,6 +34,18 @@ sont trois observations différentes. Les valeurs inconnues doivent rester expli
 Les autres descriptions courtes sont conservées ; il n'y a pas de prose dupliquée dans les prompts d'agents.
 
 Le catalogue est construit au démarrage. Redémarrer le bot après édition.
+
+## Plan et vérification
+
+`run_step({"step":2})` délègue l'étape inchangée ; aucun argument `instruction` n'est accepté.
+`ask_planner` et `ask_architect` conservent leur instruction d'objectif/feedback.
+
+`evaluate_step({"step":2})` retourne du texte : comparaisons du stock confirmé et verdict vrai/faux/inconnu.
+L'actionneur peut seulement évaluer son étape déléguée. Un verdict faux n'est pas une erreur technique.
+Le résultat ne coche rien et ne prouve pas la méthode d'obtention des items.
+`complete_step({"step":2})` exige un rapport réussi de cette étape/version, puis réévalue ses checks
+avant de cocher. Le coordinateur vérifie toujours aussi le critère naturel.
+Voir [les contrats](contracts.md#checks-dinventaire-des-étapes) pour grammaire, limites et inconnus.
 
 ## Pose
 

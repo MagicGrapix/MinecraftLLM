@@ -1,4 +1,6 @@
-import { PLANNER_MAX_TOOL_CALLS } from "../config";
+import { PLANNER_MAX_TOOL_CALLS, PLAN_LIMITS } from "../config";
+import { recipeKey, type PlanRecipe } from "../recipes/PlanRecipes";
+import { parseStepChecks } from "./StepChecks";
 import type { ToolCallJournal } from "../execution/ToolCallJournal";
 import { completeWithinBudget } from "../llm/InputBudget";
 import { LLMError } from "../llm/LLMError";
@@ -15,6 +17,7 @@ import { PlannerResultSchema, type PlanStep } from "./WorkflowState";
 
 export interface PlannerReport {
   readonly steps: PlanStep[];
+  readonly recipes: PlanRecipe[];
   readonly recipeCoverage: {
     readonly consulted: readonly string[];
     readonly unavailable: readonly { item: string; code: string }[];
@@ -105,7 +108,7 @@ export class PlannerAgent {
           agent: "planner", generationId: input.generationId, toolCallId: call.id, arguments: call.arguments,
         });
         this.options.inspector?.recordToolStarted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments });
-        let accepted: { steps: PlanStep[] } | undefined;
+        let accepted: { steps: PlanStep[]; recipes: PlanRecipe[] } | undefined;
         let outcome: RecipeToolOutcome;
         let invalid = false;
         try {
@@ -113,7 +116,17 @@ export class PlannerAgent {
           if (call.name === "submit_plan") {
             const parsed = PlannerResultSchema.safeParse(raw);
             if (!parsed.success) throw new Error(invalidToolArguments(call.name, raw, parsed.error.issues, PlannerResultSchema));
-            accepted = parsed.data;
+            const selected = new Map<string, PlanRecipe>();
+            parsed.data.steps.forEach((step, index) => {
+              parseStepChecks(step.checks ?? "", item => this.options.recipes.isKnownItem(item), index + 1);
+              for (const ref of step.recipes ?? []) {
+                const key = recipeKey(ref);
+                if (!consulted.has(key)) throw new Error(`Step ${index + 1}: read_recipe for ${ref.item} variant ${ref.variant} must succeed before referencing it. Plan not accepted; previous plan unchanged.`);
+                selected.set(key, this.options.recipes.snapshot(ref));
+              }
+            });
+            if (selected.size > PLAN_LIMITS.uniqueRecipes) throw new Error(`At most ${PLAN_LIMITS.uniqueRecipes} unique recipes per plan. Previous plan unchanged.`);
+            accepted = { ...parsed.data, recipes: [...selected.values()] };
             outcome = { result: { ok: true, value: accepted }, feedback: `Plan accepted: ${accepted.steps.length} steps. Returning to the coordinator.` };
           } else {
             if (!this.options.recipes.schema(call.name)) throw new Error(`Unknown planner tool "${call.name}". Use search_recipes, read_recipe or submit_plan; capabilities belong to the action agent.`);
@@ -141,7 +154,9 @@ export class PlannerAgent {
         trace = undefined;
         input.signal.throwIfAborted();
         if (accepted) {
-          return { ...accepted, recipeCoverage: { consulted: [...consulted], unavailable: [...unavailable].map(([item, code]) => ({ item, code })) } };
+          const recipeCoverage = { consulted: [...consulted], unavailable: [...unavailable].map(([item, code]) => ({ item, code })) };
+          writeTrace("planner.recipe_coverage", { generationId: input.generationId, recipeCoverage });
+          return { ...accepted, recipeCoverage };
         }
         if (invalid) {
           if (++invalidAttempts > this.options.maxRetries) throw new Error(`Planner validation retries exhausted: ${outcome.feedback}`);

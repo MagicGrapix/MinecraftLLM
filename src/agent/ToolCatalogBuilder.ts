@@ -3,12 +3,14 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
 import type { LLMTool } from "../llm/LLMClient";
 import type { WorldQueryRegistry } from "../world/queries/WorldQueryRegistry";
+import { EvaluateStepSchema, EVALUATE_STEP_DESCRIPTION } from "./StepEvaluationService";
 
 const EmptySchema = z.object({}).strict();
 export const fixedToolSchemas = {
   list_skills: EmptySchema,
   load_skill: z.object({ name: z.string().trim().min(1) }).strict(),
   list_landmarks: EmptySchema,
+  evaluate_step: EvaluateStepSchema,
   finish_step: z.object({
     status: z.enum(["success", "failure", "needs_user"]),
     message: z.string().trim().min(1).max(1_000),
@@ -19,6 +21,7 @@ const fixedDescriptions: Record<keyof typeof fixedToolSchemas, string> = {
   list_skills: "List available textual skills and their descriptions.",
   load_skill: "Load one textual skill with its complete instructions and dependencies.",
   list_landmarks: "List remembered important places and their status.",
+  evaluate_step: EVALUATE_STEP_DESCRIPTION,
   finish_step: "Does: End this delegation and report to the coordinator.\nSuccess: The report was returned.\nLimits: Does not validate the task or complete the global checklist.\nNotes: Report observed results, failures, and remaining uncertainty.",
 };
 

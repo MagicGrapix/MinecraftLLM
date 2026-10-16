@@ -8,13 +8,13 @@ Il n'exécute aucune capability Minecraft lui-même.
 
 Le prompt lui demande de transmettre au planner l'objectif, les contraintes du joueur, les faits observés
 et les blocages. Le planner décide les sous-objectifs, prérequis de craft, stations et quantités ; le
-coordinateur ne lui impose pas une recette ou une séquence de tools. Pour `run_step`, il transmet le but
-et le critère de l'étape courante, en laissant les arguments d'exécution à l'actionneur.
+coordinateur ne lui impose pas une recette ou une séquence de tools. `run_step({step})` ne prend plus
+d'instruction libre : le code transmet l'étape originale, son critère et ses recettes, sans reformulation.
 
 Le planner reçoit la conversation joueur/assistant restante, son résumé compacté, le monde actuel,
 la checklist et l'instruction du coordinateur. `PlannerAgent` crée une conversation privée par délégation :
 un tool natif par réponse, résultat réel en message tool, puis nouvel appel si nécessaire.
-Il termine avec `submit_plan({steps:[{title,successCriteria}]})` ; le format réutilise `PlannerResultSchema`
+Il termine avec `submit_plan({steps:[{title,successCriteria,recipes?,checks?}]})` ; le format réutilise `PlannerResultSchema`
 (1–10 étapes, titre 160 caractères maximum et critère 400). Un texte seul ne soumet pas de plan.
 Son system contient aussi le catalogue complet de l'actionneur (noms, descriptions et schémas d'arguments),
 injecté par `{{action_tools}}` depuis le même `ToolCatalogBuilder` que les tools réellement disponibles.
@@ -26,16 +26,18 @@ Une entrée absente ou invalide reste une incertitude explicite, pas une preuve 
 Le code numérote les étapes à partir de 1. Seul un `submit_plan` valide remplace l'ancien plan et invalide
 ses rapports. Une erreur ou une interruption laisse l'ancien plan intact. Une soumission invalide retourne
 un feedback dans la conversation privée pour correction. La délégation suivante repart à neuf.
-Le coordinateur reçoit le plan et `recipeCoverage` : recettes/variantes lues et entrées indisponibles,
-sans la conversation privée ni les grilles. Il peut transmettre les contraintes utiles dans les étapes.
+Le coordinateur reçoit le plan sans la conversation privée ni les grilles. Les recettes explicitement
+choisies sont copiées et dédupliquées avec le plan ; leur résumé calculé apparaît dans le Task Context.
+L'actionneur reçoit seulement les recettes de son étape, avec la checklist entière. `recipeCoverage`
+reste un diagnostic de trace. Une référence non lue ou invalide fait refuser toute la soumission.
 
 Le prompt regroupe une action et sa vérification dans une seule étape. Une inspection distincte reste
 possible si elle vérifie une autre propriété, par exemple pouvoir entrer dans une construction.
 Les critères quantifiés nomment l'item et la comparaison : stock total minimal, gain depuis le début
 de l'étape ou quantité exacte explicitement demandée. Les rendements de craft sont des lots entiers :
 le besoin d'un `stick` peut produire quatre sticks, et les ingrédients restants ne doivent pas être
-déclarés absents sans nécessité. Ces règles guident le LLM ; `successCriteria` reste du texte, pas une
-expression déterministe. Planner et actionneur partagent les outils de consultation des recettes.
+déclarés absents sans nécessité. `successCriteria` reste du texte ; `checks` le complète facultativement
+avec des comparaisons de stock évaluées par le code. Planner et actionneur partagent les outils de consultation des recettes.
 Le succès de lecture ne valide ni le stock, ni l'accès à une station, ni l'exécution du craft.
 
 L'actionneur reçoit une étape avec son critère, l'objectif utilisateur, la checklist complète, le résumé
@@ -46,8 +48,9 @@ Le résultat réel est ajouté avant le prochain appel LLM. Chaque nouvelle dél
 
 `finish_step` rend une déclaration et les TaskResults réels au coordinateur.
 `complete_step` exige le dernier rapport réussi de cette étape dans le plan courant.
-La validation du critère de réussite reste à la charge du coordinateur : ce contrôle de correspondance
-n'est pas une vérification déterministe de l'objectif.
+La validation du critère naturel reste à la charge du coordinateur. Si des checks sont définis,
+`complete_step` les réévalue sur un inventaire frais avant toute mutation : faux ou inconnu laisse la
+case inchangée, même après un ancien `evaluate_step` vrai. Le succès numérique seul ne remplace pas le rapport.
 
 Une lecture directe du coordinateur ou le rapport d'une autre étape ne remplace pas ce rapport.
 Le refus de `complete_step` précise l'étape à déléguer avec `run_step`. Pour vérifier le résultat,
@@ -134,7 +137,7 @@ assistant / tool : échanges suivants, dans leur ordre
 
 Les demandes précédentes et leurs réponses restent à leur place tant qu'elles n'ont pas été compactées.
 La demande active ne migre pas à la fin du contexte à chaque call. Elle ne peut pas être supprimée
-par la compression. Pour l'actionneur, l'instruction du coordinateur est le message user protégé ;
+par la compression. Pour l'actionneur, `Execute step N of the current plan.` est le message user protégé ;
 l'objectif global reste également présent dans ses données de délégation.
 
 Pour le coordinateur et l'actionneur, `TaskContextFormatter` présente l'objectif, l'étape sélectionnée
@@ -225,7 +228,7 @@ Une réponse sans appel natif valide n'en reçoit pas. Les outils du planner re�
 lorsqu'ils retournent une erreur d'arguments ou de validation, comme les soumissions Architect.
 
 Le résultat natif garde son contrat (`ok`, `value` ou `error`) et ajoute `actionNumber` au premier niveau.
-Exception de présentation : les fiches recettes sont du texte en message tool, préfixé `Action #N`.
+Exception de présentation : les fiches recettes et évaluations d'étape sont du texte en message tool, préfixé `Action #N`.
 Le JSON structuré reste dans le journal et l'inspecteur, sans duplication dans le contexte LLM.
 Les échanges compactés conservent ce champ ; une réponse `reply` envoyée reste toutefois du texte
 de conversation, comme avant. Les traces et la UI conservent son numéro.

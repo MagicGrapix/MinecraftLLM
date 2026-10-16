@@ -11,6 +11,8 @@ import type { ActionFinishStatus } from "./ActionTypes";
 import { ModelResponseError } from "./ModelResponseError";
 import { invalidToolArguments, parseToolArguments } from "../shared/ToolArgumentFeedback";
 import { fixedToolSchemas, ToolCatalogBuilder } from "./ToolCatalogBuilder";
+import type { StepEvaluationService } from "./StepEvaluationService";
+import { formatStepEvaluation } from "./StepCheckEvaluator";
 
 export interface AgentToolResult {
   readonly toolCallId: string;
@@ -27,6 +29,7 @@ export type ValidatedActionCall =
 
 interface AgentToolBridgeOptions {
   readonly recipes?: RecipeTools;
+  readonly stepEvaluator?: StepEvaluationService;
   readonly capabilities: CapabilityRegistry;
   readonly queries: WorldQueryRegistry;
   readonly skills: SkillRegistry;
@@ -37,7 +40,7 @@ interface AgentToolBridgeOptions {
   readonly maxResultChars?: number;
 }
 
-const readToolNames = new Set(["list_skills", "load_skill", "list_landmarks"]);
+const readToolNames = new Set(["list_skills", "load_skill", "list_landmarks", "evaluate_step"]);
 
 export class AgentToolBridge {
   readonly catalog: ToolCatalogBuilder;
@@ -80,7 +83,19 @@ export class AgentToolBridge {
     throw new ModelResponseError('Unknown tool "' + call.name + '". Call a capability directly using its supplied input schema, a world query, or finish_step.');
   }
 
-  async executeRead(call: LLMToolCall, signal?: AbortSignal): Promise<AgentToolResult> {
+  async executeRead(call: LLMToolCall, signal?: AbortSignal, scope?: { step: number; planVersion: number }): Promise<AgentToolResult> {
+    if (call.name === "evaluate_step") {
+      const input = this.parseFixedArguments(call.name, parseArguments(call.name, call.arguments));
+      try {
+        if (!scope || !this.options.stepEvaluator) throw new Error("No active delegated step to evaluate.");
+        const value = await this.options.stepEvaluator.evaluate(input.step as number, signal ?? new AbortController().signal, scope);
+        return { toolCallId: call.id, name: call.name, ok: true, content: JSON.stringify(success(value)), feedback: formatStepEvaluation(value) };
+      } catch (error) {
+        signal?.throwIfAborted();
+        const message = error instanceof Error ? error.message : String(error);
+        return { toolCallId: call.id, name: call.name, ok: false, content: JSON.stringify(failure("INVALID_STEP", message)), feedback: `Error INVALID_STEP: ${message}` };
+      }
+    }
     if (this.options.recipes?.schema(call.name)) {
       signal?.throwIfAborted();
       const outcome = this.options.recipes.execute(call.name, parseArguments(call.name, call.arguments));

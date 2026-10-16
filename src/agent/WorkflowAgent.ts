@@ -14,6 +14,8 @@ import type { TaskError } from "../execution/TaskResult";
 import type { ArchitectAgent } from "./ArchitectAgent";
 import { PlannerAgent } from "./PlannerAgent";
 import type { RecipeTools } from "../recipes/RecipeTools";
+import { StepEvaluationService } from "./StepEvaluationService";
+import { formatStepEvaluation } from "./StepCheckEvaluator";
 import { formatConstructionContext } from "./ConstructionContext";
 import { callCoordinator } from "./CoordinatorCall";
 import { CoordinatorTools, type CoordinatorCall } from "./CoordinatorTools";
@@ -32,6 +34,8 @@ import {
 export type WorkflowMode = "idle" | "thinking" | "designing" | "planning" | "executing" | "stopped";
 
 export interface WorkflowAgentOptions {
+  readonly task?: WorkflowState;
+  readonly stepEvaluator?: StepEvaluationService;
   readonly recipes: RecipeTools;
   readonly llm: LLMClient;
   readonly actionAgent: ActionRunner;
@@ -55,7 +59,8 @@ export interface WorkflowAgentOptions {
 }
 
 export class WorkflowAgent {
-  readonly task = new WorkflowState();
+  readonly task: WorkflowState;
+  private readonly stepEvaluator: StepEvaluationService;
   private readonly transcript: MessageHistory;
   private readonly tools: CoordinatorTools;
   private plansWithoutAction = 0;
@@ -70,6 +75,8 @@ export class WorkflowAgent {
   private processing: Promise<void> | null = null;
 
   constructor(private readonly options: WorkflowAgentOptions) {
+    this.task = options.task ?? new WorkflowState();
+    this.stepEvaluator = options.stepEvaluator ?? new StepEvaluationService(this.task);
     this.transcript = new MessageHistory(options.toolReplayMode);
     this.tools = new CoordinatorTools(options.queries);
   }
@@ -169,17 +176,19 @@ export class WorkflowAgent {
         this.options.inspector?.recordToolStarted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments });
         let result: { ok: boolean; value?: unknown; error?: { message: string } };
         let terminal = false;
+        let feedback: string | undefined;
         try {
           signal.throwIfAborted();
           const executed = await this.executeTool(parsed, signal);
           result = { ok: true, value: executed.value };
           terminal = executed.terminal ?? false;
+          feedback = executed.feedback;
         } catch (error: unknown) {
           result = { ok: false, error: error instanceof WorkflowToolError ? error.details : { message: error instanceof Error ? error.message : String(error) } };
         }
         this.options.journal.complete(actionNumber, result.ok, JSON.stringify(result));
         const rawContent = JSON.stringify({ ...result, actionNumber });
-        const content = rawContent;
+        const content = feedback === undefined ? rawContent : `Action #${actionNumber}\n${feedback}`;
         // Even aborted tools get a result: resume must never replay an orphan call.
         this.transcript.appendExchange(message, [{ role: "tool", toolCallId: call.id, content }]);
         this.options.inspector?.recordToolCompleted(trace, { actionNumber, toolCallId: call.id, name: call.name, arguments: call.arguments, result: rawContent, ok: result.ok });
@@ -219,6 +228,7 @@ export class WorkflowAgent {
           checklist: context.task.checklist,
           currentStep: context.task.steps.find((step) => step.step === context.task.currentStep),
           reports: this.task.reportSummaries(),
+          recipes: this.task.recipes,
         })).messages;
       },
       tools: this.tools.catalog(), generationId: this.generationId, reflection, signal, requestTitle: this.task.objective,
@@ -301,7 +311,7 @@ export class WorkflowAgent {
     };
   }
 
-  private async executeTool(call: CoordinatorCall, signal: AbortSignal): Promise<{ value: unknown; terminal?: boolean }> {
+  private async executeTool(call: CoordinatorCall, signal: AbortSignal): Promise<{ value: unknown; terminal?: boolean; feedback?: string }> {
     switch (call.name) {
       case "reply":
         if (call.input.outcome === "success" && (!this.task.steps.length || this.task.steps.some((step) => step.status !== "done"))) {
@@ -320,9 +330,8 @@ export class WorkflowAgent {
         this.mode = "planning";
         const plan = await this.askPlanner(call.input.instruction, signal);
         signal.throwIfAborted();
-        this.task.applyPlan(plan.steps);
-        return { value: { planVersion: this.task.planVersion, steps: this.task.steps, replacesPreviousPlan: true,
-          recipeCoverage: plan.recipeCoverage } };
+        this.task.applyPlan(plan.steps, plan.recipes, item => this.options.recipes.isKnownItem(item));
+        return { value: { planVersion: this.task.planVersion, steps: this.task.steps, replacesPreviousPlan: true } };
       }
       case "ask_architect": {
         this.mode = "designing";
@@ -354,7 +363,8 @@ export class WorkflowAgent {
         step.status = "active";
         this.mode = "executing";
         const report = await this.options.actionAgent.runDelegatedStep({
-          step: structuredClone(step), instruction: call.input.instruction, userObjective: this.task.objective,
+          step: structuredClone(step), planVersion, userObjective: this.task.objective,
+          recipes: this.task.recipesFor(step.step),
           checklist: this.task.checklist(),
           projectSummary: this.task.summary,
           reports,
@@ -370,12 +380,24 @@ export class WorkflowAgent {
         if (report.status === "interrupted") this.stopRequested = true;
         return { value: { ...recorded, report: actionReportForContext(report) } };
       }
+      case "evaluate_step": {
+        const value = await this.stepEvaluator.evaluate(call.input.step, signal);
+        return { value, feedback: formatStepEvaluation(value) };
+      }
       case "complete_step": {
         const step = this.task.steps[call.input.step - 1];
         const latest = this.task.reports[call.input.step];
         if (!step || !latest || latest.step !== step.step || latest.planVersion !== this.task.planVersion || latest.report.status !== "success") {
           throw new Error(`Completion requires a matching successful report for this step in the current plan. Obtain a successful run_step report for step ${call.input.step} before complete_step. Direct world queries and other steps' reports do not satisfy this requirement.`);
         }
+        if (this.task.checksFor(step.step).length) {
+          const evaluation = await this.stepEvaluator.evaluate(step.step, signal);
+          writeTrace("workflow.step_evaluation", { generationId: this.generationId, planVersion: this.task.planVersion, evaluation });
+          signal.throwIfAborted();
+          if (this.task.reports[step.step] !== latest) throw new Error("Step report changed during verification.");
+          if (evaluation.verdict !== true) return { value: { completed: false, evaluation }, feedback: `${formatStepEvaluation(evaluation)}\nStep not completed. Act on the missing evidence, replan or report the blocker.` };
+        }
+        signal.throwIfAborted();
         step.status = "done";
         if (this.task.currentStep === step.step) this.task.currentStep = null;
         return { value: { step: step.step, status: step.status, planVersion: this.task.planVersion } };

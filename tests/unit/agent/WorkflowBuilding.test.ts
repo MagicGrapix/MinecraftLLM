@@ -114,7 +114,7 @@ test("construction handoff pins the same blueprint, quantities and constraints a
   h.llm.enqueue(plan);
   h.llm.enqueue(tool("ask_planner", { instruction: "Stock is supplied, revise to construction only." }));
   h.llm.enqueue(plan);
-  h.llm.enqueue(tool("run_step", { step: 1, instruction: "Build on the observed lawn." }));
+  h.llm.enqueue(tool("run_step", { step: 1 }));
   h.llm.enqueue(tool("complete_step", { step: 1 }));
   h.llm.enqueue(tool("reply", { message: "Built", outcome: "success" }));
   h.agent.submitUserMessage("player", "Build a house.");
@@ -144,7 +144,7 @@ test("replacement blueprint clears old verified steps and reports; failed redesi
   h.llm.enqueue(tool("ask_architect", { instruction: "First design" }));
   h.llm.enqueue(tool("submit_blueprint", drawing));
   h.llm.enqueue(tool("ask_planner", { instruction: "Build" })); h.llm.enqueue(plan);
-  h.llm.enqueue(tool("run_step", { step: 1, instruction: "Build" }));
+  h.llm.enqueue(tool("run_step", { step: 1 }));
   h.llm.enqueue(tool("complete_step", { step: 1 }));
   h.llm.enqueue(() => {
     firstId = h.agent.task.construction!.blueprint.blueprintId;

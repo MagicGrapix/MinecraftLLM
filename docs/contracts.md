@@ -57,8 +57,37 @@
   de l'étape et de la version courante du plan, puis met à jour la checklist. Les rapports sont conservés
   par étape : une délégation suivante n'empêche pas de vérifier une étape précédente. Retenter une étape
   invalide son ancien rapport pour la complétion, y compris si la nouvelle tentative échoue sans rapport.
-  Un nouveau plan ou une nouvelle demande joueur efface ces rapports. La vérification du critère reste
-  sémantique ; aucun moteur de prédicats déterministes n'est encore implémenté.
+  Un nouveau plan ou une nouvelle demande joueur efface ces rapports. Le critère naturel reste sémantique.
+  Les checks d'inventaire facultatifs sont réévalués avant de cocher ; faux ou inconnu bloque la complétion.
+
+## Checks d'inventaire des étapes
+
+`checks` est un texte : une ligne `inventory_count(exact_item) >= N`, `== N` ou `<= N`.
+Toutes les lignes doivent passer. Entier sûr non négatif, noms exacts du registre connecté, 8 lignes
+non vides / 2000 caractères maximum (`PLAN_LIMITS`). Espaces et CRLF acceptés ; commentaires,
+expressions imbriquées, calculs et autres opérateurs refusés. Aucun `eval` ou dispatch arbitraire.
+Les contradictions simples d'un même item sont rejetées, pas l'impossibilité générale d'une tâche.
+Une soumission invalide ne modifie ni le plan, ni ses recettes, ni ses rapports.
+
+`evaluate_step({step})` observe sans cocher. L'actionneur est limité à son étape et sa version du plan.
+Le verdict est vrai/faux/inconnu ; faux reste une évaluation réussie. Aucun check donne inconnu avec
+`NO_DETERMINISTIC_REQUIREMENTS`, pas une réussite par défaut. Le modèle reçoit du texte lisible,
+les traces et l'inspecteur gardent les valeurs structurées. Aucun lecteur interne n'est un tool LLM.
+
+Le lecteur vérifie connexion, état vivant/apparition, absence d'action encore en terminaison et fenêtre
+fermée. Il demande un snapshot complet via `ServerInventoryConfirmation` (Java 1.21.11), puis attend
+au plus 3 secondes avec polling local 100 ms. Le paquet de resynchronisation est un no-op ; il ne
+déplace aucun item. Le lecteur ne ferme pas un coffre. Tous les checks utilisent le même snapshot.
+Seuls stockage et hotbar comptent : pas l'armure, seconde main, curseur, craft, coffre ou drops.
+Déconnexion/mort/respawn/timeout restent inconnus ; annulation et remplacement du plan invalident le résultat.
+
+`complete_step` demande sa propre observation fraîche, sans réutiliser une ancienne évaluation vraie.
+Son retour `completed: false` conserve la checklist et donne les comparaisons au modèle ; aucune action
+ou relance automatique ne suit. Sans checks, le contrat sémantique précédent reste applicable.
+Le dernier rapport réussi de la même étape/version reste requis dans les deux cas.
+Une case cochée est historique : consommer ensuite un matériau intermédiaire ne la décoche pas.
+Le stock n'est ni une preuve de nouvelle collecte, ni une preuve de fabrication ou de causalité.
+Les TaskResults et diffs existants restent nécessaires pour ces demandes ; aucun prédicat de gain ajouté.
 
 ## Arguments des tools et noms Minecraft
 

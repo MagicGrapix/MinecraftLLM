@@ -116,3 +116,19 @@ test("all scenarios have unique ids and one bounded plain chat request", () => {
     assert.doesNotMatch(scenario.prompt, /^[\/]|[\r\n\u0000]/);
   }
 });
+
+test("inventory requirement scenarios use independent fixed oracles, not model checkmarks", () => {
+  for (const id of ["checks_axe_from_empty", "checks_new_axe", "checks_additional_logs"]) {
+    const scenario = scenarios.find(s => s.id === id)!;
+    const initial = observation({ inventory: { ...scenario.initialInventory } });
+    const claimed = { ...initial, planSteps: 1, completedSteps: 1 };
+    assert.equal(scenario.verify(initial, claimed).passed, false, id);
+    const item = id === "checks_additional_logs" ? "oak_log" : "wooden_axe";
+    const quantity = (initial.inventory[item] ?? 0) + (item === "oak_log" ? 2 : 1);
+    assert.equal(scenario.verify(initial, observation({ inventory: { ...initial.inventory, [item]: quantity } })).passed, true, id);
+  }
+  const stock = scenarios.find(s => s.id === "checks_existing_stock")!;
+  const initial = observation({ inventory: { wooden_axe: 1 } });
+  assert.equal(stock.verify(initial, initial).passed, true);
+  assert.equal(stock.verify(initial, observation({ inventory: { wooden_axe: 2 } })).passed, false);
+});

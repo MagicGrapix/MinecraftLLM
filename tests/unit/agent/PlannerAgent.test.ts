@@ -9,6 +9,8 @@ import { estimateInputTokens } from "../../../src/llm/InputBudget";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 import { FakeLLMClient } from "../../support/FakeLLMClient";
 import { loadRecipeTools } from "../../support/recipes";
+import { WorkflowState } from "../../../src/agent/WorkflowState";
+import { formatPlanRecipes } from "../../../src/recipes/PlanRecipes";
 
 let nextId = 0;
 const call = (name: string, args: unknown): LLMResponse => ({ message: { role: "assistant", content: null,
@@ -136,4 +138,68 @@ test("planner compacts its own transcript while protecting the request and lates
   assert.equal(last.messages.find(m => m.role === "user")!.content, "Craft an axe then build a wood shelter.");
   assert.match(last.messages.at(-1)!.content!, /wooden_axe x1/);
   assert.ok(h.llm.requests.every(r => estimateInputTokens(r.messages, r.tools) < 20_000));
+});
+
+test("selected variants must have been read; invalid checks get precise feedback before a corrected submission", async () => {
+  const h = await harness();
+  const step = { ...steps[0]!, recipes: [{ item: "stick", variant: 2 }], checks: "inventory_count(stick) >= 4" };
+  h.llm.enqueue(call("submit_plan", { steps: [step] }));
+  h.llm.enqueue(call("read_recipe", { item: "stick", variant: 2 }));
+  h.llm.enqueue(call("submit_plan", { steps: [{ ...step, checks: "\ninventory_total(stick) >= 4" }] }));
+  h.llm.enqueue(call("submit_plan", { steps: [step] }));
+  const report = await h.run();
+  assert.match(h.llm.requests[1]!.messages.at(-1)!.content!, /must succeed before referencing/);
+  assert.match(h.llm.requests[3]!.messages.at(-1)!.content!, /step 1, line 2/);
+  assert.deepEqual(report.steps, [step]);
+  assert.equal(report.recipes[0]!.variant, 2);
+  assert.match(formatPlanRecipes(report.recipes), /2 birch_planks -> 4 stick/);
+  assert.equal(h.inventoryReads(), 0);
+});
+
+test("selected snapshots are deduplicated, isolated and replaced atomically with the plan", async () => {
+  const h = await harness();
+  const ref = { item: "wooden_axe", variant: 1 };
+  h.llm.enqueue(call("read_recipe", ref));
+  h.llm.enqueue(call("read_recipe", { item: "stick" })); // Not selected: trace only.
+  h.llm.enqueue(call("submit_plan", { steps: steps.concat(steps).map(s => ({ ...s, recipes: [ref, ref] })) }));
+  const report = await h.run();
+  assert.equal(report.recipes.length, 1);
+  const state = new WorkflowState();
+  state.applyPlan(report.steps, report.recipes);
+  state.reports[1] = { step: 1, planVersion: state.planVersion, report: { status: "success", message: "Observed", outcomes: [] } };
+  const before = state.snapshot();
+  assert.throws(() => state.applyPlan(report.steps, []), /previous plan unchanged/);
+  assert.deepEqual(state.snapshot(), before);
+  report.recipes[0]!.recipe.outputCount = 99;
+  assert.equal(state.recipesFor(1)[0]!.recipe.outputCount, 1);
+  state.applyPlan(steps);
+  assert.deepEqual(state.recipes, []);
+  assert.deepEqual(state.reports, {});
+  state.start("New request");
+  assert.deepEqual(state.recipes, []);
+});
+
+test("reference overflow is rejected, not truncated; unsupported recipe may be omitted explicitly", async () => {
+  const h = await harness();
+  h.llm.enqueue(call("submit_plan", { steps: [{ ...steps[0], recipes: Array(5).fill({ item: "stick", variant: 1 }) }] }));
+  h.llm.enqueue(call("submit_plan", { steps: [{ ...steps[0], recipes: [], checks: "" }] }));
+  const report = await h.run();
+  assert.match(h.llm.requests[1]!.messages.at(-1)!.content!, /recipes/);
+  assert.deepEqual(report.recipes, []);
+});
+
+test("more than sixteen unique recipe snapshots cannot replace the accepted plan", async () => {
+  const tools = await loadRecipeTools();
+  const base = tools.snapshot({ item: "stick", variant: 1 });
+  // Synthetic catalog entries isolate the limit from the number of recipes in the real library.
+  const recipes = Array.from({ length: 17 }, (_, index) => ({ ...base, item: `item_${index}` }));
+  const plan = Array.from({ length: 5 }, (_, index) => ({ ...steps[0]!,
+    recipes: recipes.slice(index * 4, index * 4 + 4).map(({ item, variant }) => ({ item, variant })),
+  }));
+  const state = new WorkflowState();
+  state.applyPlan(plan.slice(0, 4), recipes.slice(0, 16));
+  assert.equal(state.recipes.length, 16);
+  const before = state.snapshot();
+  assert.throws(() => state.applyPlan(plan, recipes), /previous plan unchanged/);
+  assert.deepEqual(state.snapshot(), before);
 });

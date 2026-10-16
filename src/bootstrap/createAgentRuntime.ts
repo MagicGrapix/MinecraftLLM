@@ -15,7 +15,9 @@ import { BlueprintValidator } from "../building/BlueprintValidator";
 import { MaterialCatalog } from "../world/MaterialCatalog";
 import { createLookupMaterialQuery } from "../world/queries/LookupMaterial";
 import type { LLMClient } from "../llm/LLMClient";
-import { WorkflowSummaryFile } from "../agent/WorkflowState";
+import { WorkflowState, WorkflowSummaryFile } from "../agent/WorkflowState";
+import { StepEvaluationService } from "../agent/StepEvaluationService";
+import { createInventoryEvidenceReader } from "../runtime/InventoryEvidenceReader";
 import { SESSION_ID } from "../TraceLog";
 import { MinecraftChatAdapter } from "../chat/MinecraftChatAdapter";
 import { TOOL_REPLAY_MODE } from "../config";
@@ -61,6 +63,7 @@ export async function createAgentRuntime(
   const sessions = new ContainerSessionManager(runtime.bot);
   const capabilities = createCapabilityRegistry(sessions, dependencies.blueprintsDirectory);
   const executor = new Executor({ registry: capabilities, runtime, world });
+  const task = new WorkflowState();
   const journal = new ToolCallJournal(() =>
     runtime.isConnected && !executor.currentTask ? snapshotInventory(runtime.bot) : null);
   const queries = createDefaultWorldQueryRegistry(world, journal);
@@ -93,7 +96,10 @@ export async function createAgentRuntime(
     requestTimeoutMs: config.llmRequestTimeoutMs,
     ...(inspector ? { inspector } : {}),
   });
+  const inventoryEvidence = createInventoryEvidenceReader(runtime, executor);
+  const stepEvaluator = new StepEvaluationService(task, inventoryEvidence);
   const bridge = new AgentToolBridge({
+    stepEvaluator,
     recipes,
     capabilities,
     queries,
@@ -133,6 +139,7 @@ export async function createAgentRuntime(
   });
   const summaryFile = new WorkflowSummaryFile(SESSION_ID, resolve(process.cwd(), process.env.LOG_DIR ?? "logs"));
   const agent = new WorkflowAgent({
+    task, stepEvaluator,
     recipes,
     llm,
     actionAgent,
@@ -211,6 +218,7 @@ export async function createAgentRuntime(
       shutdownPromise = cleanupSteps([
         { name: "chat", run: () => chat?.detach() },
         { name: "agent", run: () => agent.shutdown() },
+        { name: "inventory evidence listeners", run: () => inventoryEvidence.dispose() },
         { name: "container", run: () => sessions.closeActive(reason) },
         { name: "container listeners", run: () => sessions.dispose() },
         { name: "landmarks", run: () => landmarks.persist() },

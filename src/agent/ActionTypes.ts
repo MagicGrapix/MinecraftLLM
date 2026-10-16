@@ -1,6 +1,7 @@
 import type { Task } from "../execution/Task";
 import type { TaskResult } from "../execution/TaskResult";
 import type { ConstructionContext } from "./ConstructionContext";
+import type { PlanRecipe } from "../recipes/PlanRecipes";
 
 export type ActionFinishStatus = "success" | "failure" | "needs_user";
 
@@ -16,8 +17,10 @@ export interface ActionDelegation {
     readonly step: number;
     readonly title: string;
     readonly successCriteria: string;
+    readonly checks?: string;
   };
-  readonly instruction: string;
+  readonly planVersion: number;
+  readonly recipes?: readonly PlanRecipe[];
   readonly userObjective: string;
   readonly checklist: string;
   readonly projectSummary: string;

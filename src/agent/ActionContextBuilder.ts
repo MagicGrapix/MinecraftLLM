@@ -36,8 +36,8 @@ export class ActionContextBuilder {
       lastResult: request.lastResult ? structuredClone(request.lastResult) : null,
       containerSession: this.dependencies.containerSession?.() ?? null,
     };
-    const { step, userObjective, checklist, projectSummary, instruction, reports } = snapshot.delegation;
-    const taskContext = formatTaskContext({ objective: userObjective, checklist, currentStep: step, reports });
+    const { step, userObjective, checklist, projectSummary, reports, recipes } = snapshot.delegation;
+    const taskContext = formatTaskContext({ objective: userObjective, checklist, currentStep: step, reports, recipes });
     const messages: LLMMessage[] = [
       { role: "system", content: this.dependencies.systemPrompt.render({
         task_context: taskContext,
@@ -47,7 +47,7 @@ export class ActionContextBuilder {
           (snapshot.containerSession ? `\nOpen container: sessionId=${snapshot.containerSession.sessionId}; type=${snapshot.containerSession.windowType}; position=${JSON.stringify(snapshot.containerSession.blockPosition)}. Use this session for transfer_item or close_container.` : ""),
       }) },
       { role: "assistant", content: this.dependencies.conversationSummaryPrompt.render({ summary: request.conversationSummary || "empty. No earlier conversation has been compacted yet." }) },
-      { role: "user", content: instruction },
+      { role: "user", content: `Execute step ${step.step} of the current plan.` },
     ];
     return { messages, snapshot };
   }

@@ -28,7 +28,7 @@ export function enqueueBuildingWorkflow(llm: FakeLLMClient, drawing: { drawing: 
     assert.match(request.messages[0]!.content!, /oak_planks x80/);
     return tool("submit_plan", { steps: [{ title: "Build house", successCriteria: "Blueprint cells verified correct at the supplied origin." }] });
   });
-  llm.enqueue(tool("run_step", { step: 1, instruction: "Build the selected house at the supplied observed origin and verify it." }));
+  llm.enqueue(tool("run_step", { step: 1 }));
   llm.enqueue(request => {
     assert.equal(request.trace?.phase, "actioner");
     const d = (request.trace!.contextSnapshot as { delegation: ActionDelegation }).delegation;

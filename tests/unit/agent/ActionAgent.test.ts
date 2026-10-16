@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { z } from "zod";
 import { ActionAgent } from "../../../src/agent/ActionAgent";
+import { WorkflowState } from "../../../src/agent/WorkflowState";
+import { StepEvaluationService } from "../../../src/agent/StepEvaluationService";
 import { ToolCallJournal } from "../../../src/execution/ToolCallJournal";
 import { inventoryTotals } from "../../../src/runtime/InventoryAdapter";
 import { ActionContextBuilder } from "../../../src/agent/ActionContextBuilder";
@@ -63,7 +65,7 @@ test("delegation uses one actioner prompt and explicit private handoff without i
   assert.equal(request.trace?.generationId, 42);
   assert.equal(request.trace?.reflection, 2);
   assert.deepEqual(request.messages.map((m) => m.role), ["system", "assistant", "user"]);
-  assert.equal(request.messages[2]!.content, delegation().instruction);
+  assert.equal(request.messages[2]!.content, "Execute step 1 of the current plan.");
   assert.equal(h.llm.requests.length, 1);
   assert.deepEqual(h.retries, []);
   assert.equal(ACTION_MAX_TOOL_CALLS, 256);
@@ -85,7 +87,7 @@ test("queries and direct actions share one conversation; operational notes survi
   for (const request of h.llm.requests) {
     assert.equal(request.trace?.phase, "actioner");
     assert.deepEqual(request.tools, h.llm.requests[0]!.tools);
-    assert.equal(request.messages[2]!.content, delegation().instruction);
+    assert.equal(request.messages[2]!.content, "Execute step 1 of the current plan.");
     assert.doesNotMatch(request.messages[0]!.content!, /## Local Plan|Pending actions|## Available Capabilities/);
     protocolValid(request.messages);
   }
@@ -165,7 +167,7 @@ test("history keeps notes and the instruction until compression, and resets afte
     assert.equal(report.outcomes.length, 14);
     for (const request of h.llm.requests) {
       assert.ok(request.messages.some((message) => message.role === "user"));
-      assert.equal(request.messages[2]!.content, delegation().instruction);
+      assert.equal(request.messages[2]!.content, "Execute step 1 of the current plan.");
       assert.equal(request.messages.filter((m) => m.content?.startsWith("Previous conversation summary:")).length, 1);
       protocolValid(request.messages);
     }
@@ -414,7 +416,7 @@ test("real workflow delegates direct actions and still verifies the report befor
   const workflow = workflowHarness(h);
   call(h.llm, "ask_planner", { instruction: "Plan the observed block removal." });
   call(h.llm, "submit_plan", { steps: [{ title: "Remove one log", successCriteria: "Observed log becomes air." }] });
-  call(h.llm, "run_step", { step: 1, instruction: "Remove the observed log at (1, -60, 0)." });
+  call(h.llm, "run_step", { step: 1 });
   action(h.llm, "dig", 1, "Remove the observed target.");
   h.executor.enqueue(success({ position: { x: 1, y: -60, z: 0 }, block: "oak_log" }));
   call(h.llm, "finish_step", { status: "success", message: "Observed log removed." });
@@ -426,7 +428,7 @@ test("real workflow delegates direct actions and still verifies the report befor
   assert.deepEqual(workflow.replies, ["Done."]);
   assert.equal(workflow.agent.task.steps[0]!.status, "done");
   assert.equal(h.agent.state().mode, "idle");
-  assert.equal(h.llm.requests[3]!.messages[2]!.content, "Remove the observed log at (1, -60, 0).");
+  assert.equal(h.llm.requests[3]!.messages[2]!.content, "Execute step 1 of the current plan.");
   const report = JSON.parse(h.llm.requests[5]!.messages.at(-1)!.content!).value.report;
   assert.equal(report.outcomes[0].capability, "dig");
   assert.equal(report.outcomes[0].result.ok, true);
@@ -441,7 +443,7 @@ test("real workflow stop during a capability returns the interrupted report with
   const workflow = workflowHarness(h);
   call(h.llm, "ask_planner", { instruction: "Plan one dig." });
   call(h.llm, "submit_plan", { steps: [{ title: "Dig", successCriteria: "Log becomes air." }] });
-  call(h.llm, "run_step", { step: 1, instruction: "Dig the observed log." });
+  call(h.llm, "run_step", { step: 1 });
   action(h.llm, "dig", 1);
   const physical = h.executor.enqueueDeferred();
   workflow.agent.submitUserMessage("owner", "Remove log.");
@@ -482,7 +484,7 @@ test("coordinator and actioner share numbering and can inspect individual and wh
     const workflow = workflowHarness(h);
     call(h.llm, "ask_planner", { instruction: "Collect a new log." }); // #1
     call(h.llm, "submit_plan", { steps: [{ title: "Collect log", successCriteria: "One new log." }] }); // #2
-    call(h.llm, "run_step", { step: 1, instruction: "Collect the observed log." }); // #3, finishes after children
+    call(h.llm, "run_step", { step: 1 }); // #3, finishes after children
     call(h.llm, "get_inventory", {}); // #4
     action(h.llm, "dig", 1); // #5
     call(h.llm, "get_inventory_diff_after", { actionNumber: 5 }); // #6
@@ -545,8 +547,31 @@ test("actioner receives concrete rejected arguments and corrects them without ex
 });
 
 function delegation(userObjective = "Collect one more log"): ActionDelegation {
-  return { step: { step: 1, title: "Collect a log", successCriteria: "Bot inventory increases by one log." }, instruction: "Collect a new log, then verify the inventory.", userObjective, checklist: "- [ ] 1. Collect a log", projectSummary: "", reports: [] };
+  return { step: { step: 1, title: "Collect a log", successCriteria: "Bot inventory increases by one log." }, planVersion: 1, userObjective, checklist: "- [ ] 1. Collect a log", projectSummary: "", reports: [] };
 }
+
+test("actioner evaluates only its own plan step, uses text feedback and keeps structured debug evidence", async () => {
+  const task = new WorkflowState();
+  task.applyPlan([1, 2].map(() => ({ title: "Have sticks", successCriteria: "Four sticks", checks: "inventory_count(stick) >= 4" })), [], () => true);
+  let reads = 0;
+  const h = await harness({ stepEvaluator: new StepEvaluationService(task, async () => { reads++; return { known: true, items: { stick: 2 } }; }) });
+  call(h.llm, "evaluate_step", { step: 2 });
+  call(h.llm, "evaluate_step", { step: 1 });
+  call(h.llm, "finish_step", { status: "needs_user", message: "Only two sticks; no action taken." });
+  const report = await h.agent.runDelegatedStep({ ...delegation(), step: task.steps[0]!, planVersion: task.planVersion, checklist: task.checklist() });
+  assert.equal(report.outcomes.length, 0);
+  assert.equal(h.executor.started.length, 0);
+  assert.equal(reads, 1);
+  assert.match(h.llm.requests[1]!.messages.at(-1)!.content!, /INVALID_STEP/);
+  assert.match(h.llm.requests[2]!.messages.at(-1)!.content!, /stick: 2 >= 4 — false/);
+  const rounds = h.inspector.listRounds();
+  assert.equal(rounds[0]!.failed, true);
+  assert.equal(rounds[1]!.failed, false);
+  assert.equal(JSON.parse(h.inspector.getRound(rounds[1]!.id)!.toolExecutions[0]!.result!).value.verdict, false);
+  assert.ok(h.llm.requests[0]!.tools!.some(t => t.name === "evaluate_step"));
+  assert.ok(!h.llm.requests[0]!.tools!.some(t => t.name === "inventory_count"));
+  assert.equal(task.steps[0]!.status, "pending");
+});
 
 test("actioner reads the same recipe tools as planner with readable replay, structured logs and no physical action", async () => {
   for (const toolReplayMode of ["native", "compact"] as const) {
@@ -595,6 +620,7 @@ async function until(check: () => boolean): Promise<void> {
   throw new Error("Expected state was not reached.");
 }
 async function harness(options: {
+  stepEvaluator?: StepEvaluationService;
   contextBudget?: ContextBudget;
   maxResponseRetries?: number; maxToolCalls?: number; toolReplayMode?: "native" | "compact";
   cancellationGraceMs?: number;
@@ -626,7 +652,7 @@ async function harness(options: {
   const journal = new ToolCallJournal(() => physicalExecutor.currentTask ? null : inventoryTotals(world.getInventory().items));
   const skills = { list: () => [] } as unknown as SkillRegistry;
   const recipes = await loadRecipeTools();
-  const toolBridge = new AgentToolBridge({ recipes, capabilities, queries: createDefaultWorldQueryRegistry(world, journal), skills, skillLoader: {} as SkillLoader, landmarks });
+  const toolBridge = new AgentToolBridge({ stepEvaluator: options.stepEvaluator, recipes, capabilities, queries: createDefaultWorldQueryRegistry(world, journal), skills, skillLoader: {} as SkillLoader, landmarks });
   const prompts = await loadWorkflowPrompts(resolve(process.cwd(), "prompts"));
   const agent = new ActionAgent({
     llm, journal, executor: physicalExecutor, inspector, toolBridge, contextSummaryPrompt: prompts.contextSummary, contextBudget: options.contextBudget,
@@ -656,7 +682,7 @@ test("actioner compresses its private history and keeps its delegation and lates
   const last = h.llm.requests.at(-1)!;
   assert.match(last.messages[0]!.content!, /Distinct current objective/);
   assert.match(last.messages[1]!.content!, /Pickup still unverified/);
-  assert.equal(last.messages[2]!.content, delegation().instruction);
+  assert.equal(last.messages[2]!.content, "Execute step 1 of the current plan.");
   assert.equal(last.messages.at(-1)!.role, "tool");
   protocolValid(last.messages);
 });

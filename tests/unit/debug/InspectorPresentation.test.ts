@@ -191,6 +191,26 @@ function snapshot(
   return inspector.finalizeRound(current, "completed")!;
 }
 
+test("inventory checks show false and unknown as observations, never as checked steps or execution crashes", () => {
+  for (const verdict of [true, false, null]) {
+    const evaluation = { step: 2, verdict, reason: verdict === null ? "CONTAINER_OPEN" : undefined };
+    const round = snapshot({ phase: "actioner" }, { name: "evaluate_step", arguments: '{"step":2}', ok: true,
+      result: JSON.stringify({ ok: true, value: evaluation }) });
+    assert.equal(round.activity, "evaluate_step → Step 2");
+    assert.equal(round.failed, false);
+    assert.equal(round.outcome, `Step 2 checks — ${verdict === true ? "satisfied" : verdict === false ? "not satisfied" : "unknown (CONTAINER_OPEN)"}`);
+    if (verdict !== true) {
+      const refused = snapshot({ phase: "coordinator" }, { name: "complete_step", arguments: '{"step":2}', ok: true,
+        result: JSON.stringify({ ok: true, value: { completed: false, evaluation } }) });
+      assert.match(refused.outcome, /Step 2 NOT completed/);
+      assert.doesNotMatch(refused.outcome, /marked complete/);
+    }
+  }
+  const completed = snapshot({ phase: "coordinator" }, { name: "complete_step", arguments: '{"step":2}', ok: true,
+    result: JSON.stringify({ ok: true, value: { status: "done" } }) });
+  assert.equal(completed.outcome, "Step 2 marked complete");
+});
+
 function trace(overrides: Partial<LLMRequestTrace> = {}): LLMRequestTrace {
   return { generationId: 1, phase: "coordinator", reflection: 0, round: 0, attempt: 0, wakeType: "coordinator", permission: "coordination", ...overrides };
 }

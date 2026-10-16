@@ -16,6 +16,12 @@ export const TOOL_REPLAY_MODE: "native" | "compact" = "compact";
 // Total validated tool invocations per delegation; parsing retries do not count.
 export const ACTION_MAX_TOOL_CALLS = 256;
 export const PLANNER_MAX_TOOL_CALLS = 16;
+export const PLAN_LIMITS = {
+  recipesPerStep: 4,
+  uniqueRecipes: 16,
+  checkLines: 8,
+  checkChars: 2_000,
+};
 export const RECIPE_LIMITS = {
   maxVariants: 8,
   maxFileBytes: 32_768,

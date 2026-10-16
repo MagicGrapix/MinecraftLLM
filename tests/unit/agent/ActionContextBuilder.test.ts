@@ -4,6 +4,8 @@ import { ActionContextBuilder } from "../../../src/agent/ActionContextBuilder";
 import type { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { PromptTemplate } from "../../../src/prompts/PromptTemplate";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
+import { loadRecipeTools } from "../../support/recipes";
+import { WorkflowState } from "../../../src/agent/WorkflowState";
 
 test("action context provides the full plan and past reports, keeping raw action results in debug only", () => {
   let count = 1;
@@ -21,7 +23,7 @@ test("action context provides the full plan and past reports, keeping raw action
   const input = {
     delegation: {
       step: { step: 2, title: "Craft a table", successCriteria: "A table is in the bot inventory." },
-      instruction: "Use the planks to make a table.", userObjective: "Make a table",
+      planVersion: 1, userObjective: "Make a table",
       checklist: "- [x] 1. Craft planks\n- [ ] 2. Craft a table\n- [ ] 3. Place the table",
       projectSummary: "Crafted planks.",
       reports: [{ step: 1, status: "success" as const, message: "Crafted four oak planks." }],
@@ -48,9 +50,30 @@ test("action context provides the full plan and past reports, keeping raw action
   assert.equal(built.snapshot.self.position.x, 10.53869625851037);
   assert.equal("localPlan" in built.snapshot, false);
   assert.equal("capabilities" in built.snapshot, false);
-  assert.deepEqual(built.messages.slice(1), [{ role: "assistant", content: "Previous conversation summary: empty." }, { role: "user", content: input.delegation.instruction }]);
+  assert.deepEqual(built.messages.slice(1), [{ role: "assistant", content: "Previous conversation summary: empty." }, { role: "user", content: "Execute step 2 of the current plan." }]);
   count = 2;
   assert.match(builder.build(input).messages[0]!.content!, /Bot inventory: oak_log x2/);
   input.delegation.reports[0]!.message = "Changed caller state";
   assert.equal(built.snapshot.delegation.reports[0]!.message, "Crafted four oak planks.");
+});
+
+test("delegation carries the unchanged full checklist but only selected step recipe details", async () => {
+  const recipes = await loadRecipeTools();
+  const state = new WorkflowState();
+  state.applyPlan([
+    { title: "Craft sticks", successCriteria: "At least four sticks", recipes: [{ item: "stick", variant: 2 }], checks: "inventory_count(stick) >= 4" },
+    { title: "Craft axe", successCriteria: "Axe crafted", recipes: [{ item: "wooden_axe", variant: 1 }] },
+  ], [recipes.snapshot({ item: "stick", variant: 2 }), recipes.snapshot({ item: "wooden_axe", variant: 1 })], name => recipes.isKnownItem(name));
+  const builder = new ActionContextBuilder({
+    world: { getSelf: () => ({ position: { x: 0, y: 0, z: 0 }, facing: "north", health: 20, food: 20, foodSaturation: 5, onGround: true }), getInventory: () => ({ items: [], selectedItem: null }) } as unknown as WorldQueries,
+    landmarks: { pinned: () => [] } as unknown as LandmarkMemory,
+    systemPrompt: PromptTemplate.fromString("sys", "{{task_context}}"),
+    conversationSummaryPrompt: PromptTemplate.fromString("summary", "Empty"),
+  });
+  const built = builder.build({ delegation: { step: state.steps[0]!, planVersion: state.planVersion, userObjective: "Axe", checklist: state.checklist(), projectSummary: "", reports: [], recipes: state.recipesFor(1) }, lastResult: null, lastTask: null });
+  assert.match(built.messages[0]!.content!, /2 birch_planks -> 4 stick/);
+  assert.match(built.messages[0]!.content!, /inventory_count\(stick\) >= 4/);
+  assert.match(built.messages[0]!.content!, /Craft axe/);
+  assert.doesNotMatch(built.messages[0]!.content!, /3 oak_planks \+ 2 stick -> 1 wooden_axe|palette|compiledChecks/);
+  assert.equal(built.messages[2]!.content, "Execute step 1 of the current plan.");
 });

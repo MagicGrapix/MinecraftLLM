@@ -34,6 +34,11 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `WorkflowAgent.ts` dirige les délégations et garde `WorkflowState`. `ActionRunner` dans `ActionTypes.ts`
   est sa frontière avec l'actionneur : un changement d'implémentation ne demande pas de réécrire le coordinateur.
   `WorkflowState` conserve le plan, l'étape sélectionnée et le dernier rapport de chaque étape du plan courant.
+  Il conserve aussi les instantanés des recettes choisies et les checks compilés, remplacés atomiquement avec le plan.
+  `StepChecks` parse la grammaire fermée ; `StepCheckEvaluator` calcule sur un snapshot unique ;
+  `StepEvaluationService` contrôle le numéro/version d'étape et partage cette lecture entre les deux rôles.
+  `InventoryEvidenceReader` obtient l'inventaire serveur confirmé via l'adaptateur existant, sans capability.
+  Ces dépendances sont injectées dans `createAgentRuntime`, pas ajoutées aux queries globales du monde.
   Il conserve aussi la référence Blueprint sélectionnée, sa facture calculée et la consigne de conception.
   `ConstructionContext.ts` la présente aux trois rôles, indépendamment de l'historique compactable.
 - `CoordinatorTools.ts` et `ToolCatalogBuilder.ts` définissent les catalogues propres à chaque rôle.

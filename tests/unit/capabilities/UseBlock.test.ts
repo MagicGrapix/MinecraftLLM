@@ -47,7 +47,7 @@ test("use_block aims at the explicit cursor, including an open door's off-centre
   assert.ok(result.ok); assert.equal(bot.listenerCount("windowOpen"), 0);
 });
 
-for (const [name, requiredCapability] of [["chest", "open_container"], ["crafting_table", "craft_from_table_3x3"]]) {
+for (const [name, requiredCapability] of [["chest", "get_chest_contents or use_chest (single ordinary chest only)"], ["crafting_table", "craft_from_table_3x3"]]) {
 test(`use_block redirects ${name} to ${requiredCapability} before sending interaction`, async () => {
   let activated = false;
   const position = new Vec3(1, 64, 1);

@@ -87,3 +87,18 @@ function taskFinished(
     result,
   };
 }
+
+test("station tools verify remembered landmarks from the observed result position, not arguments", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minecraft-station-landmark-"));
+  try {
+    const memory = await LandmarkMemory.load(join(root, "landmarks.json"), { createId: () => "chest-id" });
+    const position = { x: 3, y: 64, z: 0 };
+    await memory.remember({ name: "Chest", kind: "chest", dimension: "overworld", position, source: "observed", pinned: true });
+    for (const capability of ["get_chest_contents", "use_chest"]) {
+      await memory.markStatus("chest-id", "stale");
+      await refreshLandmarksFromTask(taskFinished(capability, {}, success({ position, closed: true })),
+        "overworld", memory, { getBlock: () => ({ name: "chest" } as BlockInfo) });
+      assert.equal(memory.list()[0]?.status, "confirmed");
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

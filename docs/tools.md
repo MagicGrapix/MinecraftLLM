@@ -134,7 +134,7 @@ Le planner voit `build` et `lookup_material` comme documentation, jamais comme t
 L'actionneur ne peut appeler `build` qu'avec le blueprint sélectionné dans sa délégation actuelle.
 Voir [Architect](blueprints.md#architect-lot-4) pour le rapport, les limites et le smoke sans Minecraft.
 
-## Recherches et sessions
+## Recherches
 
 `find_nearest_blocks({ names, maxDistance?, count? })` est une observation asynchrone sans déplacement.
 `maxDistance` vaut 32 par défaut, avec un maximum de **50 blocs** ; `count` vaut 1 par défaut, maximum 128.
@@ -143,8 +143,32 @@ longue retourne une erreur structurée, pas une liste vide. Pour chercher plus l
 
 Les queries du coordinateur et de l'actionneur utilisent les mêmes limites : délai de 2 secondes,
 réponse sérialisée de 12 000 caractères maximum. Réduire `count` ou le rayon si la réponse est trop grande.
-Le World Context de l'actionneur donne aussi la session du conteneur actuellement ouvert, si elle existe.
-`transfer_item` et `close_container` restent les tools d'action ; aucune ouverture implicite n'est ajoutée.
+
+## Coffre et four
+
+Quatre capabilities d'actionneur, également documentées au planner :
+
+- `get_chest_contents({})` : items/quantités du coffre, position, `closed`.
+- `use_chest({ direction: "deposit" | "withdraw", item, quantity })` : transfert exact, pas stock final.
+  Résultat : `requested`, `transferred`, `inventoryBefore/After` (bot), `chestBefore/After`, position et fermeture.
+- `get_furnace_contents({})` : `input`, `fuel`, `output` (item/count ou null), `burning`, `progress` et fermeture.
+  Progression entre 0 et 1, ou null si inconnue. Un slot combustible vide n'implique pas un four éteint.
+- `use_furnace({ inputItem: "raw_iron", quantity: 3, fuel: "coal" })` : insérer, cuire et récupérer les lingots.
+  Résultat : `requested`, `inputInserted`, `fuelInserted`, `collected`, état `remaining`, position et fermeture.
+
+Le bot doit s'approcher séparément : aucun déplacement, collecte ou pose cachée. Recherche locale de 8 blocs,
+portée géométrique de 4,5 blocs depuis les yeux ; il faut une seule cible accessible du type demandé.
+Une ambiguïté exige de se repositionner. La lecture ne réserve pas la cible pour l'appel suivant.
+Les getters ouvrent une fenêtre et prennent donc le même verrou physique que les actions.
+Les quatre outils la ferment eux-mêmes ; les anciens `open_container`, `transfer_item`, `close_container`
+et les sessions publiques ont été retirés.
+
+V1 : coffre ordinaire simple, items ordinaires ; ni double coffre, ni stockage spécialisé.
+Four standard vide, 1 à 16 minerais de fer brut et charbon, stock suffisant et place pour la sortie.
+Le combustible est calculé automatiquement ; limite de 210 secondes pour l'action four.
+Un contenu initial non vide est refusé sans déplacement d'items. Aucune reprise automatique de cuisson.
+Les confirmations serveur distinguent vide et inconnu. Après erreur/stop, inspecter station et inventaire :
+des items peuvent déjà avoir bougé. Les détails techniques restent dans `station.operation`, liés à l'appel parent.
 
 ## Crafting
 

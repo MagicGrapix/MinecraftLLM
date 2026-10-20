@@ -2,7 +2,8 @@ import { AttackCapability } from "../capabilities/Attack";
 import { BuildCapability } from "../capabilities/Build";
 import type { Capability } from "../capabilities/Capability";
 import { CapabilityRegistry } from "../capabilities/CapabilityRegistry";
-import { CloseContainerCapability } from "../capabilities/CloseContainer";
+import { GetChestContentsCapability, UseChestCapability } from "../capabilities/Chest";
+import { GetFurnaceContentsCapability, UseFurnaceCapability } from "../capabilities/Furnace";
 import { ConsumeCapability } from "../capabilities/Consume";
 import { CollectResourceCapability } from "../capabilities/CollectResource";
 import { CraftFromInventoryCapability, CraftFromTableCapability } from "../capabilities/Craft";
@@ -11,15 +12,11 @@ import { DropCapability } from "../capabilities/Drop";
 import { EquipCapability } from "../capabilities/Equip";
 import { GotoCapability } from "../capabilities/Goto";
 import { InteractEntityCapability } from "../capabilities/InteractEntity";
-import { OpenContainerCapability } from "../capabilities/OpenContainer";
 import { PlaceCapability } from "../capabilities/Place";
-import { TransferItemCapability } from "../capabilities/TransferItem";
 import { UseBlockCapability } from "../capabilities/UseBlock";
 import { UseItemCapability } from "../capabilities/UseItem";
-import type { ContainerSessionManager } from "../runtime/ContainerSessionManager";
 
 export function createCapabilityRegistry(
-  sessions: ContainerSessionManager,
   blueprintsDirectory?: string,
 ): CapabilityRegistry {
   const registry = new CapabilityRegistry();
@@ -79,19 +76,21 @@ export function createCapabilityRegistry(
   );
   register(
     registry,
-    new OpenContainerCapability(sessions),
-    "Open a reachable chest-like block and create an opaque container session.",
+    new GetChestContentsCapability(),
+    "Does: Read items and quantities in the single accessible ordinary chest, then close it.\nSuccess: Server contents were observed; no items transferred.\nLimits: No movement. Requires one unambiguous reachable chest; no double chests or other storage types.\nNotes: Returns chest contents, not bot inventory. Example: {}.",
   );
   register(
     registry,
-    new TransferItemCapability(sessions),
-    "Deposit or withdraw an exact item quantity through an active container session.",
+    new UseChestCapability(),
+    'Does: Deposit or withdraw items from the single accessible ordinary chest, then close it.\nSuccess: Exact opposite server-confirmed changes in chest and bot inventory.\nLimits: No movement; ordinary items in a single chest only. quantity is an exact transfer, not final stock.\nNotes: On partial or unconfirmed transfer, read chest and bot inventory before retrying. Example: {"direction":"deposit","item":"oak_log","quantity":2}.',
   );
   register(
     registry,
-    new CloseContainerCapability(sessions),
-    "Close the active container session and its Minecraft window.",
+    new GetFurnaceContentsCapability(),
+    "Does: Read the accessible furnace's input, fuel, output and cooking state, then close it.\nSuccess: Server contents observed without moving items.\nLimits: No movement or collection. Cooking may continue; empty fuel slot does not mean extinguished.\nNotes: Approach the intended furnace first. Example: {}.",
   );
+  register(registry, new UseFurnaceCapability(),
+    'Does: Smelt raw_iron using coal in the single accessible empty furnace; collect iron_ingot and close it.\nSuccess: Requested ingots confirmed in bot inventory.\nLimits: No movement or gathering; supports 1-16 raw_iron with coal only. Requires empty furnace slots and space for output. Up to 210 seconds.\nNotes: Stop/failure may leave items cooking. Read the furnace and bot inventory before retrying; no automatic recovery of earlier output. Example: {"inputItem":"raw_iron","quantity":3,"fuel":"coal"}.');
   register(
     registry,
     new AttackCapability(),

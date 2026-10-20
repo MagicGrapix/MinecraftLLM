@@ -3,7 +3,7 @@
 The library documents crafting knowledge. It does not craft, check the bot's inventory, place a table,
 or prove that a server accepted a recipe. No recipe file means missing knowledge, not impossibility.
 The initial coverage is deliberately small: oak planks, sticks, crafting table, wooden axe/pickaxe/sword,
-stone pickaxe and furnace. Sticks include concrete oak and birch variants.
+stone/iron pickaxes and furnace. Sticks include concrete oak and birch variants.
 
 ## Files and validation
 

@@ -5,7 +5,7 @@ import type { Observation, Scenario } from "./types";
 import { interactionScenarios } from "./InteractionScenarios";
 import { navigationScenarios } from "./NavigationScenarios";
 import { buildingScenarios } from "./BuildingScenarios";
-import { blockAt, fixtureFields, stoneMound } from "./ScenarioFixtures";
+import { blockAt, fixtureFields, ironProgressionMound, stoneMound } from "./ScenarioFixtures";
 
 type TreePosition = { x: number; z: number };
 const singleTree: readonly TreePosition[] = [{ x: 5, z: 0 }];
@@ -75,6 +75,16 @@ const stoneProgressionFixture = fixtureFields((config) => {
   };
 });
 
+const ironProgressionFixture = fixtureFields((config) => {
+  const mound = ironProgressionMound(config);
+  return {
+    plan: new WorldPlanFactory(config).create("Three fixed oak trees and a stone/coal/iron mound", [
+      ...oakPlan(config, forest).commands, ...mound.plan.commands,
+    ]),
+    blocks: [...oakFixture(config, forest), ...mound.blocks],
+  };
+});
+
 export const scenarios: readonly Scenario[] = [
   {
     id: "craft_table",
@@ -129,6 +139,38 @@ export const scenarios: readonly Scenario[] = [
       return { passed: Object.keys(initial.inventory).length === 0 && gained >= 1 && mined >= 3,
         expected: "Start empty, gain 1 stone_pickaxe and remove at least 3 supplied stone blocks",
         actual: `Stone pickaxe gain ${gained}; supplied stone blocks removed ${mined}` };
+    },
+  },
+  {
+    id: "craft_iron_pickaxe_from_world",
+    prompt: "Starting with an empty inventory, craft a stone pickaxe, build and use a furnace, then craft an iron pickaxe using nearby resources. Keep both pickaxes in your inventory.",
+    timeoutMs: 600_000,
+    initialInventory: {},
+    ...ironProgressionFixture,
+    verify: (initial, current) => {
+      const requiredSources = { oak_log: 1, stone: 11, coal_ore: 1, iron_ore: 3 };
+      const removed = Object.entries(requiredSources).map(([name, minimum]) => ({
+        name, minimum,
+        count: initial.blocks.filter(block => {
+          if (block.name !== name) return false;
+          const after = blockAt(current, block.position);
+          // A workstation placed in a mined cell must not erase evidence of removal.
+          return after !== null && after !== name;
+        }).length,
+      }));
+      const stonePickaxe = current.inventory.stone_pickaxe ?? 0;
+      const ironPickaxe = current.inventory.iron_pickaxe ?? 0;
+      const smelted = current.successfulTools?.includes("use_furnace") === true;
+      const startedEmpty = Object.keys(initial.inventory).length === 0;
+      return {
+        passed: startedEmpty && stonePickaxe >= 1 && ironPickaxe >= 1 && smelted && !current.windowOpen
+          && removed.every(source => source.count >= source.minimum),
+        expected: "Start empty; keep stone and iron pickaxes; use a furnace successfully and close its window; "
+          + "remove at least 1 oak_log, 11 stone, 1 coal_ore and 3 iron_ore from the fixture",
+        actual: `Started empty: ${startedEmpty}; stone_pickaxe ${stonePickaxe}; iron_pickaxe ${ironPickaxe}; `
+          + `furnace succeeded: ${smelted}; window open: ${current.windowOpen}; removed: `
+          + removed.map(source => `${source.name} ${source.count}/${source.minimum}`).join(", "),
+      };
     },
   },
   ...navigationScenarios,

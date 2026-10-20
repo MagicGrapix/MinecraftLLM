@@ -122,7 +122,34 @@ function candidateFaces(eyes: Vec3, center: Vec3): Vec3[] {
   return faces;
 }
 
-function probeFace(bot: AccessBot, eyes: Vec3, face: Vec3, target: Block): FaceProbe {
+/** Opening a block shares ray geometry with dig, not dig's tool/ground/reach preconditions. */
+export function inspectInteractionAccess(
+  bot: Pick<Bot, "entity" | "blockAt">, position: Position, reach: number,
+) {
+  const block = bot.blockAt(toVec3(position));
+  const eyeHeight = (bot.entity as typeof bot.entity & { eyeHeight?: number }).eyeHeight;
+  if (!block || eyeHeight === undefined || !Number.isFinite(eyeHeight)) {
+    return { accessible: false, reason: block ? "visibility_unknown" : "unloaded",
+      distance: null, visible: null, blocker: null, aim: null };
+  }
+  const eyes = bot.entity.position.offset(0, eyeHeight, 0);
+  const center = block.position.offset(0.5, 0.5, 0.5);
+  const probes = candidateFaces(eyes, center).map(face => ({ face, probe: probeFace(bot, eyes, face, block) }));
+  const visible = probes.filter(p => p.probe.kind === "visible")
+    .sort((a, b) => eyes.distanceTo(a.face) - eyes.distanceTo(b.face));
+  const target = visible.find(p => p.probe.kind === "visible" && p.probe.distance <= reach);
+  const obstruction = probes.find(p => p.probe.kind === "blocked")?.probe;
+  const unknown = probes.some(p => p.probe.kind === "unknown");
+  return {
+    accessible: !!target, reason: target ? "accessible" : visible.length ? "out_of_reach" : unknown ? "visibility_unknown" : "occluded",
+    distance: Math.round(eyes.distanceTo(center) * 100) / 100,
+    visible: visible.length ? true : unknown ? null : false,
+    blocker: obstruction?.kind === "blocked" ? { block: obstruction.block.name, position: fromVec3(obstruction.block.position) } : null,
+    aim: target?.face ?? null,
+  };
+}
+
+function probeFace(bot: Pick<Bot, "blockAt">, eyes: Vec3, face: Vec3, target: Block): FaceProbe {
   const faceDistance = eyes.distanceTo(face);
   // One additional block lets rays hit a slab's actual surface behind its cube face.
   const range = Math.min(MAX_VISIBILITY_DISTANCE, faceDistance + 1);

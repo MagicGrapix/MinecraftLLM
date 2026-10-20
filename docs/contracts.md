@@ -141,11 +141,26 @@ commencées. Le retour de la seule promesse de navigation n'autorise pas une nou
 `Executor.waitForIdle(timeoutMs)` attend explicitement la libération du verrou physique après arrêt
 des producteurs de tâches. Le runtime expose cette attente pour le lanceur de scénarios.
 
-## Sessions et sorties de l'agent
+## Coffres et fours
 
-Une session de coffre ne survit pas à une fermeture serveur, une mort, un respawn ou une déconnexion.
-Une fenêtre remplacée n'est pas fermée par erreur ; l'ancien identifiant devient invalide.
-Tant que la fenêtre reste ouverte, la délégation suivante peut utiliser son identifiant dans le World Context.
+Les quatre outils prennent le verrou physique, sélectionnent une seule station accessible dans un rayon
+local de 8 blocs et la ferment avant de réussir. Ils ne déplacent pas le bot. Une cible masquée, trop loin
+ou ambiguë reçoit un diagnostic ; une fenêtre étrangère est laissée intacte.
+L'accès réutilise la géométrie de BlockAccess, sans exiger le sol ni la possibilité de casser le bloc.
+
+`get_chest_contents` et `get_furnace_contents` prouvent une lecture serveur, pas une réservation de la station.
+Une observation inconnue n'est pas vide. Les contenus ne sont pas l'inventaire du bot.
+`use_chest` exige des variations opposées égales à la quantité demandée, puis une confirmation du stock
+du bot après fermeture. Une erreur conserve les effets partiels confirmés et leur éventuelle incertitude.
+
+`use_furnace` accepte uniquement 1 à 16 `raw_iron` avec `coal`, slots initialement vides ; il ne récupère pas
+une ancienne sortie. Le charbon requis est `ceil(quantity / 8)`. Les insertions et le gain de lingots sont
+confirmés par paquets serveur. Attente de cuisson : 10 s par item + 20 s de marge ; limite d'action 210 s.
+Le contrôle court utilise `ACTION_CONFIRMATION` (100 ms / 3 s), sans réémettre l'action.
+Un stop peut laisser des ingrédients et une cuisson active dans le four : pas de rollback ou reprise automatique.
+Lire le contenu avant de retenter. Ces confirmations ciblent Java 1.21.11 et des items ordinaires.
+
+## Sorties de l'agent
 
 Les réponses du modèle restent du texte de chat. Chaque morceau commençant par `/` est préfixé par `>`
 avant envoi : une réponse découpée ne doit jamais devenir une commande Minecraft.

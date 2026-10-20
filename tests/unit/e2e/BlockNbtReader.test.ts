@@ -2,10 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import type { Bot } from "mineflayer";
-import { BlockNbtReader, chestInventory } from "../../e2e/BlockNbtReader";
+import { BlockNbtReader, chestInventory, furnaceInventory } from "../../e2e/BlockNbtReader";
 
 const stack = (id: string, count?: number) => ({ id: { type: "string", value: id }, ...(count === undefined ? {} : { count: { type: "int", value: count } }) });
 const chest = (items: unknown[]) => ({ type: "compound", value: { id: { type: "string", value: "minecraft:chest" }, Items: { type: "list", value: { type: "compound", value: items } } } });
+
+test("furnace NBT requires furnace identity and unique slots 0..2, never chest data", () => {
+  const item = { ...stack("minecraft:iron_ingot", 3), Slot: { type: "byte", value: 2 } };
+  const nbt = (items: unknown[]) => ({ type: "compound", value: { Items: { type: "list", value: { type: "compound", value: items } } } });
+  assert.deepEqual(furnaceInventory(nbt([item]), "furnace"), { ok: true, inventory: { iron_ingot: 3 } });
+  assert.deepEqual(furnaceInventory(nbt([]), "furnace"), { ok: true, inventory: {} });
+  for (const raw of [null, chest([]), nbt([item, item]), nbt([{ ...item, Slot: { type: "byte", value: 3 } }]),
+    nbt([{ ...item, count: { type: "int", value: -1 } }]), { type: "compound", value: {} }]) {
+    assert.equal(furnaceInventory(raw, "furnace").ok, false);
+  }
+  assert.equal(furnaceInventory(nbt([]), "chest").ok, false);
+  assert.equal(chestInventory(nbt([]), "furnace").ok, false);
+});
 
 test("chest NBT counts actual item stacks, including count=1 default and empty chests", () => {
   assert.deepEqual(chestInventory(chest([stack("minecraft:oak_log", 2), stack("minecraft:oak_log", 2), stack("minecraft:stick")])), { ok: true, inventory: { oak_log: 4, stick: 1 } });

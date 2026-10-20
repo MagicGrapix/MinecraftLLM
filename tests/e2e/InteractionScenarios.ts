@@ -16,8 +16,8 @@ function chestScenario(direction: "withdraw" | "deposit"): Scenario {
   return {
     id: `chest_${direction}`,
     prompt: withdrawing
-      ? "Take exactly two oak logs from the nearby chest, leave the others inside, keep those two in your inventory, then close the chest. Do not break it."
-      : "Put exactly two of your oak logs into the nearby chest, keep the other two in your inventory, then close the chest. Do not break it.",
+      ? "Inspect the nearby chest, take exactly two oak logs, leave the others inside, and keep those two in your inventory. Leave the chest closed and intact."
+      : "Inspect the nearby chest, put exactly two of your oak logs inside, and keep the other two in your inventory. Leave the chest closed and intact.",
     initialInventory: withdrawing ? {} : { oak_log: 4 },
     ...station("chest"),
     containers: (config) => [{ position: stationPosition(config), items: chestItems }],
@@ -31,15 +31,37 @@ function chestScenario(direction: "withdraw" | "deposit"): Scenario {
       const expectedDelta = withdrawing ? 2 : -2;
       const intact = !!before && blockAt(current, before.position) === "chest";
       return {
-        passed: botDelta === expectedDelta && chestDelta === -expectedDelta && intact && !current.windowOpen,
-        expected: `${direction} exactly 2 oak_log; opposite bot/chest inventory deltas; chest intact and window closed`,
-        actual: `Bot delta ${botDelta}; chest delta ${chestDelta ?? "unknown"}; intact ${intact}; window open ${current.windowOpen}`,
+        passed: botDelta === expectedDelta && chestDelta === -expectedDelta && intact && !current.windowOpen
+          && !!current.successfulTools?.includes("get_chest_contents"),
+        expected: `Inspect chest; ${direction} exactly 2 oak_log; opposite bot/chest inventory deltas; chest intact and window closed`,
+        actual: `Bot delta ${botDelta}; chest delta ${chestDelta ?? "unknown"}; intact ${intact}; window open ${current.windowOpen}; inspected ${!!current.successfulTools?.includes("get_chest_contents")}`,
       };
     },
   };
 }
 
 export const interactionScenarios: readonly Scenario[] = [
+  {
+    id: "smelt_iron",
+    prompt: "Inspect the nearby furnace, smelt the three raw iron in your inventory using your coal, then collect all three iron ingots.",
+    timeoutMs: 300_000,
+    initialInventory: { raw_iron: 3, coal: 1 },
+    ...station("furnace"),
+    containers: config => [{ position: stationPosition(config), items: {}, kind: "furnace" }],
+    verify: (initial, current) => {
+      const before = initial.containers?.[0];
+      const after = current.containers?.find(c => before && c.position.x === before.position.x && c.position.y === before.position.y && c.position.z === before.position.z);
+      const gained = (current.inventory.iron_ingot ?? 0) - (initial.inventory.iron_ingot ?? 0);
+      const consumed = (initial.inventory.raw_iron ?? 0) - (current.inventory.raw_iron ?? 0);
+      const intact = !!before && blockAt(current, before.position) === "furnace";
+      const cleared = after?.inventory !== undefined && after.inventory !== null &&
+        (after.inventory.raw_iron ?? 0) === 0 && (after.inventory.iron_ingot ?? 0) === 0;
+      const inspected = !!current.successfulTools?.includes("get_furnace_contents");
+      return { passed: gained === 3 && consumed === 3 && intact && cleared && inspected && !current.windowOpen,
+        expected: "Inspect furnace; consume 3 raw_iron and collect 3 new iron_ingot; furnace input/output empty, intact and closed",
+        actual: `Ingots gained ${gained}; raw iron consumed ${consumed}; intact ${intact}; input/output clear ${cleared}; inspected ${inspected}; window open ${current.windowOpen}` };
+    },
+  },
   {
     id: "craft_two_wooden_tools",
     prompt: "Use the nearby crafting table and the ingredients in your inventory to craft one wooden axe, then one wooden pickaxe. Keep both tools in your inventory.",

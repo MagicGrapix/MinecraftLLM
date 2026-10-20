@@ -33,7 +33,7 @@ const item = (name: string, slot = 36) => { const i = new Item(data.itemsByName[
 
 test("collector is callable by actioner, documented to planner, and absent from coordinator tools", () => {
   const queries = new WorldQueryRegistry({} as never);
-  const tools = new ToolCatalogBuilder(createCapabilityRegistry({} as never), queries).build();
+  const tools = new ToolCatalogBuilder(createCapabilityRegistry(), queries).build();
   const collect = tools.find(t => t.name === "collect_resource")!;
   assert.ok(collect); assert.match(collect.description, /24 supports/);
   assert.match(formatToolReference(tools), /### collect_resource/);
@@ -78,7 +78,7 @@ test("collector schema is strict and the physical registry exposes its long-runn
   for (const input of [{ item: "oak_log", quantity: 0 }, { item: "oak_log", quantity: 257 }, { item: "oak_log", quantity: "4" },
     { item: "oak_log", quantity: 1.5 }, { item: "oak_log", quantity: 4, radius: 1000 }]) assert.equal(cap.inputSchema.safeParse(input).success, false);
   assert.ok(cap.inputSchema.safeParse({ item: "oak_log", quantity: 256 }).success);
-  const registered = createCapabilityRegistry({} as never).get("collect_resource")!;
+  const registered = createCapabilityRegistry().get("collect_resource")!;
   assert.equal(registered.defaultTimeoutMs, 300_000);
   assert.match(registered.description!, /additional|Additional/);
 });

@@ -1,7 +1,6 @@
 import type { TaskSpec } from "../execution/Task";
 import { SequentialPlanRunner } from "../execution/SequentialPlanRunner";
 import { Executor } from "../execution/Executor";
-import { ContainerSessionManager } from "../runtime/ContainerSessionManager";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
 import { MineflayerWorldQueries } from "../world/MineflayerWorldQueries";
 import { createCapabilityRegistry } from "./createCapabilities";
@@ -16,10 +15,9 @@ export async function createDemoRuntime(
   runtime: MinecraftRuntime,
 ): Promise<RunningDemoRuntime> {
   const world = new MineflayerWorldQueries(runtime);
-  const sessions = new ContainerSessionManager(runtime.bot);
   const runner = new SequentialPlanRunner(
     new Executor({
-      registry: createCapabilityRegistry(sessions),
+      registry: createCapabilityRegistry(),
       runtime,
       world,
     }),
@@ -76,8 +74,6 @@ export async function createDemoRuntime(
       shutdownPromise ??= cleanupSteps([
         { name: "runner", run: () => runner.shutdown(reason) },
         { name: "demo", run: () => demoPromise },
-        { name: "container", run: () => sessions.closeActive(reason) },
-        { name: "container listeners", run: () => sessions.dispose() },
         { name: "connection", run: () => runtime.disconnect(reason) },
       ]);
       return shutdownPromise;

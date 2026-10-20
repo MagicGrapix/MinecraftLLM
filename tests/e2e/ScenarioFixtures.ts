@@ -44,3 +44,17 @@ export function stoneMound(config: WorldBuilderConfig) {
     { min: { x: 8, y, z: 5 }, max: { x: 12, y, z: 9 }, name: "dirt" },
   ]);
 }
+
+/** Exposed early-game resources with a one-block grass step, all close to spawn. */
+export function ironProgressionMound(config: WorldBuilderConfig) {
+  const y = config.surfaceY;
+  return blockFixture(config, "Fixed dirt mound with stone, coal and iron", [
+    // Cover first; ore patches replace stone, leaving fourteen stone blocks.
+    { min: { x: 8, y: y + 2, z: 5 }, max: { x: 13, y: y + 2, z: 8 }, name: "stone" },
+    { min: { x: 8, y: y + 2, z: 5 }, max: { x: 9, y: y + 2, z: 6 }, name: "coal_ore" },
+    { min: { x: 11, y: y + 2, z: 7 }, max: { x: 13, y: y + 2, z: 8 }, name: "iron_ore" },
+    { min: { x: 7, y: y + 1, z: 4 }, max: { x: 14, y: y + 1, z: 9 }, name: "grass_block" },
+    { min: { x: 8, y: y + 1, z: 5 }, max: { x: 13, y: y + 1, z: 8 }, name: "dirt" },
+    { min: { x: 7, y, z: 4 }, max: { x: 14, y, z: 9 }, name: "dirt" },
+  ]);
+}

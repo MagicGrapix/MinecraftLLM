@@ -20,7 +20,6 @@ import { ToolCallJournal } from "../../../src/execution/ToolCallJournal";
 import type { LLMResponse } from "../../../src/llm/LLMClient";
 import { LandmarkMemory } from "../../../src/memory/LandmarkMemory";
 import { loadWorkflowPrompts } from "../../../src/prompts/WorkflowPrompts";
-import type { ContainerSessionManager } from "../../../src/runtime/ContainerSessionManager";
 import { MaterialCatalog } from "../../../src/world/MaterialCatalog";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
 import { createDefaultWorldQueryRegistry } from "../../../src/world/queries/defaultQueries";
@@ -65,7 +64,7 @@ async function setup(t: TestContext) {
   const agent = new WorkflowAgent({
     recipes,
     llm, architectAgent, actionAgent, world, landmarks, queries, journal, prompts, inspector,
-    actionTools: new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries, recipes.definitions).build(),
+    actionTools: new ToolCatalogBuilder(createCapabilityRegistry(), queries, recipes.definitions).build(),
     temperature: 0, maxTokens: 4096, maxRetries: 0, summaryFile,
     respond: async message => { replies.push(message); },
   });

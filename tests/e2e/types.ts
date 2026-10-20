@@ -15,7 +15,7 @@ export interface ContainerObservation {
   error?: { code: string; message: string; path?: string; sample?: string };
 }
 export interface DropObservation { position: Position; item: string | null; count: number | null }
-export interface ContainerFixture { position: Position; items: Readonly<Record<string, number>> }
+export interface ContainerFixture { position: Position; items: Readonly<Record<string, number>>; kind?: "chest" | "furnace" }
 export interface DropFixture { position: Position; item: string; count: number }
 
 export interface Observation {
@@ -36,6 +36,8 @@ export interface Observation {
   mode: string;
   planSteps: number;
   completedSteps: number;
+  /** Successful calls in this isolated request, collected from execution traces, not model claims. */
+  successfulTools?: readonly string[];
 }
 
 export interface Criterion { passed: boolean; expected: string; actual: string; details?: unknown }

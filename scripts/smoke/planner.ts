@@ -12,7 +12,6 @@ import { OpenAICompatibleLLMClient } from "../../src/llm/OpenAICompatibleLLMClie
 import { loadWorkflowPrompts } from "../../src/prompts/WorkflowPrompts";
 import { RecipeLibrary } from "../../src/recipes/RecipeLibrary";
 import { RecipeTools } from "../../src/recipes/RecipeTools";
-import type { ContainerSessionManager } from "../../src/runtime/ContainerSessionManager";
 import { SESSION_ID } from "../../src/TraceLog";
 import type { WorldQueries } from "../../src/world/WorldQueries";
 import { MaterialCatalog } from "../../src/world/MaterialCatalog";
@@ -31,7 +30,7 @@ async function main(): Promise<void> {
   // Catalogs register closures; no world or capability method is invoked by this smoke.
   const queries = createDefaultWorldQueryRegistry({} as WorldQueries, journal);
   queries.register(createLookupMaterialQuery(new MaterialCatalog(mcData)));
-  const reference = new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager),
+  const reference = new ToolCatalogBuilder(createCapabilityRegistry(),
     queries, recipes.definitions).build();
   const agent = new PlannerAgent({
     llm: new OpenAICompatibleLLMClient({ baseUrl: config.llmBaseUrl, apiKey: config.llmApiKey,

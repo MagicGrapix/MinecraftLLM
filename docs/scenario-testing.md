@@ -27,6 +27,7 @@ npm.cmd run test:scenarios -- --scenario craft_wooden_pickaxe --repeat 5
 npm.cmd run test:scenarios -- --scenario craft_two_wooden_tools --repeat 1
 npm.cmd run test:scenarios -- --scenario collect_cobblestone_from_mound --repeat 1
 npm.cmd run test:scenarios -- --scenario craft_stone_pickaxe_from_world --repeat 1
+npm.cmd run test:scenarios -- --scenario craft_iron_pickaxe_from_world --repeat 1
 npm.cmd run test:scenarios -- --scenario build_small_shelter --repeat 1
 npm.cmd run test:scenarios -- --repeat 5
 npm.cmd run test:scenarios
@@ -87,11 +88,33 @@ Scénarios disponibles :
   Réussite = inventaire initial vide, nouvelle pioche en pierre conservée et au moins trois pierres minées.
   Le craft intermédiaire, les recettes choisies et l'ordre des actions restent consultables dans les traces.
   Ces scénarios lisent les cellules du décor via le controller ; une cellule inconnue ne compte jamais comme minée.
+- `craft_iron_pickaxe_from_world` : inventaire vide, trois chênes fixes en (5,0), (-5,4), (3,9)
+  (12 bûches), butte terre/herbe avec 14 pierres, 4 minerais de charbon et 6 minerais de fer exposés.
+  La butte occupe X=7..14/Z=4..9, avec une marche à surfaceY+1 et les ressources à surfaceY+2 ;
+  toutes les ressources sont à moins de 16 blocs horizontalement du départ.
+  Aucun outil, combustible, lingot, four ou table n'est fourni. Une seule demande :
+  fabriquer une pioche en pierre, construire/utiliser un four, puis fabriquer une pioche en fer et
+  conserver les deux pioches. Délai de dix minutes, surchargeable avec `--timeout`.
+  Réussite = départ vide, deux pioches présentes, `use_furnace` réellement réussi, fenêtre fermée,
+  et retrait observé d'au moins 1 bûche, 11 pierres, 1 minerai de charbon et 3 minerais de fer.
+  La quantité de bois consommée n'impose pas de recette particulière : des bâtons peuvent aussi venir des feuilles.
+  Une cellule remplacée après minage compte aussi ; une cellule inconnue ne compte pas.
+  Le four peut rester posé : il n'est pas demandé de le récupérer. L'ordre précis des crafts
+  se lit dans les traces, pas dans l'inventaire final. La recette `iron_pickaxe` est documentée dans
+  la bibliothèque ; la cuisson passe par `use_furnace`, pas par une fausse recette de crafting.
+  Limite actuelle : `collect_resource` couvre bois/terre/cobblestone, pas les minerais. L'agent
+  doit donc miner charbon/fer et ramasser les drops avec ses outils atomiques existants.
+  Ce scénario a été ajouté avec validation hors ligne ; il reste à exécuter en jeu.
 - `collect_dropped_logs` : quatre bûches au sol à (5.5, surfaceY+1, 0.5), sans arbre ; les ramasser.
   Le loot de test ne disparaît pas avec le temps. Sa disparition seule ne suffit pas : il faut gagner quatre bûches.
-- `chest_withdraw` : coffre avec quatre bûches, inventaire vide ; retirer exactement deux bûches et fermer le coffre.
-- `chest_deposit` : coffre vide, quatre bûches en inventaire ; en déposer exactement deux et fermer le coffre.
+- `chest_withdraw` : lire un coffre avec quatre bûches, inventaire vide ; retirer exactement deux bûches et fermer le coffre.
+- `chest_deposit` : lire un coffre vide, quatre bûches en inventaire ; en déposer exactement deux et fermer le coffre.
   Pour les deux tests, les variations des deux inventaires doivent être opposées et le coffre doit rester en place.
+  La trace doit confirmer une lecture `get_chest_contents` réussie.
+- `smelt_iron` : four vide à (3, surfaceY+1, 0), trois `raw_iron` et un `coal` fournis.
+  Lire le four, cuire et récupérer trois lingots, puis fermer. Vérifie le gain, la consommation de minerai,
+  le bloc intact, les contenus NBT sans minerai ni sortie restante et une lecture `get_furnace_contents` réussie.
+  Délai de 300 secondes, cuisson incluse ; aucun test en jeu de four occupé.
 - `navigate_around_wall` : mur de pierre de cinq blocs de large et trois de haut, centré en Z=3 ;
   se tenir sur le marqueur cobblestone au sol en (0, surfaceY, 6), mur intact.
 - `navigate_with_scaffolding` : pilier de deux blocs en X=6/Z=0 avec sommet cobblestone, douze terres fournies ;
@@ -209,6 +232,10 @@ Pendant un essai, un coffre impossible à observer classe l'essai en `error`, pa
 Le paquet Java 1.21.11 ne contient pas nécessairement `id` : son absence est acceptée seulement si le
 controller observe bien un bloc `chest` à cet endroit avant et après la lecture. Un `id` présent mais
 incompatible reste invalide. `Items` doit être une liste explicite, même pour un coffre vide.
+Les fixtures four déclarent `kind: "furnace"` et un contenu initial vide.
+`furnaceInventory` vérifie séparément le bloc et les trois slots du four ; le parseur de coffre n'est pas détourné.
+Le worker transmet aussi `successfulTools`, issu des événements `tool.completed` réussis, pour vérifier
+les lectures explicitement demandées. Le verdict physique reste indépendant du rapport du modèle.
 La lecture NBT cible Java 1.21.11 et utilise les stacks `id` / `count` du
 [format moderne documenté par Mojang](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5).
 `EnvironmentObservations` ajoute `containers` / `drops` aux snapshots côté lanceur ; le worker fournit aussi

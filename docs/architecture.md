@@ -79,6 +79,13 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   attend le bloc attendu, même après un rejet Mineflayer ambigu, sans deuxième envoi.
   La promesse physique reste une barrière d'annulation. Les traces `place.confirmation` relient tentative,
   retour Mineflayer, observations et résultat au `taskId` parent ; les portes gardent leur contrôle spécialisé.
+- `capabilities/Chest.ts` et `Furnace.ts` exposent chacun une lecture et une action, sans coordonnées ni sessions.
+  `StationInteraction` partage la sélection locale unique, l'accès géométrique, l'ouverture et la fermeture.
+  Ces quatre capabilities prennent le verrou physique, même pour lire : ouvrir une fenêtre n'est pas une world query.
+  `ServerWindowObservation` capture les paquets serveur pendant l'ouverture ; après un transfert et fermeture,
+  `ServerInventoryConfirmation` confirme à nouveau l'inventaire du bot. Aucun transfert n'est rejoué automatiquement.
+  Les détails `station.operation` portent le `taskId` parent, sans appel LLM ni numéro d'action intermédiaire.
+  Voir [coffre et four](tools.md#coffre-et-four) pour les limites de cette première version.
 - `capabilities/CollectResource.ts` expose une collecte automatique sans appel LLM interne.
   `collection/ResourceCollector.ts` gère la boucle, les essais bornés et le bilan ; `ResourceCatalog`
   définit les sources, `ResourceAccess` vérifie récolte/outils et `ResourcePickup` vise le sol sous les drops.
@@ -127,7 +134,7 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   Voir [Blueprints](blueprints.md) pour les contrats et limites réellement disponibles.
 - `tests/e2e/` orchestre les campagnes Minecraft : controller réutilisé, bot enfant neuf par essai,
   consignes dans le chat, observations IPC, critères déterministes et rapport HTML persistant.
-  Les observations de coffres/drops sont ajoutées par le controller ; les lectures NBT OP sont isolées dans
+  Les observations de coffres/fours/drops sont ajoutées par le controller ; les lectures NBT OP sont isolées dans
   `tests/e2e/BlockNbtReader.ts` et ne donnent aucun pouvoir supplémentaire au bot testé.
   `TrialRuntime` adapte le workflow ou un essai physique `FixedBuildTrial` sans LLM. `BuildingScenarios.ts`
   vérifie une maison fixe et sa marge depuis le controller (pas depuis le rapport du constructeur).
@@ -171,9 +178,9 @@ Les méthodes Mineflayer sont protégées temporairement sous le verrou de l'Exe
 terminaison des promesses et de leurs continuations. Cet adaptateur est lié à pathfinder 2.4.x : revoir
 les chaînes equip/dig/place lors d'une mise à jour de dépendance.
 
-`ContainerSessionManager` invalide une session à la fermeture serveur, à la mort, au respawn ou à la
-déconnexion, et recoupe la fenêtre courante à la lecture. Sa session opaque est exposée dans le World
-Context de l'actionneur pour une délégation suivante. Le runtime ferme la session et détache ses listeners.
+Les fenêtres coffre/four appartiennent à un seul appel. Une fenêtre étrangère n'est jamais fermée.
+Mort, respawn et déconnexion invalident l'opération ; la barrière physique reste tenue jusqu'à la fin
+de la promesse native et du nettoyage. Il n'existe plus de session de conteneur entre les délégations.
 
 `runtime/cleanup.ts` tente toutes les étapes de fermeture même après une erreur ou un timeout
 (10 secondes par étape). Les erreurs sont regroupées après les tentatives, y compris la déconnexion.

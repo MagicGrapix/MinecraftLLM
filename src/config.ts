@@ -3,6 +3,14 @@ import MinecraftData from "minecraft-data";
 export const MINECRAFT_VERSION = process.env.MINECRAFT_VERSION ?? "1.21.11";
 export const DEFAULT_TASK_TIMEOUT_MS = 30_000;
 export const ACTION_CONFIRMATION = { pollIntervalMs: 100, timeoutMs: 3_000 };
+export const STATION_LIMITS = {
+  searchRadius: 8,
+  interactionReach: 4.5,
+  maxSmeltQuantity: 16,
+  smeltItemMs: 10_000,
+  smeltMarginMs: 20_000,
+  furnaceTimeoutMs: 210_000,
+};
 // goto may alter terrain; scaffolding is taken only from the bot's inventory.
 export const GOTO_DEFAULTS = {
   canDig: true,

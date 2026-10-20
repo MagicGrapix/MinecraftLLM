@@ -7,7 +7,8 @@ import type { ContainerFixture, DropFixture, DropObservation, Observation } from
 export function environmentPlan(config: WorldBuilderConfig, containers: readonly ContainerFixture[], drops: readonly DropFixture[]) {
   const commands: PlannedCommand[] = [];
   if (containers.length > 4 || drops.length > 16) throw new Error("Too many scenario containers or drops.");
-  for (const { position, items } of containers) {
+  for (const { position, items, kind = "chest" } of containers) {
+    if (kind === "furnace" && Object.keys(items).length) throw new Error("Furnace fixtures must start empty.");
     if (Object.keys(items).length > 27) throw new Error("Scenario chest has more than 27 item types.");
     const bounds = createArenaBounds(position, position);
     if (!containsPosition(config.arena, position)) throw new Error("Scenario chest is outside the testing arena.");

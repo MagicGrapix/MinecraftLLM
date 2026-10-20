@@ -113,7 +113,7 @@ function describeCall(name: string, input: Record<string, unknown>): string {
     return `${name} → ${text(input.blueprintId)} at (${origin.x}, ${origin.y}, ${origin.z})`;
   }
   if (name === "get_inventory_diff_after") return `${name} → Action #${input.actionNumber ?? "?"}`;
-  if (["goto", "dig", "get_block", "get_block_access", "use_block", "open_container"].includes(name)) {
+  if (["goto", "dig", "get_block", "get_block_access", "use_block"].includes(name)) {
     const position = record(input.position);
     const coordinates = [position.x, position.y, position.z];
     if (coordinates.every((value) => typeof value === "number" && Number.isFinite(value))) {

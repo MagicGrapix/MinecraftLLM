@@ -13,10 +13,10 @@ const data = MinecraftData("1.21.11");
 const library = () => RecipeLibrary.load(resolve("recipes"), data);
 const fixture = async (name = "wooden_axe"): Promise<any> => JSON.parse(await readFile(resolve("recipes", `${name}.json`), "utf8"));
 
-test("all eight initial files match the version catalog without an inventory or table", async () => {
+test("documented recipe files match the version catalog without an inventory or table", async () => {
   const l = await library();
   assert.deepEqual(l.diagnostics(), []);
-  for (const name of ["oak_planks", "stick", "crafting_table", "wooden_axe", "wooden_pickaxe", "wooden_sword", "stone_pickaxe", "furnace"]) {
+  for (const name of ["oak_planks", "stick", "crafting_table", "wooden_axe", "wooden_pickaxe", "wooden_sword", "stone_pickaxe", "iron_pickaxe", "furnace"]) {
     assert.equal(l.read(name).item, name);
   }
   const tools = new RecipeTools(l);
@@ -26,6 +26,16 @@ test("all eight initial files match the version catalog without an inventory or 
   assert.match(axe.feedback, /Grid: 3x3 \| Station: crafting_table/);
   assert.match(axe.feedback, /A = oak_planks x3\nB = stick x2/);
   assert.match(axe.feedback, /\[A\] \[A\] \[ \]\n\[A\] \[B\] \[ \]\n\[ \] \[B\] \[ \]/);
+});
+
+test("iron pickaxe knowledge uses three ingots and two sticks at a crafting table", async () => {
+  const tools = new RecipeTools(await library());
+  const recipe = tools.execute("read_recipe", { item: "iron_pickaxe" });
+  assert.equal(recipe.result.ok, true);
+  assert.match(recipe.feedback, /iron_pickaxe x1 per craft/);
+  assert.match(recipe.feedback, /Grid: 3x3 \| Station: crafting_table/);
+  assert.match(recipe.feedback, /A = iron_ingot x3\nB = stick x2/);
+  assert.match(recipe.feedback, /\[A\] \[A\] \[A\]\n\[ \] \[B\] \[ \]\n\[ \] \[B\] \[ \]/);
 });
 
 test("whole craft yields, variants and shapeless placement remain explicit", async () => {

@@ -3,7 +3,6 @@ import { Vec3 } from "vec3";
 import { setTimeout as delay } from "node:timers/promises";
 import { MINECRAFT_VERSION } from "../../src/config";
 import { MinecraftRuntime } from "../../src/runtime/MinecraftRuntime";
-import { ContainerSessionManager } from "../../src/runtime/ContainerSessionManager";
 import { MineflayerWorldQueries } from "../../src/world/MineflayerWorldQueries";
 import { createCapabilityRegistry } from "../../src/bootstrap/createCapabilities";
 import { Executor } from "../../src/execution/Executor";
@@ -57,9 +56,8 @@ async function main() {
     const filled = chestInventory(await reader.read(chest), controller.bot.blockAt(chest)?.name ?? null);
     console.info("Filled chest observation", filled);
     assert.deepEqual(filled, { ok: true, inventory: { oak_log: 2 } });
-    const sessions = new ContainerSessionManager(runtime.bot);
     const world = new MineflayerWorldQueries(runtime);
-    const executor = new Executor({ runtime, world, registry: createCapabilityRegistry(sessions), defaultTimeoutMs: 15_000 });
+    const executor = new Executor({ runtime, world, registry: createCapabilityRegistry(), defaultTimeoutMs: 15_000 });
     const tasks = new TaskFactory();
     const found = await world.findNearestBlocks(["oak_log"], { maxDistance: 50, count: 1 });
     assert.ok(found.length > 0);
@@ -70,7 +68,6 @@ async function main() {
     console.info("Navigation and pickup", movement);
     assert.equal(movement.ok, true, JSON.stringify(movement));
     await delay(1000);
-    sessions.dispose();
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
     console.info("Minecraft observation smoke passed (no LLM).");
   } finally {

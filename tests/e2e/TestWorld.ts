@@ -9,7 +9,7 @@ import { bounded, until, message } from "./async";
 import { firstTerrainMismatch, formatTerrainMismatch, type ExpectedBlock, type TerrainMismatch } from "./TerrainVerification";
 import type { ContainerObservation, Observation, Scenario } from "./types";
 import { Vec3 } from "vec3";
-import { BlockNbtReader, chestInventory, NbtObservationError } from "./BlockNbtReader";
+import { BlockNbtReader, chestInventory, furnaceInventory, NbtObservationError } from "./BlockNbtReader";
 import { environmentPlan, environmentReady, observeDrops } from "./EnvironmentObservations";
 import { observeBlocks } from "./BlockObservations";
 import type { Position } from "../../src/shared/types";
@@ -74,23 +74,23 @@ export class TestWorld {
     if (scenario.containers) {
       if (!this.nbt) throw new Error("Controller NBT observer is not ready.");
       const containers: ContainerObservation[] = [];
-      for (const { position } of scenario.containers(this.config)) {
+      for (const { position, kind = "chest" } of scenario.containers(this.config)) {
         const block = this.runtime.bot.blockAt(new Vec3(position.x, position.y, position.z));
-        if (block?.name !== "chest") {
+        if (block?.name !== kind) {
           containers.push({ position, inventory: null, error: {
-            code: block ? "BLOCK_NOT_CHEST" : "BLOCK_UNAVAILABLE",
-            message: `Expected chest; observed ${block?.name ?? "unloaded cell"}.`,
+            code: block ? "WRONG_CONTAINER_BLOCK" : "BLOCK_UNAVAILABLE",
+            message: `Expected ${kind}; observed ${block?.name ?? "unloaded cell"}.`,
           } });
           continue;
         }
         try {
           const raw = await this.nbt.read(position);
           const current = this.runtime.bot.blockAt(new Vec3(position.x, position.y, position.z));
-          if (current?.name !== "chest") {
-            containers.push({ position, inventory: null, error: { code: "BLOCK_CHANGED", message: "Chest disappeared or became unobservable during NBT query." } });
+          if (current?.name !== kind) {
+            containers.push({ position, inventory: null, error: { code: "BLOCK_CHANGED", message: `${kind} disappeared or became unobservable during NBT query.` } });
             continue;
           }
-          const parsed = chestInventory(raw, current.name);
+          const parsed = kind === "furnace" ? furnaceInventory(raw, current.name) : chestInventory(raw, current.name);
           containers.push(parsed.ok ? { position, inventory: parsed.inventory }
             : { position, inventory: null, error: parsed.error });
         } catch (error) {

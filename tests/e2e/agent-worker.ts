@@ -20,12 +20,17 @@ let expectedPrompt = "";
 let closing = false;
 let closePromise: Promise<void> | null = null;
 let settlePromise: Promise<void> | null = null;
+const successfulTools = new Set<string>();
 function send(value: WorkerEvent | WorkerReply): void {
   if (process.connected) process.send?.(value, () => undefined);
 }
 function event(name: string, data: unknown): void { send({ type: "event", event: name, data }); }
 
 subscribeTrace((name, data) => {
+  if (name === "tool.completed") {
+    const call = data as { tool?: string; ok?: boolean };
+    if (call.tool && call.ok === true) successfulTools.add(call.tool);
+  }
   if (name === "workflow.accepted") {
     const input = data as { username: string; text: string };
     if (!armed || input.username !== options.controllerUsername || input.text !== expectedPrompt) {
@@ -47,6 +52,7 @@ function snapshot(positions: readonly Position[] = []): Observation {
     physicalIdle: agentRuntime.isPhysicallyIdle(), mode: state.mode,
     windowOpen: !!bot.currentWindow,
     planSteps: state.planSteps, completedSteps: state.completedSteps,
+    successfulTools: [...successfulTools],
   };
 }
 

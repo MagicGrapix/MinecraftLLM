@@ -199,14 +199,14 @@ function requiredCapability(blockName: string): string {
     blockName === "barrel" ||
     blockName.includes("shulker")
   ) {
-    return "open_container";
+    return "get_chest_contents or use_chest (single ordinary chest only)";
   }
   if (
     blockName.includes("furnace") ||
     blockName === "smoker" ||
     blockName === "blast_furnace"
   ) {
-    return "open_furnace";
+    return "get_furnace_contents or use_furnace (standard furnace only)";
   }
   return "unsupported";
 }

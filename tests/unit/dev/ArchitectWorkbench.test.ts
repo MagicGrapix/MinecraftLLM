@@ -48,7 +48,7 @@ test("workbench preserves exact request, raw response, tool feedback, prompt sou
   assert.equal(sent!.max_tokens, 8192);
   assert.equal(sent!.reasoning_effort, "none");
   assert.equal(trial.calls[0]!.round!.toolExecutions[0]!.ok, true);
-  assert.equal(trial.blueprint!.blueprint.layers.map(rows => rows.join("\n")).join("\n\n"), drawing.drawing);
+  assert.equal(trial.blueprint!.blueprint.layers.map(rows => rows.join("\n")).join("\n\n"), drawing.drawing.replace(/\r\n/g, "\n"));
   assert.deepEqual(trial.blueprint!.materials, [{ item: "oak_planks", quantity: 80 }]);
   assert.equal((await readdir(join(trial.directory, "blueprints"))).length, 1);
   assert.equal(JSON.stringify(trial).includes("secret-not-in-artifacts"), false);

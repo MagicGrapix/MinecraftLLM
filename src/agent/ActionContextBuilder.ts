@@ -7,7 +7,6 @@ import type { WorldQueries } from "../world/WorldQueries";
 import type { ActionDelegation } from "./ActionTypes";
 import { formatWorldContext } from "./WorldContextFormatter";
 import { formatTaskContext } from "./TaskContextFormatter";
-import type { ContainerSession } from "../runtime/ContainerSessionManager";
 import { formatConstructionContext } from "./ConstructionContext";
 
 export interface ActionContextRequest {
@@ -23,7 +22,6 @@ export class ActionContextBuilder {
     landmarks: LandmarkMemory;
     systemPrompt: PromptTemplate;
     conversationSummaryPrompt: PromptTemplate;
-    containerSession?: () => ContainerSession | null;
   }) {}
 
   build(request: ActionContextRequest) {
@@ -34,7 +32,6 @@ export class ActionContextBuilder {
       pinnedLandmarks: this.dependencies.landmarks.pinned(),
       lastTask: request.lastTask ? structuredClone(request.lastTask) : null,
       lastResult: request.lastResult ? structuredClone(request.lastResult) : null,
-      containerSession: this.dependencies.containerSession?.() ?? null,
     };
     const { step, userObjective, checklist, projectSummary, reports, recipes } = snapshot.delegation;
     const taskContext = formatTaskContext({ objective: userObjective, checklist, currentStep: step, reports, recipes });
@@ -43,8 +40,7 @@ export class ActionContextBuilder {
         task_context: taskContext,
         construction_context: formatConstructionContext(snapshot.delegation.construction),
         task_summary_section: projectSummary ? `## Task Summary\n\n${projectSummary}` : "",
-        world_context: formatWorldContext({ self: snapshot.self, inventory: snapshot.inventory, landmarks: snapshot.pinnedLandmarks }) +
-          (snapshot.containerSession ? `\nOpen container: sessionId=${snapshot.containerSession.sessionId}; type=${snapshot.containerSession.windowType}; position=${JSON.stringify(snapshot.containerSession.blockPosition)}. Use this session for transfer_item or close_container.` : ""),
+        world_context: formatWorldContext({ self: snapshot.self, inventory: snapshot.inventory, landmarks: snapshot.pinnedLandmarks }),
       }) },
       { role: "assistant", content: this.dependencies.conversationSummaryPrompt.render({ summary: request.conversationSummary || "empty. No earlier conversation has been compacted yet." }) },
       { role: "user", content: `Execute step ${step.step} of the current plan.` },

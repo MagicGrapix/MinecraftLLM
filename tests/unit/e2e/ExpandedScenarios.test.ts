@@ -76,6 +76,77 @@ test("stone pickaxe progression starts empty and requires mined stone plus the f
   assert.equal(s.verify({ ...before, inventory: { wooden_pickaxe: 1 } }, after).passed, false);
 });
 
+test("iron progression requires both pickaxes, mined resources and a successful furnace operation", () => {
+  const s = get("craft_iron_pickaxe_from_world"), before = initial(s);
+  assert.deepEqual(before.inventory, {});
+  assert.equal(s.timeoutMs, 600_000);
+  const required: Record<string, number> = { oak_log: 1, stone: 11, coal_ore: 1, iron_ore: 3 };
+  function removeSources(counts = required, replacement: string | null = "air") {
+    const remaining = { ...counts };
+    return before.blocks.map(block => {
+      const name = block.name ?? "";
+      if ((remaining[name] ?? 0) <= 0) return block;
+      remaining[name]!--;
+      return { ...block, name: replacement };
+    });
+  }
+  const after: Observation = { ...before, inventory: { stone_pickaxe: 1, iron_pickaxe: 1 },
+    successfulTools: ["use_furnace"], blocks: removeSources() };
+  assert.equal(s.verify(before, before).passed, false);
+  assert.equal(s.verify(before, after).passed, true);
+  // Replacing a removed block is allowed; unavailable observations are not removals.
+  assert.equal(s.verify(before, { ...after, blocks: removeSources(required, "dirt") }).passed, true);
+  const invalidStates: Observation[] = [
+    { ...after, inventory: { stone_pickaxe: 1 } },
+    { ...after, inventory: { iron_pickaxe: 1 } },
+    { ...after, inventory: { stone_pickaxe: 1, iron_ingot: 3 } },
+    { ...after, successfulTools: [] },
+    { ...after, successfulTools: ["get_furnace_contents"] },
+    { ...after, successfulTools: undefined },
+    { ...after, windowOpen: true },
+    { ...after, blocks: [] },
+    { ...after, blocks: removeSources(required, null) },
+    { ...after, blocks: before.blocks, completedSteps: 20 },
+  ];
+  for (const [name, count] of Object.entries(required)) {
+    invalidStates.push({ ...after, blocks: removeSources({ ...required, [name]: count - 1 }) });
+  }
+  for (const invalid of invalidStates) assert.equal(s.verify(before, invalid).passed, false, s.verify(before, invalid).actual);
+  assert.equal(s.verify({ ...before, inventory: { wooden_pickaxe: 1 } }, after).passed, false);
+});
+
+test("iron progression supplies a fixed accessible resource budget without tools or workstations", () => {
+  const s = get("craft_iron_pickaxe_from_world"), blocks = s.expectedBlocks!(config);
+  for (const [name, count] of Object.entries({ oak_log: 12, stone: 14, coal_ore: 4, iron_ore: 6 })) {
+    const sources = blocks.filter(b => b.name === name);
+    assert.equal(sources.length, count, name);
+    assert.ok(sources.every(b => Math.hypot(b.position.x - 0.5, b.position.z - 0.5) < 16));
+    if (name !== "oak_log") {
+      for (const { position } of sources) {
+        assert.equal(position.y, config.surfaceY + 2);
+        assert.equal(blockAt({ blocks }, { ...position, y: position.y - 1 }), "dirt");
+        assert.equal(blockAt({ blocks }, { ...position, y: position.y + 1 }), null);
+      }
+    }
+  }
+  assert.ok(blocks.every(b => !["crafting_table", "furnace"].includes(b.name)));
+  for (const position of [{ x: 7, z: 5 }, { x: 14, z: 5 }, { x: 10, z: 4 }, { x: 10, z: 9 }]) {
+    assert.equal(blockAt({ blocks }, { ...position, y: config.surfaceY + 1 }), "grass_block");
+  }
+  const written = new Map<string, string>();
+  for (const command of s.fixture!(config).commands) {
+    const [, x1, y1, z1, x2, y2, z2, block] = command.text.split(" ");
+    for (let x = Number(x1); x <= Number(x2); x++) for (let y = Number(y1); y <= Number(y2); y++) {
+      for (let z = Number(z1); z <= Number(z2); z++) written.set(`${x},${y},${z}`, block!.split("[")[0]!.replace("minecraft:", ""));
+    }
+  }
+  assert.equal(new Set(blocks.map(b => JSON.stringify(b.position))).size, blocks.length);
+  assert.deepEqual(written, new Map(blocks.map(b => [`${b.position.x},${b.position.y},${b.position.z}`, b.name])));
+  assert.deepEqual(s.observeBlocks!(config), blocks.map(b => b.position));
+  assert.throws(() => s.fixture!({ ...config, arena: { min: { x: -1, y: -64, z: -1 }, max: { x: 1, y: -30, z: 1 } } }), /outside/);
+  assert.deepEqual(s.expectedBlocks!({ ...config, surfaceY: -60 }).map(b => b.position.y), blocks.map(b => b.position.y + 1));
+});
+
 test("resource scenarios share a fixed walkable mound whose fill commands match every expected cell", () => {
   const mound = get("collect_cobblestone_from_mound");
   const blocks = mound.expectedBlocks!(config);
@@ -119,14 +190,33 @@ test("loose-item collection requires inventory gain, not disappearance alone", (
 
 for (const direction of ["withdraw", "deposit"]) test(`chest ${direction} checks both inventories, exact count, chest and closed window`, () => {
   const s = get(`chest_${direction}`), before = initial(s);
-  const after = { ...before, inventory: { oak_log: 2 }, containers: [{ position: before.containers![0]!.position, inventory: { oak_log: 2 } }] };
+  const after = { ...before, inventory: { oak_log: 2 }, containers: [{ position: before.containers![0]!.position, inventory: { oak_log: 2 } }],
+    successfulTools: ["get_chest_contents"] };
   assert.equal(s.verify(before, after).passed, true);
   assert.equal(s.verify(before, { ...after, containers: before.containers }).passed, false);
   assert.equal(s.verify(before, { ...after, inventory: { oak_log: 3 } }).passed, false);
   assert.equal(s.verify(before, { ...after, containers: [{ ...after.containers[0]!, inventory: null }] }).passed, false);
   assert.equal(s.verify(before, { ...after, blocks: [] }).passed, false);
   assert.equal(s.verify(before, { ...after, windowOpen: true }).passed, false);
+  assert.equal(s.verify(before, { ...after, successfulTools: [] }).passed, false);
   assert.equal(s.verify(before, { ...after, containers: [{ ...after.containers[0]!, position: { x: 8, y: -60, z: 0 } }] }).passed, false);
+});
+
+test("smelting requires inspection, three new ingots, consumed input, empty furnace output and closed window", () => {
+  const s = get("smelt_iron"), before = initial(s);
+  assert.deepEqual(before.inventory, { raw_iron: 3, coal: 1 });
+  const after = { ...before, inventory: { iron_ingot: 3 }, successfulTools: ["get_furnace_contents"] };
+  assert.equal(s.verify(before, after).passed, true);
+  const invalidStates: Observation[] = [
+    { ...after, inventory: { iron_ingot: 2 } },
+    { ...after, inventory: { iron_ingot: 3, raw_iron: 1 } },
+    { ...after, windowOpen: true }, { ...after, blocks: [] }, { ...after, successfulTools: [] },
+    { ...after, containers: [{ ...after.containers![0]!, inventory: null }] },
+    { ...after, containers: [{ ...after.containers![0]!, inventory: { iron_ingot: 1 } }] },
+    { ...after, containers: [{ ...after.containers![0]!, inventory: { raw_iron: 1 } }] },
+  ];
+  for (const invalid of invalidStates) assert.equal(s.verify(before, invalid).passed, false);
+  assert.equal(s.verify({ ...before, inventory: { iron_ingot: 3 } }, after).passed, false);
 });
 
 test("food setup requires hunger with the effect expired; success requires real consumption and food gain", () => {

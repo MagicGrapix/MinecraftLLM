@@ -142,7 +142,7 @@ test("trial evaluates enriched controller observations and preserves them in the
   const s = scenarios.find((s) => s.id === "chest_deposit")!;
   const position = { x: 3, y: -60, z: 0 };
   const before = observation({ inventory: { oak_log: 4 }, blocks: [{ position, name: "chest" }], containers: [{ position, inventory: {} }] });
-  const after = { ...before, inventory: { oak_log: 2 }, containers: [{ position, inventory: { oak_log: 2 } }] };
+  const after = { ...before, successfulTools: ["get_chest_contents"], inventory: { oak_log: 2 }, containers: [{ position, inventory: { oak_log: 2 } }] };
   const agent: TrialAgent = { acceptedAt: 0, finished: { at: 0 }, failure: null,
     arm: async () => undefined, snapshot: async () => assert.fail("Must use the controller-enriched snapshot") };
   const result = await runTrial({ scenario: s, agent, initial: before, timeoutMs: 100, acceptanceTimeoutMs: 50, pollMs: 10,
@@ -175,7 +175,7 @@ test("container verdict waits for matching post-finish samples from both clients
   const agent: TrialAgent = { acceptedAt: 0, finished: { at: 0 }, failure: null, arm: async () => undefined,
     snapshot: async () => {
       samples++;
-      return { ...initial, inventory: { oak_log: samples === 1 ? 4 : 2 }, containers: [{ position, inventory: { oak_log: 2 } }] };
+      return { ...initial, successfulTools: ["get_chest_contents"], inventory: { oak_log: samples === 1 ? 4 : 2 }, containers: [{ position, inventory: { oak_log: 2 } }] };
     } };
   const result = await runTrial({ scenario: scenarios.find((s) => s.id === "chest_deposit")!, agent, initial,
     timeoutMs: 500, acceptanceTimeoutMs: 50, pollMs: 10, now: () => time, wait: async (ms) => { time += ms; },

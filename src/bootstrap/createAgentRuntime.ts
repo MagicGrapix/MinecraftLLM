@@ -33,7 +33,6 @@ import { snapshotInventory } from "../runtime/InventoryAdapter";
 import { OpenAICompatibleLLMClient } from "../llm/OpenAICompatibleLLMClient";
 import { LandmarkMemory } from "../memory/LandmarkMemory";
 import { loadWorkflowPrompts } from "../prompts/WorkflowPrompts";
-import { ContainerSessionManager } from "../runtime/ContainerSessionManager";
 import { cleanupSteps } from "../runtime/cleanup";
 import type { WorldQueries } from "../world/WorldQueries";
 import type { MinecraftRuntime } from "../runtime/MinecraftRuntime";
@@ -60,8 +59,7 @@ export async function createAgentRuntime(
   dependencies: { llm?: LLMClient; blueprintsDirectory?: string } = {},
 ): Promise<RunningAgentRuntime> {
   const world = new MineflayerWorldQueries(runtime);
-  const sessions = new ContainerSessionManager(runtime.bot);
-  const capabilities = createCapabilityRegistry(sessions, dependencies.blueprintsDirectory);
+  const capabilities = createCapabilityRegistry(dependencies.blueprintsDirectory);
   const executor = new Executor({ registry: capabilities, runtime, world });
   const task = new WorkflowState();
   const journal = new ToolCallJournal(() =>
@@ -115,7 +113,6 @@ export async function createAgentRuntime(
     landmarks,
     systemPrompt: prompts.actioner,
     conversationSummaryPrompt: prompts.conversationSummary,
-    containerSession: () => sessions.snapshot(),
   });
 
   let chat: MinecraftChatAdapter | null = null;
@@ -219,8 +216,6 @@ export async function createAgentRuntime(
         { name: "chat", run: () => chat?.detach() },
         { name: "agent", run: () => agent.shutdown() },
         { name: "inventory evidence listeners", run: () => inventoryEvidence.dispose() },
-        { name: "container", run: () => sessions.closeActive(reason) },
-        { name: "container listeners", run: () => sessions.dispose() },
         { name: "landmarks", run: () => landmarks.persist() },
         { name: "inspector", run: async () => {
           try { await inspectorServer?.close(); } finally { inspectorServer = null; }
@@ -270,7 +265,7 @@ export async function refreshLandmarksFromTask(
     await landmarks.verifyBlock(dimension, inputPosition, block?.name ?? null, block !== null);
     return;
   }
-  if (event.task.capability === "place") {
+  if (["place", "get_chest_contents", "use_chest", "get_furnace_contents", "use_furnace"].includes(event.task.capability)) {
     const placedPosition =
       typeof event.result.value === "object" &&
       event.result.value !== null &&
@@ -286,7 +281,6 @@ export async function refreshLandmarksFromTask(
   if (
     isPosition(inputPosition) &&
     (event.task.capability === "use_block" ||
-      event.task.capability === "open_container" ||
       event.task.capability === "craft_from_table_3x3")
   ) {
     const block = world.getBlock(inputPosition);

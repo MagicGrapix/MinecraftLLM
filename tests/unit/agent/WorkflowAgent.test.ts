@@ -9,7 +9,6 @@ import type { ActionDelegation, DelegatedActionReport } from "../../../src/agent
 import { WorkflowAgent } from "../../../src/agent/WorkflowAgent";
 import { ToolCatalogBuilder } from "../../../src/agent/ToolCatalogBuilder";
 import { createCapabilityRegistry } from "../../../src/bootstrap/createCapabilities";
-import type { ContainerSessionManager } from "../../../src/runtime/ContainerSessionManager";
 import { ToolCallJournal } from "../../../src/execution/ToolCallJournal";
 import { inventoryTotals } from "../../../src/runtime/InventoryAdapter";
 import { WorkflowSummaryFile } from "../../../src/agent/WorkflowState";
@@ -685,7 +684,7 @@ function actionSuccess(): DelegatedActionReport {
   return { status: "success", message: "One log collected.", outcomes: [{ task: { id: "dig-1", createdAt: 0, capability: "dig", input: {} }, result: success({ block: "oak_log" }) }] };
 }
 function section(messages: readonly LLMMessage[], heading: string): string | undefined {
-  const text = messages[0]!.content!;
+  const text = messages[0]!.content!.replace(/\r\n/g, "\n");
   return text.split(`## ${heading}\n`)[1]?.split(/\n## /)[0]?.trim();
 }
 function assertProtocol(messages: readonly LLMMessage[]): void {
@@ -728,7 +727,7 @@ async function harness(maxRetries = 0, toolReplayMode: "native" | "compact" = "n
   const journal = new ToolCallJournal(() => inventoryTotals(world.getInventory().items));
   const queries = createDefaultWorldQueryRegistry(world, journal);
   const recipes = await loadRecipeTools();
-  const actionTools = new ToolCatalogBuilder(createCapabilityRegistry({} as ContainerSessionManager), queries, recipes.definitions).build();
+  const actionTools = new ToolCatalogBuilder(createCapabilityRegistry(), queries, recipes.definitions).build();
   const task = new WorkflowState();
   const agent = new WorkflowAgent({
     task, stepEvaluator: new StepEvaluationService(task, reader),

@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Bot } from "mineflayer";
-import { ContainerSessionManager } from "../../../src/runtime/ContainerSessionManager";
 import { createCapabilityRegistry } from "../../../src/bootstrap/createCapabilities";
 import { ToolCatalogBuilder } from "../../../src/agent/ToolCatalogBuilder";
 import { WorldQueryRegistry } from "../../../src/world/queries/WorldQueryRegistry";
@@ -9,12 +7,10 @@ import { buildOpenAIRequestBody } from "../../../src/llm/openaiRequestBody";
 import type { WorldQueries } from "../../../src/world/WorldQueries";
 
 test("bootstrap exposes every capability with an actionable description", () => {
-  const registry = createCapabilityRegistry(
-    new ContainerSessionManager({} as Bot),
-  );
+  const registry = createCapabilityRegistry();
   const summaries = registry.list();
 
-  assert.equal(summaries.length, 17);
+  assert.equal(summaries.length, 18);
   assert.equal(registry.get("build")?.defaultTimeoutMs, 300_000);
   assert.equal(registry.get("collect_resource")?.defaultTimeoutMs, 300_000);
   assert.equal(
@@ -29,7 +25,7 @@ test("bootstrap exposes every capability with an actionable description", () => 
 });
 
 test("LLM catalog exposes exactly two flat crafting schemas and no legacy craft tool", () => {
-  const registry = createCapabilityRegistry(new ContainerSessionManager({} as Bot));
+  const registry = createCapabilityRegistry();
   const tools = new ToolCatalogBuilder(registry, new WorldQueryRegistry({} as WorldQueries)).build();
   const body = buildOpenAIRequestBody({ messages: [], tools }, "test-model");
   const sentTools = body.tools as Array<{ function: { name: string; parameters: Record<string, any> } }>;
@@ -50,4 +46,22 @@ test("LLM catalog exposes exactly two flat crafting schemas and no legacy craft 
     assert.equal(schema.properties.quantity.type, "integer");
     assert.match(schema.description, /Example:/);
   }
+});
+
+test("station catalog exposes four small schemas without coordinates or public sessions", () => {
+  const registry = createCapabilityRegistry();
+  for (const name of ["open_container", "transfer_item", "close_container", "open_furnace"]) assert.equal(registry.has(name), false);
+  const tools = new ToolCatalogBuilder(registry, new WorldQueryRegistry({} as WorldQueries)).build();
+  const body = buildOpenAIRequestBody({ messages: [], tools }, "test-model");
+  const sent = body.tools as Array<{ function: { name: string; parameters: Record<string, any> } }>;
+  for (const [name, keys] of [
+    ["get_chest_contents", []], ["use_chest", ["direction", "item", "quantity"]],
+    ["get_furnace_contents", []], ["use_furnace", ["inputItem", "quantity", "fuel"]],
+  ] as const) {
+    const schema = sent.find(t => t.function.name === name)!.function.parameters;
+    assert.deepEqual(Object.keys(schema.properties), keys);
+    assert.equal(schema.additionalProperties, false);
+    assert.equal(registry.has(name), true);
+  }
+  assert.equal(registry.get("use_furnace")!.defaultTimeoutMs, 210_000);
 });

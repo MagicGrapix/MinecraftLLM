@@ -174,6 +174,12 @@ Poser de la terre sur une ancienne table ne confirme pas cette table ; une cellu
 
 ## Contrôleur de monde
 
+Les [scènes photo](photo-scenes.md) réutilisent sa file mais ciblent une sous-zone fixe (X/Z=22..42)
+et un figurant distinct `photo_bot`, sans LLM. Elles refusent un agent habituel encore connecté.
+Les blocs et entités non-joueurs de cette sous-zone sont remplacés ; l'heure/météo changent globalement.
+Leur message « ready » attend les observations du décor, de la position et des items, mais ne prouve
+ni une collecte, ni un craft, ni une construction autonome. Ce sont des illustrations reconstruites.
+
 Le format Blueprint, son stockage et la capability survival `build` sont distincts du contrôleur OP : voir
 [les contrats Blueprint](blueprints.md). `build` ne peut ni donner des items, ni effacer le terrain,
 ni utiliser des commandes serveur. L'Architect ne possède que la recherche de noms

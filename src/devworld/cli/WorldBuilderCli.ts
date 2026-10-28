@@ -8,6 +8,9 @@ import type { WorldBuilder } from "../WorldBuilder";
 import type { WorldControllerRuntime } from "../controller/WorldControllerRuntime";
 import type { CommandExecutor } from "../execution/CommandExecutor";
 import type { WorldPlan } from "../WorldPlan";
+import type { SceneController } from "../scenes/SceneController";
+import { SCENES } from "../scenes/SceneCatalog";
+import { PHOTO_ACTOR, xyz, type PreparedScene } from "../scenes/ScenePlan";
 import {
   parseWorldCommand,
   type GenerativeWorldCommand,
@@ -19,6 +22,7 @@ export interface WorldBuilderCliOptions {
   readonly builder: WorldBuilder;
   readonly executor: CommandExecutor;
   readonly commandsPerSecond: number;
+  readonly scenes?: Pick<SceneController, "prepare" | "apply">;
   readonly readline?: Pick<ReadlineInterface, "question" | "close">;
   readonly writeLine?: (message: string) => void;
 }
@@ -91,10 +95,31 @@ export class WorldBuilderCli {
         await this.executePlan(this.options.builder.reset());
         return "continue";
       case "preview":
+        if (command.command.kind === "scene") {
+          const scene = this.requireScenes().prepare(command.command.id);
+          this.previewPlan(scene.plan);
+          this.printSceneDetails(scene);
+          return "continue";
+        }
         this.previewPlan(
           this.generateRelativePlan(command.command),
         );
         return "continue";
+      case "scene_list":
+        for (const scene of SCENES) this.writeLine(`${scene.id}. ${scene.name}: ${scene.description}`);
+        this.writeLine("scene <id> replaces only the photo stage and resets photo_bot; the regular agent must be disconnected. Staged illustrations, not autonomous runs.");
+        return "continue";
+      case "scene": {
+        const scenes = this.requireScenes();
+        const scene = scenes.prepare(command.id);
+        this.writeLine("Warning: blocks and non-player entities inside the photo stage will be replaced. Time/weather change globally. No rollback.");
+        this.printPlan(scene.plan, false);
+        this.writeLine(`Preparing ${PHOTO_ACTOR} and sending commands at up to ${this.options.commandsPerSecond}/second...`);
+        await scenes.apply(scene);
+        this.writeLine(`Scene ${scene.scene.id} ready: decor, actor position, held item and loose items verified. No LLM called.`);
+        this.printSceneDetails(scene);
+        return "continue";
+      }
       case "tree":
       case "forest":
       case "ore":
@@ -128,6 +153,19 @@ export class WorldBuilderCli {
       command.ore,
       command.size,
     );
+  }
+
+  private requireScenes(): NonNullable<WorldBuilderCliOptions["scenes"]> {
+    if (!this.options.scenes) throw new Error("Photo scenes are not configured in this controller.");
+    return this.options.scenes;
+  }
+
+  private printSceneDetails(scene: PreparedScene): void {
+    const { camera } = scene;
+    this.writeLine(`Staged illustration: ${scene.scene.description}`);
+    this.writeLine(`Optional camera command (run as your player, not in this terminal): /tp @s ${xyz(camera.position)} ${camera.yaw} ${camera.pitch}`);
+    this.writeLine("Keep this terminal open for photo_bot to remain connected. Capture manually in Minecraft.");
+    if (scene.scene.drawing) this.writeLine(`Matching blueprint (bottom to top; A=oak_planks, .=air):\n${scene.scene.drawing}`);
   }
 
   private requireAgentPosition(): Position {
@@ -221,6 +259,9 @@ export class WorldBuilderCli {
         "  preview tree [radius]",
         "  preview forest <trees> <radius>",
         "  preview ore <iron|coal> <size>",
+        "  scene list",
+        "  scene <id>  (replaces photo stage, uses a separate static photo_bot; disconnect the regular agent)",
+        "  preview scene <id>",
         "  quit",
       ].join("\n"),
     );

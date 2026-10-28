@@ -110,6 +110,10 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
   sous l'appel parent. Ni les rounds ni le contexte LLM ne recopient cette liste.
 - `src/devworld/` est un processus séparé : WorldBuilder -> WorldPlan -> CommandExecutor -> bot OP.
   Il ne passe jamais par les tools de l'agent.
+  `devworld/scenes/` ajoute quatre décors statiques au même terminal (`scene <id>`).
+  Les définitions passent par `ScenePlan`, la file existante puis une vérification des blocs/pose/items.
+  `SceneActor` est un figurant sans LLM, connecté à la demande et fermé avec le controller.
+  Aucun agent ou scénario E2E ne dépend de ces illustrations : voir [scènes photo](photo-scenes.md).
 - `src/building/` fournit le format Blueprint, sa validation/compilation, son store JSON immuable et le Builder déterministe de cubes et portes en chêne.
   `world/MaterialCatalog.ts` résout les noms et suggère des alternatives à partir d'un registre de version injecté.
   La capability `build` construit une référence sauvegardée sous un seul verrou de l'Executor.

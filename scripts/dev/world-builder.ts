@@ -8,6 +8,7 @@ import {
 } from "../../src/devworld/controller/MineflayerCommandTransport";
 import { WorldControllerRuntime } from "../../src/devworld/controller/WorldControllerRuntime";
 import { CommandExecutor } from "../../src/devworld/execution/CommandExecutor";
+import { SceneController } from "../../src/devworld/scenes/SceneController";
 
 async function main(): Promise<void> {
   const config = loadWorldBuilderConfig();
@@ -15,12 +16,14 @@ async function main(): Promise<void> {
   let transport: MineflayerCommandTransport | null = null;
   let executor: CommandExecutor | null = null;
   let cli: WorldBuilderCli | null = null;
+  let scenes: SceneController | null = null;
   let shutdownPromise: Promise<void> | null = null;
 
   const shutdown = (reason: string): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
     shutdownPromise = (async () => {
       cli?.close();
+      scenes?.close();
       await executor?.shutdown(reason);
       transport?.close(reason);
       runtime.disconnect(reason);
@@ -52,11 +55,13 @@ async function main(): Promise<void> {
       maxPlanCommands: config.maxPlanCommands,
     });
     const builder = new WorldBuilder({ config });
+    scenes = new SceneController(config, runtime, executor);
     cli = new WorldBuilderCli({
       runtime,
       builder,
       executor,
       commandsPerSecond: config.commandsPerSecond,
+      scenes,
     });
 
     runtime.bot.once("end", () => {

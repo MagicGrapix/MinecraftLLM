@@ -20,11 +20,15 @@ export type WorldCliCommand =
   | { readonly kind: "clear" }
   | { readonly kind: "clear_inventory" }
   | { readonly kind: "reset" }
+  | { readonly kind: "scene_list" }
+  | SceneWorldCommand
   | {
       readonly kind: "preview";
-      readonly command: GenerativeWorldCommand;
+      readonly command: GenerativeWorldCommand | SceneWorldCommand;
     }
   | { readonly kind: "quit" };
+
+export type SceneWorldCommand = { readonly kind: "scene"; readonly id: number };
 
 export class WorldCommandParseError extends Error {
   constructor(message: string) {
@@ -70,20 +74,26 @@ export function parseWorldCommand(input: string): WorldCliCommand {
       return parseForest(arguments_);
     case "ore":
       return parseOre(arguments_);
+    case "scene":
+      requireArgumentCount(name!, arguments_, 1);
+      return arguments_[0]!.toLowerCase() === "list"
+        ? { kind: "scene_list" }
+        : { kind: "scene", id: positiveInteger(arguments_[0]!, "scene id") };
     case "preview": {
       if (arguments_.length === 0) {
         throw new WorldCommandParseError(
-          "Usage: preview tree [radius] | preview forest <trees> <radius> | preview ore <iron|coal> <size>",
+          "Usage: preview tree [radius] | preview forest <trees> <radius> | preview ore <iron|coal> <size> | preview scene <id>",
         );
       }
       const nested = parseWorldCommand(arguments_.join(" "));
       if (
         nested.kind !== "tree" &&
         nested.kind !== "forest" &&
-        nested.kind !== "ore"
+        nested.kind !== "ore" &&
+        nested.kind !== "scene"
       ) {
         throw new WorldCommandParseError(
-          "preview supports only tree, forest, and ore.",
+          "preview supports only tree, forest, ore, and scene <id>.",
         );
       }
       return { kind: "preview", command: nested };

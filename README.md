@@ -56,6 +56,12 @@ Commandes du contrôleur : `tree`, `forest 10 25`, `ore iron 8`, `preview forest
 `inventory clear all` détruit uniquement son inventaire.
 Voir [le contrat du contrôleur](docs/contracts.md).
 
+Pour les captures de l'article, le même terminal accepte `scene list`, `scene 1` à `scene 4`
+et `preview scene 1`. Scènes statiques bois, observations, crafting et shelter, avec un figurant
+`photo_bot` sans LLM. Déconnecter le bot habituel avant de préparer une scène.
+Attention : la zone X/Z=22..42 est remplacée, l'heure et la météo changent globalement.
+Voir [les scènes photo, le cadrage et leur modification](docs/photo-scenes.md).
+
 Pour tester uniquement la conception de blueprints avec le backend sélectionné, sans connexion Minecraft :
 
 ```powershell

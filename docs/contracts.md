@@ -175,7 +175,9 @@ Poser de la terre sur une ancienne table ne confirme pas cette table ; une cellu
 ## Contrôleur de monde
 
 Les [scènes photo](photo-scenes.md) réutilisent sa file mais ciblent une sous-zone fixe (X/Z=22..42)
-et un figurant distinct `photo_bot`, sans LLM. Elles refusent un agent habituel encore connecté.
+et un figurant `bot`, sans LLM. Elles refusent un agent habituel encore connecté.
+Ce nom réutilise le compte Minecraft du bot habituel par défaut : inventaire vidé, position changée
+et mode créatif appliqué. Ces données ne sont pas restaurées après les captures.
 Les blocs et entités non-joueurs de cette sous-zone sont remplacés ; l'heure/météo changent globalement.
 Leur message « ready » attend les observations du décor, de la position et des items, mais ne prouve
 ni une collecte, ni un craft, ni une construction autonome. Ce sont des illustrations reconstruites.

@@ -4,7 +4,7 @@ import type { WorldControllerRuntime } from "../controller/WorldControllerRuntim
 import type { CommandExecutor } from "../execution/CommandExecutor";
 import { SceneActor } from "./SceneActor";
 import { getScene } from "./SceneCatalog";
-import { createScenePlan, type PreparedScene } from "./ScenePlan";
+import { createScenePlan, PHOTO_ACTOR, type PreparedScene } from "./ScenePlan";
 import { sceneMismatch } from "./SceneVerification";
 
 export class SceneController {
@@ -46,7 +46,9 @@ export class SceneController {
     if (this.closed || !this.runtime.isConnected || !this.runtime.isOperatorVerified) {
       throw new Error("Photo scenes require the connected, OP-verified World Controller.");
     }
-    if (Object.keys(this.runtime.bot.players).some((name) => name.toLowerCase() === this.config.agentUsername.toLowerCase())) {
+    // The photo connection may reuse the regular bot's offline account, but never an existing session.
+    const ownsAgentSession = this.config.agentUsername.toLowerCase() === PHOTO_ACTOR && Boolean(this.actor.bot);
+    if (!ownsAgentSession && Object.keys(this.runtime.bot.players).some((name) => name.toLowerCase() === this.config.agentUsername.toLowerCase())) {
       throw new Error(`Stop/disconnect the regular agent (${this.config.agentUsername}) before staging a scene. No automatic stop is performed.`);
     }
   }

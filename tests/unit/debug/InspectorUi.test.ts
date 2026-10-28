@@ -48,6 +48,28 @@ test("slow old detail responses cannot overwrite a newer manual selection", asyn
   assert.equal(h.elements.get("detailTitle")!.textContent, "New");
   assert.equal(h.elements.get("detailBody")!.scrollTop, 17);
 });
+
+test("inspector labels are English while recorded player and model text stays unchanged", async () => {
+  const html = await readFile(resolve("src/debug/ui/index.html"), "utf8");
+  assert.match(html, /lang="en"/);
+  assert.match(html, /Show latest/);
+  assert.match(html, /Requests and calls/);
+  assert.match(html, /aria-label="Search calls"/);
+  const request = await harness();
+  const selected = request.selectRound("french-request", true);
+  request.reply("/api/rounds/french-request", { id: "french-request", generationId: 1,
+    requestBody: { messages: [{ role: "user", content: "Vérifie mon inventaire." }] } });
+  await selected;
+  assert.match(request.elements.get("detailBody")!.innerHTML, /Readable request view/);
+  assert.match(request.elements.get("detailBody")!.innerHTML, /Vérifie mon inventaire\./);
+  const response = await harness(); response.state.tab = "response";
+  const reply = response.selectRound("french-reply", true);
+  response.reply("/api/rounds/french-reply", { id: "french-reply", generationId: 1,
+    response: { content: "J’ai fini.", toolCalls: [] } });
+  await reply;
+  assert.match(response.elements.get("detailBody")!.innerHTML, /Readable response view/);
+  assert.match(response.elements.get("detailBody")!.innerHTML, /J’ai fini\./);
+});
 test("tool details display the shared action number separately from the native call ID", async () => {
   const h = await harness();
   h.state.tab = "debug";

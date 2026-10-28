@@ -2,7 +2,7 @@
 
 Ces scènes sont des **illustrations mises en scène**, pas des essais de l'agent autonome.
 Le World Controller prépare les décors avec des commandes OP. Un figurant Mineflayer
-`photo_bot` pose avec un objet fourni : aucun LLM, aucun craft ni collecte n'est exécuté.
+`bot` pose avec un objet fourni : aucun LLM, aucun craft ni collecte n'est exécuté.
 Les captures des prompts, de l'inspecteur et des rapports restent à prendre dans les vrais logs.
 
 ## Utilisation
@@ -18,7 +18,7 @@ npm.cmd run dev:world
 ```
 
 Seul `world_controller` nécessite OP (`op world_controller` dans la console serveur).
-Ne pas donner OP à `photo_bot`. Ne pas lancer deux World Controllers avec le même nom.
+Ne pas donner OP à `bot`. Ne pas lancer deux World Controllers avec le même nom.
 Si le contrôleur était déjà ouvert avant la modification du code, le quitter puis le relancer.
 
 Dans son terminal :
@@ -59,7 +59,11 @@ ou cadrer manuellement. HUD, capture et mouvement de caméra restent manuels.
 - Hauteur : `WORLD_SURFACE_Y - 3` à `WORLD_SURFACE_Y + 10` inclus.
   Avec les réglages par défaut : Y=-64..-51. Le sol garde le profil superflat.
 - **Tous les blocs et entités non-joueurs dans cette zone sont remplacés/supprimés.**
-  Ne rien y conserver. Aucun joueur n'est supprimé. L'inventaire du vrai bot n'est pas touché.
+  Ne rien y conserver. Aucun joueur n'est supprimé.
+- Le figurant utilise le nom `bot`, donc les mêmes données Minecraft que l'agent habituel par défaut.
+  **Son inventaire est vidé, sa position changée et son mode de jeu passé en créatif.** Ces données
+  ne sont pas restaurées. Après les captures, utiliser `gamemode survival bot` dans la console serveur
+  lorsque le bot est connecté, avant de reprendre les essais en survie.
 - L'heure (midi) et la météo (clair) sont modifiées **globalement** et ne sont pas restaurées.
   Aucune gamerule n'est changée ; le temps continue normalement après la préparation.
 - Toute la scène est construite et validée avant envoi : noms des blocs/items, coordonnées,
@@ -74,7 +78,8 @@ ou cadrer manuellement. HUD, capture et mouvement de caméra restent manuels.
 - Un refus serveur ou un échec de vérification est affiché, sans annoncer « ready », sans retry
   automatique et sans rollback : les changements déjà effectués restent dans le monde.
 - Le figurant est un client offline, sans physique locale, sans écoute du chat ni runtime d'agent.
-  Son nom est réservé ; une session existante du même nom est refusée pour éviter de la déconnecter.
+  Le controller ne peut pas porter son nom. Une session existante de `bot` est refusée pour éviter
+  de la déconnecter ; seule la connexion de figurant créée par ce controller est réutilisée entre scènes.
   Son apparence dépend du serveur/client ; aucun skin personnalisé n'est installé.
 
 ## Adapter / ajouter une scène

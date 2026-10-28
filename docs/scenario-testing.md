@@ -265,6 +265,9 @@ Le tableau et l'histogramme par outil comptent les appels démarrés de l'essai 
 `Statistics.ts` conserve le corps de `llm.request` avec la réponse et les éventuelles erreurs.
 Un ancien rapport sans cette requête l'indique explicitement ; les traces originales permettent de le régénérer.
 Les sources UI sont dans `tests/e2e/report/`, incorporées par `Report.ts` dans un unique HTML autonome.
+Les libellés et aides sont en anglais ; les prompts, réponses et résultats enregistrés ne sont pas traduits.
+Les anciens fichiers HTML incorporent leur ancienne UI : ils doivent être régénérés pour changer les libellés,
+sans relancer les scénarios ni modifier leurs données.
 
 - `campaign.json` : configuration effective, scénarios, révision Git et empreinte source ; clé API exclue.
 - `prompts/` : copie utilisée réellement par les workers, même si les prompts originaux sont édités ensuite.

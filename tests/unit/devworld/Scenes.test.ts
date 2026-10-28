@@ -40,7 +40,8 @@ for (const scene of SCENES) {
     assert.ok(a.plan.commands.every((c) => !c.affectedBounds || containsBounds(a.bounds, c.affectedBounds)));
     const commands = a.plan.commands.map((c) => c.text);
     assert.ok(commands.includes(`clear ${PHOTO_ACTOR}`));
-    assert.ok(commands.every((c) => !/\b(?:bot|world_controller)\b|@a|^place |^gamerule /.test(c)));
+    assert.equal(PHOTO_ACTOR, "bot");
+    assert.ok(commands.every((c) => !/\bworld_controller\b|@a|^place |^gamerule /.test(c)));
     assert.ok(commands.filter((c) => c.startsWith("kill ")).every((c) => c.includes("type=!minecraft:player,x=22,y=-64,z=22,dx=20,dy=13,dz=20")));
     assert.ok(commands.filter((c) => c.includes("minecraft:oak_leaves")).every((c) => c.includes("[persistent=true]")));
     assert.ok(a.plan.commands.filter((c) => c.text.startsWith("fill ")).every((c) => c.estimatedBlocksChanged! <= config.maxFillBlocks));
@@ -49,7 +50,8 @@ for (const scene of SCENES) {
 
 test("scene plans validate all inputs before any command is sent", () => {
   assert.throws(() => createScenePlan(loadWorldBuilderConfig({ WORLD_ARENA_MAX_X: "40" }), SCENES[0]), /outside/);
-  assert.throws(() => createScenePlan(loadWorldBuilderConfig({ WORLD_AGENT_USERNAME: PHOTO_ACTOR }), SCENES[0]), /reserved/);
+  assert.throws(() => createScenePlan(loadWorldBuilderConfig({ WORLD_CONTROLLER_USERNAME: "BOT" }), SCENES[0]), /reserved/);
+  assert.doesNotThrow(() => createScenePlan(loadWorldBuilderConfig({ WORLD_AGENT_USERNAME: "BOT" }), SCENES[0]));
   assert.throws(() => createScenePlan(loadWorldBuilderConfig({ WORLD_MAX_PLAN_COMMANDS: "5" }), SCENES[0]), /maximum/);
   assert.throws(() => createScenePlan(config, { ...SCENES[0], regions: [{ block: "oak_log", min: { x: 99, y: 1, z: 0 }, max: { x: 99, y: 1, z: 0 } }] }), /outside/);
   assert.throws(() => createScenePlan(config, { ...SCENES[0], actor: { ...SCENES[0].actor, hand: "missing_material" } }), /Unknown/);
@@ -103,7 +105,7 @@ test("actor is lazy, separate, reuses its connection and quits with the controll
     return bot;
   });
   assert.equal(connections, 0);
-  await assert.rejects(actor.connect({ PHOTO_BOT: {} } as unknown as Bot["players"]), /already connected/);
+  await assert.rejects(actor.connect({ BOT: {} } as unknown as Bot["players"]), /already connected/);
   assert.equal(connections, 0);
   await actor.connect({});
   await actor.connect({});
@@ -149,8 +151,21 @@ test("scene runner reports command failure without retry and verifies successful
   fail = false;
   await scenes.apply(prepared);
   assert.equal(executions, 2);
+  await scenes.apply(prepared);
+  assert.equal(executions, 3, "An owned photo connection must allow the next scene too.");
   scenes.close();
   await assert.rejects(scenes.apply(prepared), /connected/);
+});
+
+test("an owned photo actor does not bypass the guard for a differently named regular agent", async () => {
+  const otherConfig = loadWorldBuilderConfig({ WORLD_AGENT_USERNAME: "regular_agent" });
+  const prepared = createScenePlan(otherConfig, SCENES[0]);
+  const observed = sceneBots(prepared);
+  observed.controller.players.REGULAR_AGENT = {} as Bot["players"][string];
+  const runtime = { isConnected: true, isOperatorVerified: true, bot: observed.controller } as unknown as WorldControllerRuntime;
+  const executor = { execute: async () => { assert.fail("No commands may be sent."); } } as unknown as CommandExecutor;
+  const actor = { bot: observed.actor, connect: async () => { assert.fail("No connection may be started."); } } as unknown as SceneActor;
+  await assert.rejects(new SceneController(otherConfig, runtime, executor, actor).apply(prepared), /regular agent/);
 });
 
 test("scene list and preview are read-only; CLI never announces ready on failure", async () => {

@@ -175,7 +175,7 @@
       if (!filtered.length) {
         const empty = document.createElement("p");
         empty.className = "empty";
-        empty.textContent = "Aucun call pour l’instant.";
+        empty.textContent = "No calls yet.";
         els.roundList.appendChild(empty);
       } else {
         // Newest request first; calls within a request follow their start order.
@@ -227,7 +227,7 @@
       await refreshList(false);
     } catch (error) {
       els.statusLine.textContent =
-        `Clear impossible: ${error instanceof Error ? error.message : String(error)}`;
+        `Could not clear calls: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       state.clearing = false;
       updateClearControls();
@@ -298,13 +298,13 @@
   function renderDetailShell() {
     const round = state.selectedSnapshot;
     if (!round) {
-      els.detailTitle.textContent = "Aucun call sélectionné";
+      els.detailTitle.textContent = "No call selected";
       els.detailMeta.textContent = "";
       els.detailOutcome.textContent = "";
       els.detailOutcome.classList.remove("status-error");
       els.copyBtn.disabled = true;
       els.detailBody.innerHTML =
-        '<p class="empty">Sélectionnez un call pour voir la requête LLM exacte.</p>';
+        '<p class="empty">Select a call to view the exact LLM request.</p>';
       return;
     }
     els.detailTitle.textContent = round.requestTitle ?? `Request ${round.generationId}`;
@@ -338,7 +338,7 @@
   function renderRequest(round) {
     const body = round.requestBody;
     if (!body) {
-      return '<p class="empty">Aucune requête LLM enregistrée pour ce call.</p>';
+      return '<p class="empty">No LLM request recorded for this call.</p>';
     }
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const tools = Array.isArray(body.tools) ? body.tools : [];
@@ -347,12 +347,12 @@
     delete settings.tools;
 
     const parts = [
-      '<p class="empty">Vue lisible de la requête. Le JSON contenu dans certains messages est déplié uniquement pour l’affichage ; la requête brute exacte reste disponible en bas.</p>',
+      '<p class="empty">Readable request view. JSON inside messages is expanded for display only; the exact raw request is available below.</p>',
       `<article class="block"><div class="role">Request settings</div>${renderFoldableJson(settings)}</article>`,
       `<h3 class="section-heading">Messages (${messages.length})</h3>`,
     ];
     if (messages.length === 0) {
-      parts.push('<p class="empty">Aucun message envoyé.</p>');
+      parts.push('<p class="empty">No messages sent.</p>');
     } else {
       parts.push(...messages.map(renderRequestMessage));
     }
@@ -404,10 +404,10 @@
 
   function renderResponse(round) {
     if (!round.response && !round.rawResponse && !round.error) {
-      return '<p class="empty">Pas de réponse enregistrée.</p>';
+      return '<p class="empty">No response recorded.</p>';
     }
     const parts = [
-      '<p class="empty">Vue lisible de la réponse. Le JSON contenu dans le texte ou les arguments d’outils est déplié uniquement pour l’affichage.</p>',
+      '<p class="empty">Readable response view. JSON inside text or tool arguments is expanded for display only.</p>',
     ];
     if (round.error) {
       parts.push(
@@ -515,7 +515,7 @@
       error: round.error,
     };
     const parts = [
-      '<p class="empty">Données locales de l’inspecteur : elles ne sont pas envoyées séparément au LLM. La source exacte est dans « LLM request ».</p>',
+      '<p class="empty">Local inspector data: not sent separately to the LLM. See “LLM request” for the exact input.</p>',
       `<article class="block"><div class="role">Metadata</div>${renderFoldableJson(metadata)}</article>`,
     ];
     if (round.decision !== undefined) {
@@ -585,8 +585,8 @@
     els.newBadge.classList.remove("hidden");
     els.newBadge.textContent =
       state.unseenCount === 1
-        ? "1 nouveau call"
-        : `${state.unseenCount} nouveaux calls`;
+        ? "1 new call"
+        : `${state.unseenCount} new calls`;
   }
 
   async function fetchRounds() {

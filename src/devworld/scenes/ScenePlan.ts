@@ -7,12 +7,12 @@ import { WorldPlanFactory, type PlannedCommand } from "../WorldPlan";
 import type { WorldBuilderConfig } from "../WorldBuilderConfig";
 import type { SceneDefinition, ScenePose } from "./SceneDefinition";
 
-export const PHOTO_ACTOR = "photo_bot";
+export const PHOTO_ACTOR = "bot";
 export const PHOTO_STAGE = { x: 32, z: 32, radius: 10, height: 10 };
 
 export function createScenePlan(config: WorldBuilderConfig, scene: SceneDefinition) {
-  if ([config.controllerUsername, config.agentUsername].some((name) => name.toLowerCase() === PHOTO_ACTOR)) {
-    throw new Error(`${PHOTO_ACTOR} is reserved for the photo actor; choose a different agent/controller username.`);
+  if (config.controllerUsername.toLowerCase() === PHOTO_ACTOR) {
+    throw new Error(`${PHOTO_ACTOR} is reserved for the photo actor; choose a different controller username.`);
   }
   const origin = { x: PHOTO_STAGE.x, y: config.surfaceY, z: PHOTO_STAGE.z };
   const absolute = (p: Position): Position => ({ x: origin.x + p.x, y: origin.y + p.y, z: origin.z + p.z });

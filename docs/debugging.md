@@ -4,6 +4,8 @@ Pour isoler la conception des bâtiments sans lancer le bot : [atelier Architect
 `npm.cmd run dev:architect`, sur http://127.0.0.1:3004/. Ses essais et blueprints restent séparés du runtime.
 
 L'interface locale est http://127.0.0.1:3001/, démarrée avec le bot en mode agent.
+Les libellés, aides, boutons et messages de l'interface sont en anglais, comme ceux de l'atelier
+Architect et des rapports de campagne. Les demandes et réponses enregistrées restent inchangées.
 Une request est une demande du joueur ; un call est un appel LLM dans cette request.
 Les numéros de call suivent leur démarrage, pas leur fin.
 Les cartes et les détails des tools affichent aussi `Action #N`, le numéro partagé de l'appel de tool.

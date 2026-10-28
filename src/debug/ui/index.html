@@ -15,21 +15,22 @@
       <div class="controls">
         <button id="liveBtn" type="button" class="active">Live</button>
         <button id="pauseBtn" type="button">Pause</button>
-        <button id="latestBtn" type="button">Voir le plus récent</button>
-        <button id="clearBtn" type="button" title="Effacer les calls de cette session de debug (les fichiers JSONL sont conservés)" disabled>Clear</button>
-        <span id="newBadge" class="badge hidden">0 nouveaux calls</span>
+        <button id="latestBtn" type="button">Show latest</button>
+        <button id="clearBtn" type="button" title="Clear calls from this debug session (JSONL files are kept)" disabled>Clear</button>
+        <span id="newBadge" class="badge hidden">0 new calls</span>
       </div>
     </header>
 
     <main class="layout">
       <aside class="sidebar">
         <div class="sidebar-head">
-          <h2>Requests et calls</h2>
-          <p class="sidebar-help">Calls dans l’ordre de démarrage. Un call = un appel LLM. Cliquez pour figer la sélection.</p>
+          <h2>Requests and calls</h2>
+          <p class="sidebar-help">Calls in start order. One call = one LLM request. Click to pause live selection.</p>
           <input
             id="searchInput"
             type="search"
-            placeholder="Rechercher…"
+            placeholder="Search…"
+            aria-label="Search calls"
             autocomplete="off"
           />
         </div>
@@ -39,7 +40,7 @@
       <section class="detail">
         <div class="detail-head">
           <div class="detail-heading">
-            <h2 id="detailTitle">Aucun call sélectionné</h2>
+            <h2 id="detailTitle">No call selected</h2>
             <p id="detailMeta"></p>
             <p id="detailOutcome"></p>
           </div>
@@ -51,7 +52,7 @@
           <button type="button" data-tab="debug">Debug (local)</button>
         </nav>
         <div id="detailBody" class="detail-body">
-          <p class="empty">Sélectionnez un call pour voir la requête LLM exacte.</p>
+          <p class="empty">Select a call to view the exact LLM request.</p>
         </div>
       </section>
     </main>

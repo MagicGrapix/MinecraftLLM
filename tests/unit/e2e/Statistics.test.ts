@@ -58,11 +58,17 @@ test("LLM attempts, token usage and post-response parsing errors are visible", (
 });
 
 test("standalone report preserves untrusted text as JSON and its UI script compiles", () => {
-  const payload = "</script><img src=x onerror=alert(1)>";
+  const payload = "Vérifie mon inventaire. </script><img src=x onerror=alert(1)>";
   const html = renderReport(payload, []);
   assert.equal(html.includes(payload), false);
   const data = html.match(/<script id="data" type="application\/json">([\s\S]*?)<\/script>/)![1]!;
   assert.equal(JSON.parse(data).campaignId, payload);
+  assert.match(html, /<html lang="en">/);
+  assert.match(html, /Independent final verification/);
+  assert.match(html, /Call count by tool/);
+  assert.match(html, /Completed/);
+  assert.match(html, /incomplete: 'Incomplete'/);
+  assert.match(html, /No trials recorded/);
   const script = html.match(/<\/script><script>([\s\S]*?)<\/script>/)![1]!;
   assert.doesNotThrow(() => new vm.Script(script));
   assert.equal(html.includes("setInterval"), false);

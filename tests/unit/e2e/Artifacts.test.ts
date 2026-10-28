@@ -22,7 +22,7 @@ test("saved reports survive process exit and a truncated final JSONL line", asyn
     await writeCampaignReport(root, [result]);
     assert.equal(JSON.parse(await readFile(join(trial, "result.json"), "utf8")).status, "timeout");
     assert.match(await readFile(join(root, "report.html"), "utf8"), /craft_table/);
-    assert.match(await readFile(join(root, "report.html"), "utf8"), /Vérification finale indépendante/);
+    assert.match(await readFile(join(root, "report.html"), "utf8"), /Independent final verification/);
     assert.equal(JSON.parse(await readFile(join(root, "results.json"), "utf8")).length, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -107,7 +107,7 @@ export class WorldBuilderCli {
         return "continue";
       case "scene_list":
         for (const scene of SCENES) this.writeLine(`${scene.id}. ${scene.name}: ${scene.description}`);
-        this.writeLine("scene <id> replaces only the photo stage and resets photo_bot; the regular agent must be disconnected. Staged illustrations, not autonomous runs.");
+        this.writeLine("scene <id> replaces the photo stage and resets bot's inventory, position and game mode; disconnect the regular agent first. Staged illustrations, not autonomous runs.");
         return "continue";
       case "scene": {
         const scenes = this.requireScenes();
@@ -164,7 +164,7 @@ export class WorldBuilderCli {
     const { camera } = scene;
     this.writeLine(`Staged illustration: ${scene.scene.description}`);
     this.writeLine(`Optional camera command (run as your player, not in this terminal): /tp @s ${xyz(camera.position)} ${camera.yaw} ${camera.pitch}`);
-    this.writeLine("Keep this terminal open for photo_bot to remain connected. Capture manually in Minecraft.");
+    this.writeLine("Keep this terminal open for bot to remain connected. Capture manually in Minecraft.");
     if (scene.scene.drawing) this.writeLine(`Matching blueprint (bottom to top; A=oak_planks, .=air):\n${scene.scene.drawing}`);
   }
 
@@ -260,7 +260,7 @@ export class WorldBuilderCli {
         "  preview forest <trees> <radius>",
         "  preview ore <iron|coal> <size>",
         "  scene list",
-        "  scene <id>  (replaces photo stage, uses a separate static photo_bot; disconnect the regular agent)",
+        "  scene <id>  (replaces photo stage and resets bot's inventory/position/game mode; disconnect the regular agent)",
         "  preview scene <id>",
         "  quit",
       ].join("\n"),

@@ -16,6 +16,8 @@ yarn-error.log*
 
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # IDE and editor settings
 .vscode/
@@ -24,9 +26,29 @@ yarn-error.log*
 # Mac OS specific
 .DS_Store
 
+# Windows Explorer metadata
+Thumbs.db
+Desktop.ini
+
 # Temporary files
 *.tmp
 *.temp
+*.swp
+*.swo
+*~
+
+# Python/Jupyter-generated files (keep notebook sources and requirements).
+.venv/
+venv/
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # Optional npm cache directory
 .npm
@@ -44,8 +66,8 @@ data/blueprints/
 # eslint
 .eslintcache
 
-# lockfiles (optional: if you use package-lock.json or yarn.lock instead)
-package-lock.json
+# npm is the project package manager; keep package-lock.json for npm ci.
 yarn.lock
 
-server/**
+# Local Minecraft server, worlds, player data and downloaded server binaries.
+/server/

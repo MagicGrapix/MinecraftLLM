@@ -102,8 +102,8 @@ Scénarios disponibles :
   Le four peut rester posé : il n'est pas demandé de le récupérer. L'ordre précis des crafts
   se lit dans les traces, pas dans l'inventaire final. La recette `iron_pickaxe` est documentée dans
   la bibliothèque ; la cuisson passe par `use_furnace`, pas par une fausse recette de crafting.
-  Limite actuelle : `collect_resource` couvre bois/terre/cobblestone, pas les minerais. L'agent
-  doit donc miner charbon/fer et ramasser les drops avec ses outils atomiques existants.
+  `collect_resource` peut maintenant obtenir bois/cobblestone, `coal` et `raw_iron`, avec sélection
+  d'une pioche adaptée déjà disponible. Le planner doit prévoir les pioches et la cuisson séparément.
   Ce scénario a été ajouté avec validation hors ligne ; il reste à exécuter en jeu.
 - `collect_dropped_logs` : quatre bûches au sol à (5.5, surfaceY+1, 0.5), sans arbre ; les ramasser.
   Le loot de test ne disparaît pas avec le temps. Sa disparition seule ne suffit pas : il faut gagner quatre bûches.

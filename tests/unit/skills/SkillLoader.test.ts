@@ -58,6 +58,9 @@ test("gather can be listed as a summary and loaded with full instructions", asyn
   ]);
   assert.match(gather.instructions, /Success condition/);
   assert.match(gather.instructions, /get_dropped_items/);
+  assert.match(gather.instructions, /item: "raw_iron"/);
+  assert.match(gather.instructions, /item: "coal"/);
+  assert.match(gather.instructions, /not wood or gold/);
   assert.match(gather.instructions, /item: null/);
   assert.doesNotMatch(gather.instructions, /get_nearby_entities|droppedItem/);
   assert.match(gather.instructions, /Capabilities are native tools/);

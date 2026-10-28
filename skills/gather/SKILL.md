@@ -18,7 +18,7 @@ required_queries:
 ## When to use this skill
 
 Use this technique when an objective requires a specific quantity of a resource that can be gathered
-from currently known chunks, such as logs or stone.
+from currently known chunks, such as logs, stone, coal or iron.
 
 ## Information to obtain before acting
 
@@ -37,8 +37,12 @@ from currently known chunks, such as logs or stone.
 
 ## Recommended strategy
 
-For logs, dirt or cobblestone, prefer `collect_resource({ item: "oak_log", quantity: 4 })`.
+For logs, dirt, cobblestone, coal or raw iron, prefer `collect_resource({ item: "oak_log", quantity: 4 })`.
 It searches, navigates, mines and picks up drops without intermediate LLM calls.
+Use `item: "coal"` for coal and `item: "raw_iron"` for iron, including deepslate ores.
+Mining coal needs a pickaxe; iron needs a harvest-capable pickaxe, such as stone (not wood or gold).
+The collector selects an available harvest tool and excludes Silk Touch when it would produce the wrong drop.
+It does not smelt raw iron into ingots; use a furnace afterwards.
 `quantity` is additional inventory, not target stock. Calculate the missing amount from the
 step baseline/current inventory. On partial failure, subtract only a confirmed gain
 (`inventoryKnown: true`); otherwise query inventory before deciding what remains.

@@ -19,6 +19,10 @@
   puis en demander 4 exige au moins 5 bûches à la fin. Un ramassage de stack peut dépasser la demande.
   Il n'attribue pas la cause du gain : un item donné/ramassé pendant l'appel compte aussi.
   Il considère les drops avant de miner ; casser une source, arriver ou voir un drop disparaître ne suffit pas.
+  Pour les minerais, demander `coal` ou `raw_iron` ; les blocs normaux et de deepslate sont des sources.
+  Le niveau de pioche est vérifié via le registre Minecraft avant extraction ; Silk Touch est exclu pour ces drops.
+  Fortune peut produire plusieurs items par bloc : `quantity` compte toujours les items supplémentaires,
+  jamais les minerais cassés. Le collecteur ne fond pas le fer et ne fabrique pas une pioche manquante.
   L'inventaire est resynchronisé avant/après les opérations ; `inventoryKnown: false` signifie que `collected`
   est seulement le dernier gain confirmé, pas une preuve du stock actuel (notamment après interruption).
   Un échec conserve un bilan partiel : ne pas redemander aveuglément toute la quantité.

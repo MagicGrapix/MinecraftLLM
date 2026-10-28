@@ -8,6 +8,8 @@ export const RESOURCE_SOURCES: Readonly<Record<string, readonly string[]>> = Obj
   jungle_log: ["jungle_log"], acacia_log: ["acacia_log"], dark_oak_log: ["dark_oak_log"],
   mangrove_log: ["mangrove_log"], cherry_log: ["cherry_log"], pale_oak_log: ["pale_oak_log"],
   dirt: ["dirt", "grass_block"], cobblestone: ["stone", "cobblestone"],
+  coal: ["coal_ore", "deepslate_coal_ore"],
+  raw_iron: ["iron_ore", "deepslate_iron_ore"],
 });
 
 export function resolveResource(name: string, registry: Bot["registry"]): TaskResult<Resource> {

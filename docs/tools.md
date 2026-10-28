@@ -67,10 +67,17 @@ casse et ramasse jusqu'à obtenir **quatre items supplémentaires**, sans appel 
 Le schéma strict accepte seulement `item` et `quantity` (entier 1–256). Le préfixe `minecraft:` est accepté.
 
 Ressources supportées : `oak_log`, `spruce_log`, `birch_log`, `jungle_log`, `acacia_log`, `dark_oak_log`,
-`mangrove_log`, `cherry_log`, `pale_oak_log`, `dirt` depuis dirt/grass_block, `cobblestone` depuis stone/cobblestone.
+`mangrove_log`, `cherry_log`, `pale_oak_log`, `dirt` depuis dirt/grass_block, `cobblestone` depuis stone/cobblestone,
+`coal` depuis coal_ore/deepslate_coal_ore, `raw_iron` depuis iron_ore/deepslate_iron_ore.
 Les noms doivent exister dans le registre chargé. Les autres ressources sont refusées avant déplacement.
-Le collecteur n'invente pas de recette : une pioche doit déjà être disponible pour la pierre.
-Silk Touch est exclu quand il empêcherait le drop demandé ; aucun outil n'est fabriqué automatiquement.
+Le nom demandé est celui du drop, pas du bloc : `collect_resource({"item":"raw_iron","quantity":3})`.
+Le collecteur n'invente pas de recette : une pioche doit déjà être disponible pour miner pierre/charbon.
+Pour le fer, il faut une pioche en cuivre, pierre, fer, diamant ou netherite en 1.21.11 (bois/or insuffisants).
+Le registre Minecraft décide des outils récoltables ; le collecteur sélectionne le plus rapide disponible,
+non épuisé, et le rééquipe avant de creuser. Sans outil adapté, `MISSING_ITEM` arrête la collecte sans casser le minerai.
+Les drops déjà au sol restent ramassables sans pioche. Silk Touch est exclu quand il empêcherait le drop demandé ;
+Fortune est accepté et peut faire dépasser la quantité demandée. Aucun outil n'est fabriqué, aucun minerai n'est fondu.
+`iron_ore` et `iron_ingot` ne sont pas des ressources de collecte supportées.
 
 Les constantes sont dans `src/collection/CollectionConfig.ts` : recherche de 32 blocs depuis l'origine fixe,
 arrêt si le bot s'éloigne de plus de 50 blocs, 300 secondes maximum, déplacements bornés à 20 secondes,

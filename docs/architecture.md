@@ -89,6 +89,8 @@ mais rien n'est rechargé comme mémoire d'agent après redémarrage.
 - `capabilities/CollectResource.ts` expose une collecte automatique sans appel LLM interne.
   `collection/ResourceCollector.ts` gère la boucle, les essais bornés et le bilan ; `ResourceCatalog`
   définit les sources, `ResourceAccess` vérifie récolte/outils et `ResourcePickup` vise le sol sous les drops.
+  Charbon et fer brut utilisent cette même boucle : sources normales/deepslate, niveau d'outil vérifié
+  par le registre et gain du drop confirmé, sans confondre minerai, fer brut et lingot.
   `MineflayerCollectionOperations` réutilise goto/dig sous le contexte et le verrou de l'Executor parent,
   avec confirmations d'inventaire serveur. Aucun second Executor ni numéro d'action par sous-opération.
   La recherche conserve une origine fixe ; les cellules déjà tentées sont exclues avant la limite de résultats.

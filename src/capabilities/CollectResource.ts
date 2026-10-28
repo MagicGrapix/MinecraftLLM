@@ -14,7 +14,7 @@ export class CollectResourceCapability implements Capability<CollectInput, Colle
   readonly name = "collect_resource";
   readonly defaultTimeoutMs = COLLECTION_LIMITS.timeoutMs;
   readonly inputSchema = z.object({
-    item: z.string().trim().min(1).describe('Exact resource item ID, e.g. "oak_log", "dirt" or "cobblestone". Not a category like "wood".'),
+    item: z.string().trim().min(1).describe('Exact item to collect: a log type, "dirt", "cobblestone", "coal" or "raw_iron". For iron use "raw_iron", not "iron_ore" or "iron_ingot".'),
     quantity: z.number().int().min(1).max(COLLECTION_LIMITS.maxQuantity)
       .describe("Additional inventory items to obtain (1–256), not the final stock or number of source blocks to break."),
   }).strict();

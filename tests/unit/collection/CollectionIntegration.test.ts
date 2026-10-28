@@ -36,6 +36,9 @@ test("collector is callable by actioner, documented to planner, and absent from 
   const tools = new ToolCatalogBuilder(createCapabilityRegistry(), queries).build();
   const collect = tools.find(t => t.name === "collect_resource")!;
   assert.ok(collect); assert.match(collect.description, /24 supports/);
+  assert.match(collect.description, /coal or raw_iron/);
+  assert.match(collect.description, /stone_pickaxe/);
+  assert.match(collect.description, /No tool crafting or smelting/);
   assert.match(formatToolReference(tools), /### collect_resource/);
   assert.ok(!new CoordinatorTools(queries).catalog().some(t => t.name === "collect_resource"));
 });
@@ -90,6 +93,22 @@ test("catalog differentiates unknown items, unsupported resources and source-to-
   assert.deepEqual(dirt.value.sources, ["dirt", "grass_block"]);
   const stone = resolveResource("cobblestone", registry); assert.ok(stone.ok);
   assert.deepEqual(stone.value.sources, ["stone", "cobblestone"]);
+  for (const [name, sources] of [
+    ["coal", ["coal_ore", "deepslate_coal_ore"]],
+    ["raw_iron", ["iron_ore", "deepslate_iron_ore"]],
+  ] as const) {
+    const resource = resolveResource(name, registry); assert.ok(resource.ok);
+    assert.deepEqual(resource.value, { item: name, sources });
+    assert.ok(new CollectResourceCapability().inputSchema.safeParse({ item: name, quantity: 3 }).success);
+    const limitedRegistry = { ...registry, blocksByName: { [sources[0]]: data.blocksByName[sources[0]] } } as Bot["registry"];
+    const partial = resolveResource(name, limitedRegistry); assert.ok(partial.ok);
+    assert.deepEqual(partial.value.sources, [sources[0]], "Only source IDs in the connected registry are used");
+  }
+  for (const name of ["iron_ore", "deepslate_iron_ore", "iron_ingot", "coal_ore"]) {
+    const unsupported = resolveResource(name, registry);
+    assert.ok(!unsupported.ok && unsupported.error.code === "INVALID_ARGUMENT");
+    assert.ok((unsupported.error.facts?.supported as string[]).includes("raw_iron"));
+  }
 });
 
 test("unsupported resource is rejected before the capability accesses the world or sends anything", async () => {
@@ -107,6 +126,74 @@ test("stone requires a harvest-capable pickaxe and excludes Silk Touch for cobbl
   assert.equal(canHarvestResource(stone, silk, resource), false);
   assert.equal(canHarvestResource(block("cobblestone"), silk, resource), true);
   assert.equal(canHarvestResource(block("grass_block"), silk, { item: "dirt", sources: ["grass_block"] }), false);
+});
+
+for (const [name, drop] of [
+  ["coal_ore", "coal"], ["deepslate_coal_ore", "coal"],
+  ["iron_ore", "raw_iron"], ["deepslate_iron_ore", "raw_iron"],
+]) test(`${name} needs the right pickaxe and must yield ${drop}, not a Silk Touch block`, () => {
+  const ore = block(name!), resource = resolveResource(drop!, data as unknown as Bot["registry"]);
+  assert.ok(resource.ok);
+  assert.equal(canHarvestResource(ore, null, resource.value), false);
+  assert.equal(canHarvestResource(ore, item("wooden_axe"), resource.value), false);
+  for (const name of ["wooden_pickaxe", "golden_pickaxe"]) {
+    assert.equal(canHarvestResource(ore, item(name), resource.value), drop === "coal", name);
+  }
+  for (const name of ["copper_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond_pickaxe", "netherite_pickaxe"]) {
+    assert.equal(canHarvestResource(ore, item(name), resource.value), true, name);
+  }
+  const silk = item("diamond_pickaxe"); silk.enchants = [{ name: "silk_touch", lvl: 1 }];
+  assert.equal(canHarvestResource(ore, silk, resource.value), false);
+  const fortune = item("diamond_pickaxe"); fortune.enchants = [{ name: "fortune", lvl: 3 }];
+  assert.equal(canHarvestResource(ore, fortune, resource.value), true);
+});
+
+test("ore extraction selects a valid inventory pickaxe and rechecks the held tool before digging", async () => {
+  const f = terrainFixture(), p = new Vec3(3, 0, 0);
+  f.set(p, "iron_ore");
+  const wooden = item("wooden_pickaxe", 36), stone = item("stone_pickaxe", 37);
+  const silk = item("diamond_pickaxe", 38); silk.enchants = [{ name: "silk_touch", lvl: 1 }];
+  const broken = item("iron_pickaxe", 39); broken.durabilityUsed = broken.maxDurability;
+  let tools = [wooden, silk, broken, stone], equipped = 0;
+  Object.assign(f.bot, { heldItem: wooden, inventory: { items: () => tools },
+    equip: async (tool: unknown) => { equipped++; Object.assign(f.bot, { heldItem: tool }); } });
+  const resource = resolveResource("raw_iron", f.bot.registry); assert.ok(resource.ok);
+  const target = f.read(p)!;
+  const source = { name: target.name, stateId: target.stateId, position: p };
+  const ops = new MineflayerCollectionOperations(f.context, {} as ServerInventoryConfirmation);
+  try {
+    const selected = inspectHarvest(f.bot, source, resource.value);
+    assert.ok(selected.ok); assert.equal(selected.value.tool, stone);
+    const wrongHand = await ops.dig(source, resource.value, f.controller.signal);
+    assert.ok(!wrongHand.ok && wrongHand.error.code === "MISSING_ITEM");
+    assert.equal(f.digs(), 0);
+    assert.ok((await ops.equip(source, resource.value, f.controller.signal)).ok);
+    assert.equal(equipped, 1); assert.equal(f.bot.heldItem, stone);
+    // Exhausted or Silk Touch tools must not become a destructive fallback.
+    tools = [wooden, silk, broken]; Object.assign(f.bot, { heldItem: wooden });
+    const missing = await ops.equip(source, resource.value, f.controller.signal);
+    assert.ok(!missing.ok && missing.error.code === "MISSING_ITEM");
+    assert.equal(equipped, 1); assert.equal(f.digs(), 0);
+    tools = [stone];
+    assert.ok((await ops.equip(source, resource.value, f.controller.signal)).ok);
+    assert.ok((await ops.dig(source, resource.value, f.controller.signal)).ok);
+    assert.equal(f.digs(), 1); assert.equal(f.read(p)!.name, "air");
+  } finally { f.terrain.dispose(); }
+});
+
+test("ore pickup filters by the requested dropped item, not source block items or ingots", () => {
+  const f = terrainFixture();
+  const entities = ["raw_iron", "iron_ore", "iron_ingot", "coal", "coal_ore"].map((name, i) => ({
+    id: i + 1, position: { x: 3, y: 0, z: 0 }, droppedItem: { name, count: 2 },
+  }));
+  Object.assign(f.context.world, { getNearbyEntities: () => entities });
+  const ops = new MineflayerCollectionOperations(f.context, {} as ServerInventoryConfirmation);
+  try {
+    for (const [name, id] of [["raw_iron", 1], ["coal", 4]] as const) {
+      const resource = resolveResource(name, f.bot.registry); assert.ok(resource.ok);
+      assert.deepEqual(ops.drops(resource.value, { x: 0, y: 0, z: 0 }).map(d => d.id), [id]);
+    }
+  } finally { f.terrain.dispose(); }
 });
 
 test("harvest preflight checks tool durability, target identity, support and the bot's footing", () => {

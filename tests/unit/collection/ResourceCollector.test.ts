@@ -33,6 +33,23 @@ test("matching loose stacks are used before mining, and surplus pickup is report
   assert.ok(result.ok); assert.equal(result.value.collected, 5); assert.equal(ops.dug.length, 0);
 });
 
+for (const [item, source] of [["raw_iron", "iron_ore"], ["coal", "deepslate_coal_ore"]]) {
+  test(`${item} counts additional items, not ore blocks, including multi-item drops`, async () => {
+    const ops = new TestCollectionOperations();
+    ops.sources = ops.sources.map(s => ({ ...s, name: source! }));
+    ops.onDig = async s => {
+      ops.sources = ops.sources.filter(candidate => candidate !== s);
+      ops.loose.push({ id: ops.dug.length, position: { ...s.position }, count: 3 });
+      return success({});
+    };
+    const result = await new ResourceCollector(ops).collect({ item: item!, sources: [source!] }, 4, { signal: new AbortController().signal });
+    assert.ok(result.ok); assert.equal(result.value.item, item);
+    assert.equal(result.value.requested, 4); assert.equal(result.value.collected, 6);
+    assert.equal(ops.count, 7); assert.equal(result.value.sourcesBroken, 2);
+    assert.equal(result.value.inventoryKnown, true);
+  });
+}
+
 test("delayed loot is awaited before another source is mined", async () => {
   const ops = new TestCollectionOperations();
   ops.onDig = async () => success({});

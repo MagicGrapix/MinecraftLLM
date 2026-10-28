@@ -8,7 +8,7 @@ import type { Resource } from "./ResourceCatalog";
 
 export function canHarvestResource(block: Block, tool: Item | null, resource: Resource): boolean {
   if (!block.canHarvest(tool?.type ?? null)) return false;
-  // Silk Touch changes stone/grass drops, even when it is a perfectly good mining tool.
+  // Silk Touch changes stone/grass/ore drops, even when it is a perfectly good mining tool.
   return block.name === resource.item || !tool?.enchants.some(e => e.name === "silk_touch");
 }
 
